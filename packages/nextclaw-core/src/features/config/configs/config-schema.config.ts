@@ -299,6 +299,10 @@ export const ToolRiskPolicySchema = z.object({
   rememberConfirmations: z.boolean().default(true)
 });
 
+export type ToolRiskLevel = z.infer<typeof ToolRiskLevelSchema>;
+export type ToolRiskPolicyEntry = z.infer<typeof ToolRiskPolicyEntrySchema>;
+export type ToolRiskPolicy = z.infer<typeof ToolRiskPolicySchema>;
+
 export const ProviderConfigSchema = z.object({
   enabled: z.boolean().default(true),
   providerType: z.string().trim().min(1).nullable().optional(),
