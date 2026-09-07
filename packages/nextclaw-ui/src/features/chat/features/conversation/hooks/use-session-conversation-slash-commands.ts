@@ -8,9 +8,15 @@ import type { ChatSlashCommandDescriptor } from '@/features/chat/features/input/
 export function useSessionConversationSlashCommands(params: {
   language: I18nLanguage;
   onContextCompactingChange?: (sessionId: string, isCompacting: boolean) => void;
+  onSendPresetMessage: (message: string) => Promise<void> | void;
   selectedSessionKey?: string | null;
 }): readonly ChatSlashCommandDescriptor[] {
-  const { language, onContextCompactingChange, selectedSessionKey } = params;
+  const {
+    language,
+    onContextCompactingChange,
+    onSendPresetMessage,
+    selectedSessionKey,
+  } = params;
   const presenter = usePresenter();
   const compactingSessionIdsRef = useRef(new Set<string>());
   const compactContext = useCallback(async (sessionId: string) => {
@@ -39,6 +45,7 @@ export function useSessionConversationSlashCommands(params: {
     return [
       {
         key: 'side-chat',
+        icon: 'message-square-plus',
         title: t('chatSlashCommandSideChatTitle', language),
         description: t('chatSlashCommandSideChatDescription', language),
         detailLines: [t('chatSlashCommandSideChatDetail', language)],
@@ -46,7 +53,19 @@ export function useSessionConversationSlashCommands(params: {
         onSelect: () => presenter.chatThreadManager.openSideChatDraft(sessionId),
       },
       {
+        key: 'update-session-title',
+        icon: 'command',
+        title: t('chatSlashCommandUpdateSessionTitleTitle', language),
+        description: t('chatSlashCommandUpdateSessionTitleDescription', language),
+        detailLines: [t('chatSlashCommandUpdateSessionTitleDetail', language)],
+        keywords: ['update', 'rename', 'title', 'session', '更新', '重命名', '标题', '会话'],
+        onSelect: () => void onSendPresetMessage(
+          t('chatSlashCommandUpdateSessionTitlePrompt', language),
+        ),
+      },
+      {
         key: 'compact-context',
+        icon: 'list-collapse',
         title: t('chatSlashCommandCompactContextTitle', language),
         description: t('chatSlashCommandCompactContextDescription', language),
         detailLines: [t('chatSlashCommandCompactContextDetail', language)],
@@ -54,5 +73,11 @@ export function useSessionConversationSlashCommands(params: {
         onSelect: () => void compactContext(sessionId),
       },
     ];
-  }, [compactContext, language, presenter.chatThreadManager, selectedSessionKey]);
+  }, [
+    compactContext,
+    language,
+    onSendPresetMessage,
+    presenter.chatThreadManager,
+    selectedSessionKey,
+  ]);
 }

@@ -1,14 +1,28 @@
 import type { Config, ThinkingLevel } from "@nextclaw/core";
+import type { SessionTokenUsageSummary } from "@nextclaw/kernel";
 import type { AgentProfileView } from "./server-api-agent.types.js";
 import type { AppEvent } from "@nextclaw/shared";
-import type { NcpMessage, NcpSessionApi, NcpSessionMessagePageInfo, NcpSessionStatus, NcpSessionSummary } from "@nextclaw/ncp";
+import type {
+  NcpMessage,
+  NcpSessionApi,
+  NcpSessionMessagePageInfo,
+  NcpSessionStatus,
+  NcpSessionSummary,
+} from "@nextclaw/ncp";
 import type { UiNcpStoredAssetRecord } from "@nextclaw-server/features/attachments/index.js";
-export type { AgentCreateRequest, AgentDeleteResult, AgentProfileView, AgentUpdateRequest } from "./server-api-agent.types.js";
+export type {
+  AgentCreateRequest,
+  AgentDeleteResult,
+  AgentProfileView,
+  AgentUpdateRequest,
+} from "./server-api-agent.types.js";
 export type * from "@nextclaw-server/features/marketplace/types/marketplace.types.js";
 export type * from "@nextclaw-server/features/attachments/index.js";
 export type * from "@nextclaw-server/features/panel-apps/index.js";
 export type * from "@nextclaw-server/features/preferences/index.js";
 export type * from "@nextclaw-server/features/service-apps/index.js";
+export type * from "@nextclaw-server/features/sessions/types/session-observation-api.types.js";
+export type * from "./server-api-mcp.types.js";
 export type * from "./server-api-cron.types.js";
 export type * from "./server-api-remote.types.js";
 
@@ -68,6 +82,7 @@ export type ProviderInstanceView = {
   isCustom: boolean;
   enabled: boolean;
   displayName?: string;
+  apiKeyRequired?: boolean;
   apiKeySet: boolean;
   apiKeyMasked?: string;
   apiBase?: string | null;
@@ -110,6 +125,8 @@ export type ProviderConnectionTestRequest = ProviderConfigUpdate & {
   model?: string | null;
 };
 
+export type ProviderModelDiscoveryRequest = Pick<ProviderConfigUpdate, "apiKey" | "apiBase" | "extraHeaders">;
+
 export type ProviderCreateRequest = ProviderConfigUpdate & {
   providerId?: string | null;
 };
@@ -132,11 +149,38 @@ export type ProviderConnectionTestResult = {
   message: string;
 };
 
+export type ProviderModelDiscoveryResult = {
+  provider: string;
+  models: string[];
+  source: "provider" | "catalog";
+  fetchedAt: string;
+};
+
+export type ProviderModelCatalogView = {
+  refreshIntervalMs: number;
+  refreshing: boolean;
+  lastRefreshStartedAt: string | null;
+  lastRefreshCompletedAt: string | null;
+  providers: Record<
+    string,
+    {
+      providerId: string;
+      models: string[];
+      source: "provider" | "catalog" | null;
+      fetchedAt: string | null;
+      lastError: {
+        message: string;
+        occurredAt: string;
+      } | null;
+    }
+  >;
+};
+
 export type ProvidersView = {
   providers: Record<string, ProviderInstanceView>;
 };
 
-export type SearchProviderName = "bocha" | "tavily" | "brave";
+export type SearchProviderName = "bocha" | "tavily" | "brave" | "exa";
 export type BochaFreshnessValue = "noLimit" | "oneDay" | "oneWeek" | "oneMonth" | "oneYear" | string;
 export type TavilySearchDepthValue = "basic" | "advanced";
 
@@ -162,6 +206,7 @@ export type SearchConfigView = {
     bocha: SearchProviderConfigView;
     tavily: SearchProviderConfigView;
     brave: SearchProviderConfigView;
+    exa: SearchProviderConfigView;
   };
 };
 
@@ -186,6 +231,10 @@ export type SearchConfigUpdate = {
       includeAnswer?: boolean;
     };
     brave?: {
+      apiKey?: string | null;
+      baseUrl?: string | null;
+    };
+    exa?: {
       apiKey?: string | null;
       baseUrl?: string | null;
     };
@@ -319,8 +368,18 @@ export type RuntimeEntryView = {
   config?: Record<string, unknown>;
 };
 
-export type { ChatSessionTypeCtaView, ChatSessionTypeOptionView, ChatSessionTypesView } from "@nextclaw-server/features/sessions/index.js";
-export type { ProjectAddExistingRequest, ProjectCreateRequest, ProjectListView, ProjectTemplateView, ProjectView } from "@nextclaw-server/features/projects/index.js";
+export type {
+  ChatSessionTypeCtaView,
+  ChatSessionTypeOptionView,
+  ChatSessionTypesView,
+} from "@nextclaw-server/features/sessions/index.js";
+export type {
+  ProjectAddExistingRequest,
+  ProjectCreateRequest,
+  ProjectListView,
+  ProjectTemplateView,
+  ProjectView,
+} from "@nextclaw-server/features/projects/index.js";
 
 export type SessionEntryView = {
   key: string;
@@ -425,6 +484,16 @@ export type ServerPathBrowseView = {
   locations: ServerPathLocationView[];
 };
 
+export type ServerPathWatchRequest = {
+  subscriptionId?: string | null;
+  directories: string[];
+};
+
+export type ServerPathWatchView = {
+  subscriptionId: string;
+  watchedDirectories: string[];
+};
+
 export type ServerPathSearchEntryView = {
   name: string;
   path: string;
@@ -442,11 +511,49 @@ export type ServerPathSearchView = {
 };
 
 export type ServerPathDirectoryCreateRequest = {
+  basePath?: string;
   parentPath: string;
   name: string;
 };
 
 export type ServerPathDirectoryCreateView = { path: string };
+
+export type ServerPathFileCreateRequest = {
+  basePath: string;
+  parentPath: string;
+  name: string;
+};
+export type ServerPathFileCreateView = {
+  name: string;
+  path: string;
+  kind: "file";
+};
+
+export type ServerPathEntryRenameRequest = {
+  basePath: string;
+  path: string;
+  name: string;
+};
+export type ServerPathEntryRenameView = {
+  oldPath: string;
+  path: string;
+  name: string;
+  kind: "directory" | "file";
+};
+
+export type ServerPathEntryDeleteView = {
+  path: string;
+  kind: "directory" | "file";
+};
+
+export type ServerPathFilesUploadView = {
+  files: Array<{
+    name: string;
+    path: string;
+    sizeBytes: number;
+  }>;
+  overwritten: boolean;
+};
 
 export type ServerPathReadView = {
   requestedPath: string;
@@ -527,7 +634,18 @@ export type SecretsConfigUpdate = {
   refs?: Record<string, SecretRefView> | null;
 };
 
-export type UiNcpSessionListView = { sessions: NcpSessionSummary[]; total: number };
+export type ProductAnalyticsView = Config["productAnalytics"];
+export type ProductAnalyticsAudience = ProductAnalyticsView["audience"];
+export type ProductAnalyticsConfigUpdate = Partial<ProductAnalyticsView>;
+export type { ProductAnalyticsStatusView } from "./server-api-config.types.js";
+
+export type UiNcpSessionListView = {
+  sessions: NcpSessionSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+};
 
 export type UiNcpSessionQueuedInputsView = {
   sessionId: string;
@@ -542,14 +660,27 @@ export type UiNcpSessionQueuedInputView = {
   metadata: Record<string, unknown>;
 };
 
+export type UiNcpSessionPendingInputsView = {
+  sessionId: string;
+  inputs: UiNcpSessionPendingInputView[];
+};
+
+export type UiNcpSessionPendingInputView = UiNcpSessionQueuedInputView & {
+  placement: "queued" | "steering";
+  intendedRunId: string | null;
+};
+
 export type UiNcpSessionMessagesView = {
   sessionId: string;
   status: NcpSessionStatus;
   messages: NcpMessage[];
+  deferredToolPayloads?: Record<string, { cursor: string }>;
   contextWindow?: NcpSessionSummary["contextWindow"];
   total: number;
   pageInfo: NcpSessionMessagePageInfo;
 };
+
+export type UiNcpSessionTokenUsageView = SessionTokenUsageSummary;
 
 export type SessionTypeDescribeParams = {
   describeMode?: "observation" | "probe";
@@ -558,13 +689,19 @@ export type SessionTypeDescribeParams = {
 export type UiNcpSessionService = NcpSessionApi;
 
 export type UiNcpAssetService = {
-  put: (input: { fileName: string; mimeType?: string | null; bytes: Uint8Array; createdAt?: Date }) => Promise<UiNcpStoredAssetRecord>;
+  put: (input: {
+    fileName: string;
+    mimeType?: string | null;
+    bytes: Uint8Array;
+    createdAt?: Date;
+  }) => Promise<UiNcpStoredAssetRecord>;
   stat: (uri: string) => Promise<UiNcpStoredAssetRecord | null> | UiNcpStoredAssetRecord | null;
   resolveContentPath: (uri: string) => string | null;
 };
 
 export type ConfigView = {
   companion?: { enabled?: boolean };
+  productAnalytics: ProductAnalyticsView;
   agents: {
     defaults: {
       model: string;
@@ -575,7 +712,6 @@ export type ConfigView = {
       models?: AgentDefaultModelsView;
       contextTokens?: number;
       reservedContextTokens?: number;
-      maxToolIterations?: number;
     };
     runtimes?: {
       entries?: Record<string, RuntimeEntryView>;
@@ -615,6 +751,7 @@ export type ProviderTemplateView = {
   envKey: string;
   isGateway?: boolean;
   isLocal?: boolean;
+  apiKeyRequired?: boolean;
   defaultApiBase?: string;
   logo?: string;
   apiBaseHelp?: {
@@ -643,6 +780,7 @@ export type ProviderTemplateView = {
     supportsCliImport?: boolean;
   };
   defaultModels?: string[];
+  supportsModelDiscovery?: boolean;
   modelConfig?: Record<
     string,
     {

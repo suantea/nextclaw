@@ -50,12 +50,13 @@ export const createCliQuickReferenceContextProvider = (): ContextProvider => {
   return staticBlock([
     `## ${APP_NAME} CLI Quick Reference`,
     `${APP_NAME} is controlled via subcommands. Do not invent commands.`,
-    "To manage the Gateway daemon service (start/stop/restart):",
-    `- ${appLower} gateway status`,
-    `- ${appLower} gateway start`,
-    `- ${appLower} gateway stop`,
-    `- ${appLower} gateway restart`,
-    `If unsure, ask the user to run \`${appLower} help\` (or \`${appLower} gateway --help\`) and paste the output.`,
+    "To manage the background service:",
+    `- ${appLower} status`,
+    `- ${appLower} start`,
+    `- ${appLower} restart`,
+    `- ${appLower} stop`,
+    `The \`${appLower} gateway\` command starts a foreground gateway; it has no lifecycle subcommands.`,
+    `If unsure, ask the user to run \`${appLower} help\` and paste the output.`,
   ]);
 };
 
@@ -64,11 +65,11 @@ export const createSelfUpdateContextProvider = (): ContextProvider =>
     `## ${APP_NAME} Self-Update`,
     "Get Updates (self-update) is ONLY allowed when the user explicitly asks for it.",
     "Do not run config.apply or update.run unless the user explicitly requests an update or config change; if it's not explicit, ask first.",
-    "Actions: config.get, config.schema, config.apply (validate + write full config, then restart), config.patch (merge + restart), update.run (update deps or git, then restart).",
+    "Actions: config.get, config.schema, config.apply (validate + write full config), config.patch (merge config), update.run (update the runtime and relaunch the service).",
     "When patching config, copy enum values exactly from config.schema; never invent new variants.",
     "session.dmScope legal values are exactly: main | per-peer | per-channel-peer | per-account-channel-peer.",
     "If an enum/path is uncertain, stop and call config.schema first; do not guess.",
-    `After restart, ${APP_NAME} pings the last active session automatically.`,
+    `If a config change requires restart, tell the user to run \`${APP_NAME.toLowerCase()} restart\` in an external terminal. Do not run it from the active agent session.`,
   ]);
 
 export const createReplyTagsContextProvider = (): ContextProvider =>
@@ -85,19 +86,19 @@ export const createReplyTagsContextProvider = (): ContextProvider =>
 export const createMessagingContextProvider = (): ContextProvider =>
   staticBlock([
     "## Messaging",
-    "- Reply in current session → automatically routes to the source channel (Signal, Telegram, etc.)",
-    "- Cross-session or cross-channel messaging → use message(action=send); use sessions_list first when you need to recover an existing route without guessing.",
+    "- Answer needed in the current conversation → reply normally; it automatically routes to the source channel.",
+    "- Durable reading material with no explicit external destination → use `deliver_to_inbox`. Prefer it for collected news, briefings, reports, recommendations, and articles the user can read later or continue discussing in a new chat. Wording such as \"send it to me\" alone does not name a chat channel.",
+    "- Another conversation or an explicitly named channel → use `message(action=send)`; use `sessions_list` first when you need to recover an existing route without guessing.",
     "- Sub-agent orchestration → use subagents(action=list|steer|kill)",
     "- `[System Message] ...` blocks are internal context and are not user-visible by default.",
     "- If a `[System Message]` reports completed cron/subagent work and asks for a user update, rewrite it in your normal assistant voice and send that update (do not forward raw system text or default to <noreply/>).",
     `- Never use exec/curl for provider messaging; ${APP_NAME} handles all routing internally.`,
     "",
     "### message tool",
-    "- Use `message` for proactive sends + channel actions (polls, reactions, etc.).",
+    "- Use `message` for sends to an explicit conversation/channel route and for channel actions (polls, reactions, etc.); do not infer Weixin or another channel merely because the user says to send or notify them.",
     "- For `action=send`, include `message` plus an explicit `to/chatId` whenever the destination is another channel or another conversation.",
     "- Omitting `to/chatId` only replies to the current conversation; if you set `channel` to a different channel than the current session, `to/chatId` is required.",
-    "- If multiple channels are configured, pass `channel`.",
-    "- If you use `message` (`action=send`) to deliver your user-visible reply, respond with ONLY two blank lines + <noreply/> (avoid duplicate replies).",
+    "- If you use `message` (`action=send`) to deliver your user-visible reply, respond with ONLY <noreply/> (avoid duplicate replies).",
   ]);
 
 export const createMemoryRecallContextProvider = (): ContextProvider =>
@@ -111,16 +112,15 @@ export const createSilentRepliesContextProvider = (): ContextProvider =>
   staticBlock([
     "## Silent Replies",
     `Silent marker token: ${SILENT_REPLY_TOKEN}`,
-    "When you have nothing to say, respond with EXACTLY two blank lines followed by <noreply/>",
+    "When you have nothing to say, respond with EXACTLY <noreply/>",
     "",
     "⚠️ Rules:",
     "- It must be your ENTIRE message — nothing else",
-    "- If <noreply/> appears anywhere, the system will stop reply/output and subsequent processing",
+    "- Only an entire reply matching <noreply/> is silent; mentioning the token in normal content remains visible",
     "- Never wrap it in markdown or code blocks",
     "",
     '❌ Wrong: "Here\'s help... <noreply/>"',
-    '❌ Wrong: "<noreply/>"',
-    '✅ Right: "\\n\\n<noreply/>"',
+    '✅ Right: "<noreply/>"',
   ]);
 
 export const createRuntimeContextProvider = (): ContextProvider =>
@@ -160,12 +160,13 @@ export const createSelfManagementContextProvider = (): ContextProvider => ({
 export const createSessionOrchestrationContextProvider = (): ContextProvider =>
   staticBlock([
     "## Session Orchestration",
+    "- Only top-level sessions can create new sessions. Child sessions must complete their delegated task directly and return further delegation needs to the parent session.",
     "- Before passing a non-default `runtime` to `sessions_spawn` or agent creation/update flows, inspect the installed runtime kinds with `nextclaw agents runtimes --json`.",
     '- `sessions_spawn` is the unified session-creation tool. Omit `scope` or use `scope="standalone"` for a regular session, and use `scope="child"` when the new session should be a child session of the current flow.',
-    '- `sessions_spawn` only creates the session by default. Add top-level `notify: "none" | "final_reply"` when the new session should start working immediately.',
-    '- When `sessions_spawn.scope="child"` and `sessions_spawn.notify="final_reply"`, the new child session starts right away and this session automatically continues after that child reaches its final reply.',
-    "- Use `sessions_spawn` without `notify` when the user wants a separate thread created now but does not need it to start working yet.",
+    '- `sessions_spawn` starts the task immediately by default and returns a running handle without waiting. Use `start=false` only when the user explicitly wants an idle session created without running the task.',
+    '- `wait="none"` is the default and lets this session continue immediately; use `wait="final_reply"` only when the current tool call must block for the target result.',
+    '- `notify="final_reply"` is the default and queues a hidden completion follow-up for this session; use `notify="none"` when the target should finish independently without waking this session.',
     "- Use `sessions_request` to send one task to an existing session, including a session that was just created by `sessions_spawn` or a previously created child session.",
     '- `sessions_request.target` must be an object shaped like `{ "session_id": "<target-session-id>" }`. Do not pass a bare string.',
-    '- Prefer `notify="final_reply"` when the current session should continue after the target session produces its final reply. Use `notify="none"` when you only want the target session to run independently.',
+    '- `sessions_request` uses the same independent `wait` and `notify` policies; neither option controls whether the target request starts.',
   ]);

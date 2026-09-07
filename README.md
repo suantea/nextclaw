@@ -4,35 +4,56 @@
 
 <div align="center">
 
+<img src="apps/landing/public/logo.svg" width="72" alt="NextClaw logo" />
+
 # NextClaw
 
-**Get real work done with AI on the computer you control.**
+**Your long-term personal AI partner.**
 
-Tell NextClaw what you want done. It brings files, models, agents, skills, browser tools, local apps, automations, and messaging channels into one task, then keeps working toward a usable result.
+Tell NextClaw what you want done. It brings the conversation, files, tools, and generated results into one workspace—and keeps working until there is something useful to deliver.
+
+</div>
+
+[![NextClaw workspace with a data visualization beside a project document](images/screenshots/nextclaw-hero-workbench-en.png)](https://nextclaw.io/en/)
+
+<div align="center">
+
+**From one request to a usable result, without losing the work in between.**
+
+[Download & Install](https://nextclaw.io/en/download/) · [Explore Use Cases](https://nextclaw.io/en/use-cases/) · [Read the Docs](https://docs.nextclaw.io/en/)
 
 [![npm](https://img.shields.io/npm/v/nextclaw)](https://www.npmjs.com/package/nextclaw)
 [![GitHub Release](https://img.shields.io/github/v/release/Peiiii/nextclaw?display_name=tag)](https://github.com/Peiiii/nextclaw/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Node.js LTS](https://img.shields.io/badge/Node.js-LTS-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Discord](https://img.shields.io/badge/Discord-NextClaw-5865F2?logo=discord&logoColor=white)](https://discord.gg/j4Skbgye)
 
-[Website](https://nextclaw.io/en/) · [Download](https://nextclaw.io/en/download/) · [Install](https://nextclaw.io/en/install/) · [Documentation](https://docs.nextclaw.io/en/) · [Releases](https://github.com/Peiiii/nextclaw/releases)
-
-<p>
-  <img src="https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows" />
-  <img src="https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS" />
-  <img src="https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux" />
-  <img src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker" />
-  <img src="https://img.shields.io/badge/Cloud_VMs-4285F4?style=flat-square&logo=googlecloud&logoColor=white" alt="Cloud VMs" />
-</p>
+Open source · Local-first · macOS, Windows, Linux, Docker, and cloud VMs
 
 </div>
 
-![NextClaw showing a data visualization result with a Markdown document open beside it](images/screenshots/nextclaw-hero-workbench-cn.png)
+## Why NextClaw
 
-NextClaw is a local-first AI workspace for tasks that need more than a single answer. A conversation can keep its files, references, tools, generated results, and follow-up work together instead of making you restart in separate apps.
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <strong>Start with the goal</strong><br /><br />
+      Ask for a report, analysis, file operation, small app, or recurring task. NextClaw organizes the tools and steps behind it.
+    </td>
+    <td width="33%" valign="top">
+      <strong>Keep context and results together</strong><br /><br />
+      Conversations, local files, web research, generated documents, and follow-up work stay in the same task.
+    </td>
+    <td width="33%" valign="top">
+      <strong>Choose how the work runs</strong><br /><br />
+      Use Native, Codex, Claude Code, OpenCode, or Hermes, then run locally, on a NAS, or on a server you control.
+    </td>
+  </tr>
+</table>
 
-## What You Can Do
+NextClaw also treats the `nextclaw` CLI as a first-class way to work. Many core operations can be used from a terminal, script, CI job, or another Agent, with machine-readable output where supported.
+
+New installations are ready for the first task without entering an API key. The built-in free trial uses a public gateway; limits and models may change, and sensitive or confidential data should not be sent through it.
+
+## What You Can Finish
 
 - **Research and compare** — collect pages, notes, and references, then turn them into a brief, source list, or comparison table.
 - **Analyze and visualize data** — gather data from websites, CSV files, or spreadsheets, clean it, draw charts, and write the conclusion.
@@ -45,17 +66,23 @@ NextClaw is a local-first AI workspace for tasks that need more than a single an
 
 ## Product Tour
 
+### Turn source material into a result you can inspect
+
+Start with source material, let the Agent organize and visualize it, then inspect the result beside the conversation. Source files and project documents remain available in the same workspace.
+
+[![A data dashboard open beside its NextClaw conversation](images/screenshots/nextclaw-workspace-preview-en.png)](images/screenshots/nextclaw-workspace-preview-en.png)
+
 ### Let AI deliver important results to you
 
 When scheduled work, a background Agent, or a long-running monitor finishes, NextClaw can deliver the report to your inbox. Read it later, manage it with the rest of your results, or continue the conversation with the full context.
 
-[![NextClaw delivering a project brief to the AI inbox](images/screenshots/nextclaw-ai-delivery-inbox-en.png)](images/screenshots/nextclaw-ai-delivery-inbox-en.png)
+[![NextClaw Island theme showing a daily AI and technology briefing delivered to the AI Inbox](images/screenshots/nextclaw-island-inbox-workspace-cn.png)](images/screenshots/nextclaw-island-inbox-workspace-cn.png)
 
 ### Choose the Agent Runtime for each task
 
-Keep an Agent's identity, workspace, memory, and skills, then run the task with Native, Codex, Claude Code, OpenCode, or Hermes. The real task below uses Codex to refine a project architecture while the generated Markdown stays open beside the conversation.
+Keep an Agent's identity, workspace, memory, and skills, then run the task with Native, Codex, Claude Code, OpenCode, or Hermes. Choose the runtime when starting a task and keep the rest of the workspace unchanged.
 
-[![NextClaw uses Codex to work on a project with its Markdown architecture document open beside the conversation](images/screenshots/nextclaw-codex-runtime-markdown-preview-cn.png)](images/screenshots/nextclaw-codex-runtime-markdown-preview-cn.png)
+[![NextClaw runtime picker with Native, Claude Code, Codex, Hermes, and OpenCode](images/screenshots/nextclaw-agent-runtime-picker-en.png)](images/screenshots/nextclaw-agent-runtime-picker-en.png)
 
 ### Inspect real files beside the conversation
 
@@ -127,7 +154,7 @@ npm install -g nextclaw
 nextclaw start
 ```
 
-Open [http://127.0.0.1:55667](http://127.0.0.1:55667), choose a model provider, and start a task.
+Open [http://127.0.0.1:55667](http://127.0.0.1:55667) and start with the built-in free-trial model. Connect your own provider when you need it.
 
 If `npm` is unavailable, install or reinstall Node.js LTS and reopen the terminal. On a remote host, port `55667` serves plain HTTP. Use it directly only for a quick check; terminate HTTPS with Nginx or Caddy for regular access.
 
@@ -143,11 +170,13 @@ For a long-running server or cloud VM deployment:
 curl -fsSL https://nextclaw.io/install-docker.sh | bash
 ```
 
-See the [Docker deployment guide](https://docs.nextclaw.io/en/guide/tutorials/docker-one-click) for reverse proxy, domain, and remote access setup. You can compare every supported path on the [install options page](https://nextclaw.io/en/install/).
+See the [Docker deployment guide](https://docs.nextclaw.io/en/guide/tutorials/docker-one-click) for reverse proxy, domain, and remote access setup. You can compare every supported path on the [download and install page](https://nextclaw.io/en/download/).
+
+For the current tested server baseline, idle measurements, and factors that increase memory during active work, see [Runtime Resource Usage](https://docs.nextclaw.io/en/guide/resource-usage).
 
 ## Models, Channels, and Tools
 
-- **Models** — OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, MiniMax, Moonshot, DashScope, Zhipu, AiHubMix, vLLM, and custom OpenAI-compatible endpoints.
+- **Models** — built-in free-trial access, plus OpenRouter, OpenAI, Anthropic, Gemini, DeepSeek, MiniMax, Moonshot, DashScope, Zhipu, AiHubMix, vLLM, and custom OpenAI-compatible endpoints.
 - **Messaging channels** — Weixin, Feishu/Lark, QQ, DingTalk, WeCom, Telegram, Discord, Slack, WhatsApp, and email.
 - **Capabilities** — skills, MCP servers, CLI tools, browser control, local files, Panel Apps, and scheduled tasks.
 - **Local control** — configuration, conversations, and credentials stay in the environment you control. Connected providers and channels receive the data you send through them.
@@ -195,7 +224,6 @@ Repository planning: [Roadmap](docs/ROADMAP.md) · [TODO](docs/TODO.md)
 
 ## Community
 
-- [Discord](https://discord.gg/j4Skbgye)
 - [GitHub Issues](https://github.com/Peiiii/nextclaw/issues)
 - WeChat group: scan the QR code below.
 

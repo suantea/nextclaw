@@ -1,6 +1,7 @@
 import { DomainValidationError, ResourceNotFoundError } from "@/domain/errors";
-import type { MarketplaceListQuery } from "@/domain/model";
+import type { MarketplaceAppCatalogQuery, MarketplaceListQuery } from "@/domain/model";
 import {
+  type MarketplaceAppCatalogResult,
   type MarketplaceAppFileInput,
   type MarketplaceAppFileRow,
   type MarketplaceAdminAppDetailPayload,
@@ -12,18 +13,23 @@ import {
   type MarketplaceAppItemSummary,
   type MarketplaceAppListResult,
   type MarketplaceAppPublishResult,
-  type MarketplaceAppVersionRow,
   type MarketplaceOwnerAppDetail,
   type MarketplaceOwnerAppListResult,
   type MarketplaceOwnerAppManageAction,
 } from "./app-marketplace.types";
 import { MarketplaceAppFileStore } from "./marketplace-app-file.store";
+import { MarketplaceAppArtifactValidationService } from "./marketplace-app-artifact-validation.service";
+import { MarketplaceAppArtifactRepository } from "./artifacts/marketplace-app-artifact.repository";
 import { MarketplaceAppPayloadParser } from "./marketplace-app-payload.service";
 import { MarketplaceAppPersistence } from "./marketplace-app-persistence.service";
 import {
+  assertAppVersionCanBeReplaced,
   assertExistingAppOwnership,
+  assertPersonalPublishedAppIsImmutable,
   buildAppWebUrl,
   parseAppReviewInput,
+  resolveCatalogVisibility,
+  resolveAppReviewCatalogVisibility,
   resolveAppIdentity,
   type ExistingAppRow,
 } from "./marketplace-app-publish.utils";
@@ -31,9 +37,11 @@ import { MarketplaceAppPublicReader } from "./marketplace-app-public-reader.serv
 import { MarketplaceAppQuerySupport } from "./marketplace-app-query.service";
 import { MarketplaceAppRecordMapper } from "./marketplace-app-record.service";
 import { MarketplaceAppRecordRepository } from "./marketplace-app-record.repository";
+import { MarketplaceAppReleaseArtifactService } from "./artifacts/marketplace-app-release-artifact.service";
 import type { MarketplaceSkillPublishActor } from "@/infrastructure/skills/d1-section-types";
 
 export class D1MarketplaceAppDataSource {
+  private readonly artifactRepository: MarketplaceAppArtifactRepository;
   private readonly fileStore: MarketplaceAppFileStore;
   private readonly payloadParser = new MarketplaceAppPayloadParser();
   private readonly persistence: MarketplaceAppPersistence;
@@ -41,12 +49,17 @@ export class D1MarketplaceAppDataSource {
   private readonly recordMapper = new MarketplaceAppRecordMapper();
   private readonly recordRepository: MarketplaceAppRecordRepository;
   private readonly publicReader: MarketplaceAppPublicReader;
+  private readonly releaseArtifactService: MarketplaceAppReleaseArtifactService;
 
   constructor(
     private readonly db: D1Database,
     filesBucket: R2Bucket,
   ) {
     this.fileStore = new MarketplaceAppFileStore(filesBucket);
+    this.artifactRepository = new MarketplaceAppArtifactRepository(db);
+    this.releaseArtifactService = new MarketplaceAppReleaseArtifactService(
+      this.payloadParser, new MarketplaceAppArtifactValidationService(), this.fileStore,
+    );
     this.persistence = new MarketplaceAppPersistence(db);
     this.recordRepository = new MarketplaceAppRecordRepository(db);
     this.publicReader = new MarketplaceAppPublicReader(
@@ -55,16 +68,19 @@ export class D1MarketplaceAppDataSource {
       this.querySupport,
       this.recordMapper,
       this.recordRepository,
+      this.artifactRepository,
     );
   }
 
-  listApps = async (query: MarketplaceListQuery): Promise<MarketplaceAppListResult> => {
-    return this.publicReader.listApps(query);
+  listApps = async (query: MarketplaceListQuery): Promise<MarketplaceAppListResult> =>
+    this.publicReader.listApps(query);
+
+  listCatalog = async (query: MarketplaceAppCatalogQuery): Promise<MarketplaceAppCatalogResult> => {
+    return this.publicReader.listCatalog(query);
   };
 
-  getAppDetail = async (selector: string): Promise<MarketplaceAppItemDetail | null> => {
-    return this.publicReader.getAppDetail(selector);
-  };
+  getAppDetail = async (selector: string): Promise<MarketplaceAppItemDetail | null> =>
+    this.publicReader.getAppDetail(selector);
 
   getAppFiles = async (selector: string): Promise<MarketplaceAppFilesResult | null> => {
     return this.publicReader.getAppFiles(selector);
@@ -73,16 +89,18 @@ export class D1MarketplaceAppDataSource {
   getAppFileContent = async (
     selector: string,
     filePath: string,
+    sha256?: string,
   ): Promise<{ item: MarketplaceAppItemSummary; file: MarketplaceAppFileRow; object: R2ObjectBody } | null> => {
-    return this.publicReader.getAppFileContent(selector, filePath);
+    return this.publicReader.getAppFileContent(selector, filePath, sha256);
   };
 
   getBundle = async (
     selector: string,
     version: string,
-  ): Promise<{ item: MarketplaceAppItemSummary; version: MarketplaceAppVersionRow; object: R2ObjectBody } | null> => {
-    return this.publicReader.getBundle(selector, version);
-  };
+    targetKey?: string,
+    range?: string,
+  ): ReturnType<MarketplaceAppPublicReader["getBundle"]> =>
+    this.publicReader.getBundle(selector, version, targetKey, range);
 
   getRegistryDocument = async (appId: string): Promise<Record<string, unknown> | null> => {
     return this.publicReader.getRegistryDocument(appId);
@@ -99,32 +117,31 @@ export class D1MarketplaceAppDataSource {
     }
     if (existingItem) {
       assertExistingAppOwnership(existingItem, identity, actor);
+      assertPersonalPublishedAppIsImmutable(existingItem, identity, actor);
     }
     const nowIso = new Date().toISOString();
     const itemId = existingItem?.id ?? `app-${input.slug}`;
     const publishedAt = existingItem?.published_at ?? nowIso;
     const existingVersion = await this.recordRepository.getVersionRow(itemId, input.version);
+    const preparedRelease = await this.releaseArtifactService.prepare(input,
+      (releaseSha256) => assertAppVersionCanBeReplaced({
+        existingBundleSha256: existingVersion?.bundle_sha256,
+        nextBundleSha256: releaseSha256,
+        publishStatus: existingItem?.publish_status,
+        appId: input.appId,
+        version: input.version,
+      }));
     const versionPublishedAt = existingVersion?.published_at ?? nowIso;
-    const bundleBytes = this.payloadParser.decodeBase64(input.bundleBase64, "bundleBase64");
-    const bundleObject = await this.fileStore.putBundle({
-      appId: input.appId,
-      version: input.version,
-      bytes: bundleBytes,
-    });
-    if (bundleObject.sha256 !== input.bundleSha256) {
-      throw new DomainValidationError(
-        `bundleSha256 mismatch: expected ${input.bundleSha256}, actual ${bundleObject.sha256}`,
-      );
-    }
     await this.persistence.persistVersion({
       itemId,
       input,
-      bundleStorageKey: bundleObject.storageKey,
+      bundleStorageKey: preparedRelease.bundleStorageKey,
+      bundleSha256: preparedRelease.releaseSha256,
+      artifacts: preparedRelease.artifacts,
       publishedAt: versionPublishedAt,
       updatedAt: nowIso,
     });
-    await this.replaceFiles(itemId, input.appId, input.files, nowIso);
-
+    const storedFiles = await this.replaceFiles(itemId, input.appId, input.files, nowIso);
     const latestVersion = this.querySupport.pickLatestVersion(existingItem?.latest_version, input.version);
     await this.persistence.persistItem({
       itemId,
@@ -135,6 +152,20 @@ export class D1MarketplaceAppDataSource {
       publishStatus: identity.ownerScope === "nextclaw" ? "published" : "pending",
       publishedByType: identity.ownerScope === "nextclaw" ? "admin" : "user",
       latestVersion,
+      manifestSchemaVersion: input.manifest.schemaVersion,
+      catalogVisibility: input.manifest.schemaVersion >= 2
+        ? resolveCatalogVisibility({
+            existing: existingItem?.catalog_visibility,
+            isNew: !existingItem,
+            ownerScope: identity.ownerScope,
+          })
+        : "unlisted",
+      iconSha256: input.manifest.icon
+        ? storedFiles.get(input.manifest.icon)?.sha256 ?? null
+        : null,
+      coverSha256: input.visuals?.cover
+        ? storedFiles.get(input.visuals.cover)?.sha256 ?? null
+        : null,
       publishedAt,
       updatedAt: nowIso,
     });
@@ -175,7 +206,8 @@ export class D1MarketplaceAppDataSource {
       return null;
     }
     const versionRows = await this.recordRepository.listVersionRows(itemRow.id);
-    return this.recordMapper.mapOwnerDetail(itemRow, versionRows);
+    const artifactRows = await this.artifactRepository.listRows(itemRow.id);
+    return this.recordMapper.mapOwnerDetail(itemRow, versionRows, artifactRows);
   };
 
   manageOwnerApp = async (params: {
@@ -203,7 +235,8 @@ export class D1MarketplaceAppDataSource {
       throw new DomainValidationError(`app action succeeded but item not found: ${selector}`);
     }
     const versionRows = await this.recordRepository.listVersionRows(nextRow.id);
-    return this.recordMapper.mapOwnerDetail(nextRow, versionRows);
+    const artifactRows = await this.artifactRepository.listRows(nextRow.id);
+    return this.recordMapper.mapOwnerDetail(nextRow, versionRows, artifactRows);
   };
 
   listAdminApps = async (params: {
@@ -238,11 +271,12 @@ export class D1MarketplaceAppDataSource {
       return null;
     }
     const versionRows = await this.recordRepository.listVersionRows(itemRow.id);
+    const artifactRows = await this.artifactRepository.listRows(itemRow.id);
     const files = await this.recordRepository.listFileRows(itemRow.id);
     const readmePayload = await this.getAnyAppFileContent(itemRow.id, itemRow.slug, "README.md");
     const metadataPayload = await this.getAnyAppFileContent(itemRow.id, itemRow.slug, "marketplace.json");
     return {
-      item: this.recordMapper.mapAdminDetail(itemRow, versionRows),
+      item: this.recordMapper.mapAdminDetail(itemRow, versionRows, artifactRows),
       files: files.map((row) => ({
         path: row.path,
         contentType: row.content_type,
@@ -262,10 +296,16 @@ export class D1MarketplaceAppDataSource {
     if (!itemRow) {
       throw new DomainValidationError(`app item not found: ${input.selector}`);
     }
+    const catalogVisibility = resolveAppReviewCatalogVisibility(input, {
+      manifestSchemaVersion: itemRow.manifest_schema_version,
+      manifestJson: itemRow.manifest_json,
+      ownerScope: itemRow.owner_scope,
+    });
     const updatedAt = new Date().toISOString();
     await this.recordRepository.updateReviewStatus({
       itemId: itemRow.id,
       publishStatus: input.publishStatus,
+      catalogVisibility,
       reviewNote: input.reviewNote ?? null,
       updatedAt,
     });
@@ -300,14 +340,21 @@ export class D1MarketplaceAppDataSource {
     appId: string,
     files: MarketplaceAppFileInput[],
     updatedAt: string,
-  ): Promise<void> => {
+  ): Promise<Map<string, { sha256: string; storageKey: string }>> => {
     const existingFiles = await this.recordRepository.listFileRows(itemId);
-    await this.fileStore.deleteObjects(existingFiles.map((row) => row.storage_key));
+    await Promise.all(existingFiles.map(async (file) => await this.fileStore.preserveFileRevision({
+      appId,
+      filePath: file.path,
+      storageKey: file.storage_key,
+      sha256: file.sha256,
+      contentType: file.content_type,
+    })));
     await this.db
       .prepare("DELETE FROM marketplace_app_files WHERE item_id = ?")
       .bind(itemId)
       .run();
 
+    const storedFiles = new Map<string, { sha256: string; storageKey: string }>();
     for (const file of files) {
       const bytes = this.payloadParser.decodeBase64(file.contentBase64, `files.${file.path}`);
       const contentType = this.querySupport.resolveContentType(file.path);
@@ -316,6 +363,10 @@ export class D1MarketplaceAppDataSource {
         filePath: file.path,
         bytes,
         contentType,
+      });
+      storedFiles.set(file.path, {
+        sha256: stored.sha256,
+        storageKey: stored.storageKey,
       });
       await this.db
         .prepare(
@@ -342,5 +393,6 @@ export class D1MarketplaceAppDataSource {
         )
         .run();
     }
+    return storedFiles;
   };
 }

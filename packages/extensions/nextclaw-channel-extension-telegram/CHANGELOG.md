@@ -1,5 +1,249 @@
 # @nextclaw/channel-extension-telegram
 
+## 0.2.44
+
+### Patch Changes
+
+- Updated dependencies [b51f599]
+- Updated dependencies [db88c76]
+  - @nextclaw/core@0.17.18
+  - @nextclaw/extension-sdk@0.5.3
+
+## 0.2.43
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.17
+
+## 0.2.42
+
+### Patch Changes
+
+- Updated dependencies [862dbf2]
+- Updated dependencies [3c17608]
+  - @nextclaw/core@0.17.16
+  - @nextclaw/extension-sdk@0.5.2
+
+## 0.2.42-beta.1
+
+### Patch Changes
+
+- Updated dependencies [3c17608]
+  - @nextclaw/core@0.17.16-beta.1
+  - @nextclaw/extension-sdk@0.5.2-beta.0
+
+## 0.2.42-beta.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.16-beta.0
+
+## 0.2.41
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.15
+
+## 0.2.40
+
+### Patch Changes
+
+- Updated dependencies [9377757]
+  - @nextclaw/core@0.17.14
+
+## 0.2.39
+
+### Patch Changes
+
+- Updated dependencies [51fac6a]
+  - @nextclaw/core@0.17.13
+
+## 0.2.38
+
+### Patch Changes
+
+- @nextclaw/core@0.17.12
+- @nextclaw/extension-sdk@0.5.1
+
+## 0.2.37
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [f80df69]
+  - @nextclaw/core@0.17.11
+  - @nextclaw/extension-sdk@0.5.0
+
+## 0.2.36
+
+### Patch Changes
+
+- Updated dependencies [2d292fa]
+- Updated dependencies [c0523dc]
+- Updated dependencies [7d2b9f8]
+  - @nextclaw/core@0.17.10
+
+## 0.2.35
+
+### Patch Changes
+
+- Updated dependencies [667c4fd]
+  - @nextclaw/core@0.17.9
+
+## 0.2.34
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+  - @nextclaw/core@0.17.8
+  - @nextclaw/extension-sdk@0.4.1
+
+## 0.2.33
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [5b07b81]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+- Updated dependencies [eabdf41]
+  - @nextclaw/extension-sdk@0.4.0
+  - @nextclaw/core@0.17.7
+
+## 0.2.33-beta.0
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [5b07b81]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+  - @nextclaw/extension-sdk@0.4.0-beta.0
+  - @nextclaw/core@0.17.7-beta.0
+
+## 0.2.32
+
+### Patch Changes
+
+- Updated dependencies [6587602]
+- Updated dependencies [0f0753a]
+  - @nextclaw/core@0.17.6
+  - @nextclaw/extension-sdk@0.3.26
+
+## 0.2.31
+
+### Patch Changes
+
+- Updated dependencies [c10dcaa]
+  - @nextclaw/extension-sdk@0.3.25
+  - @nextclaw/core@0.17.5
+
+## 0.2.30
+
+### Patch Changes
+
+- Updated dependencies [ef5d9ae]
+- Updated dependencies [1df4217]
+  - @nextclaw/core@0.17.4
+
+## 0.2.29
+
+### Patch Changes
+
+- Updated dependencies [80f7660]
+  - @nextclaw/core@0.17.3
+
+## 0.2.28
+
+### Patch Changes
+
+- Updated dependencies [56ab5c2]
+  - @nextclaw/core@0.17.2
+
+## 0.2.27
+
+### Patch Changes
+
+- Updated dependencies [aa08a3f]
+- Updated dependencies [004d51f]
+  - @nextclaw/core@0.17.1
+  - @nextclaw/extension-sdk@0.3.24
+
+## 0.2.26
+
+### Patch Changes
+
+- Updated dependencies [ca2c98d]
+  - @nextclaw/core@0.17.0
+
+## 0.2.25
+
+### Patch Changes
+
+- Updated dependencies [237a931]
+  - @nextclaw/core@0.16.0
+
+## 0.2.24
+
+### Patch Changes
+
+- @nextclaw/core@0.15.24
+- @nextclaw/extension-sdk@0.3.23
+
+## 0.2.23
+
+### Patch Changes
+
+- @nextclaw/core@0.15.23
+- @nextclaw/extension-sdk@0.3.22
+
+## 0.2.22
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+- Updated dependencies [7786bdf]
+  - @nextclaw/core@0.15.22
+  - @nextclaw/extension-sdk@0.3.21
+
+## 0.2.21
+
+### Patch Changes
+
+- 4ab158d: 渠道扩展改为按需启动：未启用渠道不再常驻独立 Node 进程，运行中启用或禁用渠道会自动创建或回收对应扩展；同时增加 ready/generation 隔离、鉴权会话租约、有限故障恢复和扩展进程内存诊断。
+
+  在 ARM64 Linux、2 vCPU / 2 GiB 限制和无活跃任务的空配置基准中，三轮平均 working set 从旧版本约 865～885 MiB 降至 164.94 MiB，下降约 81%。活跃 Agent runtime、浏览器、MCP、本地模型和已启用渠道仍会按实际工作增加内存占用。
+
+- Updated dependencies [4ab158d]
+  - @nextclaw/extension-sdk@0.3.20
+  - @nextclaw/core@0.15.21
+
+## 0.2.20
+
+### Patch Changes
+
+- Updated dependencies [c3eb33c]
+- Updated dependencies [e309470]
+- Updated dependencies [31d5655]
+- Updated dependencies [8e53d92]
+- Updated dependencies [071c144]
+  - @nextclaw/core@0.15.20
+  - @nextclaw/extension-sdk@0.3.19
+
+## 0.2.19
+
+### Patch Changes
+
+- Updated dependencies [dbececb]
+- Updated dependencies [43b0e1d]
+  - @nextclaw/core@0.15.19
+  - @nextclaw/extension-sdk@0.3.18
+
 ## 0.2.18
 
 ### Patch Changes

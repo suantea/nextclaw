@@ -73,6 +73,10 @@ node .agents/skills/x-twitter-bird/scripts/x-bird.mjs reply <tweet-id-or-url> 't
 
 - Treat `auth_token` and `ct0` as full login credentials
 - Never write them into repo files, docs, tests, or iteration logs
-- Before posting, confirm the exact text or use the user-provided text verbatim
+- Before posting, confirm the exact text or use the user-provided text verbatim. If the user has explicitly granted standing authorization for stable minor release posts, do not request confirmation again; publish the release-validated draft directly after its public link returns 200.
+- Stable minor release posts should include one public-safe, high-information image by default. Choose the best fit among a real product screenshot, a benchmark/release summary card, AI-generated campaign art, or an AI-assisted composition containing an unaltered real screenshot. Never present generated UI as a real product screenshot or change verified release facts. Patch releases do not post unless the user explicitly overrides this rule.
+- When `HTTP_PROXY`/`HTTPS_PROXY` is required, invoke this wrapper with a Node version that supports environment proxies (for example `NODE_USE_ENV_PROXY=1 <node-24+> scripts/x-bird.mjs ...`). The wrapper launches `bird` with the same Node executable so the proxy setting reaches X requests.
+- The wrapper refreshes current GraphQL query IDs before every `tweet` or `reply`. If X returns a limit-looking error while the account timeline disproves it, verify the refreshed write operation before concluding that the account is rate-limited.
+- A successful write response is not completion by itself. Read the returned post ID/URL through this wrapper and verify the expected author, text, and media presence; only then report success and record the URL. Missing IDs, readback failures, or mismatched content remain incomplete and must not trigger a blind repost.
 - Prefer `--json` for read/search workflows so downstream analysis stays structured
 - If the user asks for only reading, do not post, like, follow, or unbookmark anything

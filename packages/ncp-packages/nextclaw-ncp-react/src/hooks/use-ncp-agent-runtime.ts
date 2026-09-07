@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { DefaultNcpAgentConversationStateManager } from "@nextclaw/ncp-toolkit";
+import { DefaultNcpAgentConversationStateManager, insertMessageByTimeline } from "@nextclaw/ncp-toolkit";
 import {
   type NcpAgentClientEndpoint,
   type NcpAgentSendEnvelope,
@@ -20,6 +20,7 @@ export type UseNcpAgentResult = {
   activeRunId: string | null;
   isRunning: boolean;
   isSending: boolean;
+  acceptRun: (handle: NcpRunHandle) => Promise<void>;
   send: (input: NcpAgentSendInput) => Promise<NcpRunHandle | null>;
   abort: () => Promise<void>;
   streamRun: () => Promise<void>;
@@ -183,6 +184,16 @@ function createSessionMessage(
   };
 }
 
+function insertMessageAtIndex(
+  messages: readonly NcpMessage[],
+  message: NcpMessage,
+  index: number,
+): NcpMessage[] {
+  const nextMessages = [...messages];
+  nextMessages.splice(Math.min(Math.max(index, 0), nextMessages.length), 0, message);
+  return nextMessages;
+}
+
 export function useScopedAgentManager(
   sessionId: string | undefined,
 ): DefaultNcpAgentConversationStateManager {
@@ -222,16 +233,7 @@ export function useNcpAgentRuntime({
   }, [sessionId]);
 
   useEffect(() => {
-    const eventBatcher = new NcpEventDispatchBatcher(async (events) => {
-      await manager.dispatchBatch(events);
-      events.forEach((event) => {
-        if (event.type === NcpEventType.MessageSent) {
-          setOptimisticMessage((message) =>
-            message?.id === event.payload.message.id ? null : message,
-          );
-        }
-      });
-    });
+    const eventBatcher = new NcpEventDispatchBatcher(manager.dispatchBatch);
     const unsubscribeClient = client.subscribe((event) => {
       if (!shouldDispatchEventToSession(event, sessionIdRef.current)) {
         return;
@@ -246,18 +248,45 @@ export function useNcpAgentRuntime({
     };
   }, [client, manager]);
 
-  const messagesWithOptimistic = optimisticMessage &&
-    optimisticMessage.sessionId === sessionId &&
+  let messagesWithStreaming = snapshot.messages;
+  if (snapshot.streamingMessage) {
+    const streamingMessageIndex = snapshot.streamingMessageIndex;
+    if (streamingMessageIndex === null) {
+      throw new Error("Streaming conversation snapshot is missing its event-order insertion boundary.");
+    }
+    messagesWithStreaming = insertMessageAtIndex(snapshot.messages, snapshot.streamingMessage, streamingMessageIndex);
+  }
+  const visibleMessages: readonly NcpMessage[] = optimisticMessage &&
+    (!sessionId || optimisticMessage.sessionId === sessionId) &&
     !snapshot.messages.some((message) => message.id === optimisticMessage.id)
-    ? [...snapshot.messages, optimisticMessage]
-    : snapshot.messages;
-  const visibleMessages: readonly NcpMessage[] = snapshot.streamingMessage
-    ? [...messagesWithOptimistic, snapshot.streamingMessage]
-    : messagesWithOptimistic;
+    ? insertMessageByTimeline(messagesWithStreaming, optimisticMessage)
+    : messagesWithStreaming;
 
   const activeRunId = snapshot.activeRun?.runId ?? null;
   const isRunning = !!snapshot.activeRun;
   const isSending = sendingSessionId === sessionId;
+
+  const acceptRun = async (
+    handle: NcpRunHandle,
+    acceptedMessage?: NcpMessage,
+  ): Promise<void> => {
+    if (handle.runId === null || handle.delivery === "steered") {
+      return;
+    }
+    manager.clearError();
+    await manager.dispatchBatch([
+      ...(acceptedMessage
+        ? [{
+            type: NcpEventType.MessageSent as const,
+            payload: { sessionId: handle.sessionId, message: acceptedMessage },
+          }]
+        : []),
+      {
+        type: NcpEventType.RunStarted,
+        payload: { sessionId: handle.sessionId, runId: handle.runId },
+      },
+    ]);
+  };
 
   const send = async (input: NcpAgentSendInput) => {
     if (isSending) {
@@ -274,10 +303,10 @@ export function useNcpAgentRuntime({
       ? createSessionMessage(envelope, envelope.sessionId)
       : null;
     const failOptimisticMessage = async () => {
+      setOptimisticMessage(null);
       if (!pendingMessage) {
         return;
       }
-      setOptimisticMessage(null);
       await manager.dispatch({
         type: NcpEventType.MessageSent,
         payload: {
@@ -295,14 +324,10 @@ export function useNcpAgentRuntime({
       }
       if (handle.runId === null) {
         setOptimisticMessage(null);
-      } else if (!envelope.sessionId) {
-        await manager.dispatch({
-          type: NcpEventType.MessageSent,
-          payload: {
-            sessionId: handle.sessionId,
-            message: createSessionMessage(envelope, handle.sessionId),
-          },
-        });
+      } else {
+        const acceptedMessage = createSessionMessage(envelope, handle.sessionId);
+        await acceptRun(handle, acceptedMessage);
+        setOptimisticMessage(null);
       }
       return handle;
     } catch (error) {
@@ -339,6 +364,7 @@ export function useNcpAgentRuntime({
     snapshot,
     visibleMessages,
     activeRunId,
+    acceptRun,
     isRunning,
     isSending,
     send,

@@ -1,0 +1,81 @@
+export type AppMarketplaceItemView = {
+  id: string;
+  slug: string;
+  appId: string;
+  name: string;
+  iconUrl?: string;
+  coverUrl?: string;
+  coverPreview?: boolean;
+  accentColor?: string;
+  summary: string;
+  summaryI18n: Record<string, string>;
+  tags: string[];
+  latestVersion: string;
+  featured: boolean;
+  availability?: {
+    mode: 'universal' | 'targeted';
+    targets: string[];
+    operatingSystems: Array<'darwin' | 'linux' | 'win32'>;
+  };
+  publisher: {
+    id: string;
+    name: string;
+    url?: string;
+  };
+  install: {
+    kind: 'registry';
+    spec: string;
+    registry: string;
+  };
+  webUrl: string;
+};
+
+export type AppMarketplaceCatalogView = {
+  items: AppMarketplaceItemView[];
+  nextCursor?: string;
+  hasMore: boolean;
+  query?: string;
+  tag?: string;
+  tags?: string[];
+  featured?: boolean;
+  sort: 'relevance' | 'featured' | 'updated';
+};
+
+export type AppMarketplaceListView = {
+  items: AppMarketplaceItemView[];
+  hasMore: boolean;
+};
+
+export type AppMarketplaceDetailView = AppMarketplaceItemView & {
+  description?: string;
+  descriptionI18n?: Record<string, string>;
+  manifest: {
+    schemaVersion: 1 | 2;
+    icon?: string;
+    engines?: { nextclaw?: string };
+    runtime?: { profile: 'panel-only' | 'wasi' | 'native-process' };
+    components?: Array<{
+      kind: 'panel' | 'service';
+      path: string;
+    }>;
+  };
+  permissions: {
+    documentAccess?: Array<{
+      id: string;
+      mode: string;
+      description?: string;
+    }>;
+    allowedDomains?: string[];
+    storage?: boolean | { namespace?: string };
+    capabilities?: { hostBridge?: boolean; nativeProcess?: boolean };
+  };
+};
+
+export type AppMarketplaceCatalogParams = {
+  q?: string;
+  tag?: string;
+  tags?: string[];
+  featured?: boolean;
+  publisher?: string;
+  sort?: 'relevance' | 'featured' | 'updated';
+};

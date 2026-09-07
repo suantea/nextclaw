@@ -4,7 +4,9 @@ import type {
   ChatInlineDisplayViewModel,
   ChatInlineTokenViewModel,
   ChatMessageLayout,
+  ChatMessageActionViewModel,
   ChatMessageTexts,
+  ChatMessageToolPayloadState,
   ChatMessageViewModel,
   ChatPanelAppCardViewModel,
   ChatToolActionViewModel,
@@ -62,8 +64,37 @@ function hasRenderableText(value: string): boolean {
   return trimmed.replace(INVISIBLE_ONLY_TEXT_PATTERN, '').trim().length > 0;
 }
 
+function isTextSelectionReferenceAllowed(message: ChatMessageViewModel): boolean {
+  return (message.role === 'assistant' || message.role === 'user') &&
+    message.status !== 'streaming' &&
+    message.status !== 'pending';
+}
+
+function isGeneratingAssistantMessage(message: ChatMessageViewModel): boolean {
+  return message.role !== 'user' &&
+    (message.status === 'streaming' || message.status === 'pending');
+}
+
+function resolveMessageMetaPresentation(
+  message: ChatMessageViewModel,
+  texts: ChatMessageTexts,
+): { label: string; role?: 'status' } {
+  if (message.role === 'user' && message.status === 'pending') {
+    return { label: texts.pendingInputLabel ?? 'Waiting for the next step', role: 'status' };
+  }
+  return { label: `${message.roleLabel} · ${message.timestampLabel}` };
+}
+
+function hasRenderableAssistantDraft(messages: readonly ChatMessageViewModel[]): boolean {
+  return messages.some((message) =>
+    message.role === 'assistant' &&
+    (message.status === 'streaming' || message.status === 'pending')
+  );
+}
+
 export type ChatMessageListProps = {
   assistantAvatarIcon?: ReactNode;
+  showAssistantHeader?: boolean;
   layout?: ChatMessageLayout;
   messages: ChatMessageViewModel[];
   isSending: boolean;
@@ -71,6 +102,12 @@ export type ChatMessageListProps = {
   texts: ChatMessageTexts;
   className?: string;
   onToolAction?: (action: ChatToolActionViewModel) => void;
+  resolveMessageToolPayloadState?: (messageId: string) => ChatMessageToolPayloadState | undefined;
+  onMessageToolPayloadRequest?: (messageId: string) => Promise<void> | void;
+  onMessageAction?: (
+    message: ChatMessageViewModel,
+    action: ChatMessageActionViewModel,
+  ) => void;
   onFileOpen?: (action: ChatFileOpenActionViewModel) => void;
   resolveFileContentUrl?: (action: ChatFileOpenActionViewModel) => string | null;
   onAttachmentOpen?: (
@@ -82,6 +119,10 @@ export type ChatMessageListProps = {
   ) => ReactNode | undefined;
   renderToolAgent?: (agentId: string) => ReactNode;
   renderPanelAppCard?: (panelApp: ChatPanelAppCardViewModel) => ReactNode;
+  renderCustomPart?: (
+    part: Extract<ChatMessageViewModel["parts"][number], { type: "custom" }>,
+  ) => ReactNode | undefined;
+  renderMessageContent?: (message: ChatMessageViewModel) => ReactNode | undefined;
 };
 
 function hasRenderableMessageContent(message: ChatMessageViewModel): boolean {
@@ -91,6 +132,13 @@ function hasRenderableMessageContent(message: ChatMessageViewModel): boolean {
     }
     return true;
   });
+}
+
+function isFlatAssistantIdentityHidden(
+  layout: ChatMessageLayout,
+  showAssistantHeader: boolean,
+): boolean {
+  return layout === "flat" && !showAssistantHeader;
 }
 
 function ChatMessageTypingFooter() {
@@ -130,6 +178,7 @@ function ChatTypingIndicator({
 
 export function ChatMessageList({
   assistantAvatarIcon,
+  showAssistantHeader = true,
   className,
   isSending,
   layout = "card",
@@ -137,45 +186,70 @@ export function ChatMessageList({
   onAttachmentOpen,
   onFileOpen,
   onInlineTokenClick,
+  onMessageAction,
   onToolAction,
+  resolveMessageToolPayloadState,
+  onMessageToolPayloadRequest,
+  renderCustomPart,
   renderInlineDisplay,
+  renderMessageContent,
   renderPanelAppCard,
   renderToolAgent,
   resolveFileContentUrl,
   texts,
 }: ChatMessageListProps) {
-  const visibleMessages = messages.filter(hasRenderableMessageContent);
-  const hasRenderableAssistantDraft = visibleMessages.some(
-    (message) =>
-      message.role === 'assistant' &&
-      (message.status === 'streaming' || message.status === 'pending')
+  const flatAssistantIdentityHidden = isFlatAssistantIdentityHidden(
+    layout,
+    showAssistantHeader,
   );
+  const visibleMessages = messages.filter(hasRenderableMessageContent);
+  const hasAssistantDraftContent = hasRenderableAssistantDraft(visibleMessages);
 
   return (
     <div className={cn('space-y-5', className)}>
       {visibleMessages.map((message) => {
         const isUser = message.role === 'user';
-        const isGenerating = !isUser && (message.status === 'streaming' || message.status === 'pending');
-        const content = (
+        const isGenerating = isGeneratingAssistantMessage(message);
+        const meta = resolveMessageMetaPresentation(message, texts);
+        const isTextSelectionReferenceEnabled = isTextSelectionReferenceAllowed(message);
+        const defaultContent = (
           <ChatMessage
             layout={layout}
             message={message}
             texts={texts}
             onToolAction={onToolAction}
+            toolPayloadState={resolveMessageToolPayloadState?.(message.id)}
+            onToolPayloadRequest={onMessageToolPayloadRequest}
             onFileOpen={onFileOpen}
             onAttachmentOpen={onAttachmentOpen}
             onInlineTokenClick={onInlineTokenClick}
             resolveFileContentUrl={resolveFileContentUrl}
+            renderCustomPart={renderCustomPart}
             renderInlineDisplay={renderInlineDisplay}
             renderToolAgent={renderToolAgent}
             renderPanelAppCard={renderPanelAppCard}
           />
         );
+        const content = renderMessageContent?.(message) ?? defaultContent;
 
         if (layout === "flat" && !isUser) {
           return (
-            <article key={message.id} data-chat-message-layout="flat" className="w-full min-w-0 space-y-2">
-              <div data-chat-message-header="flat" className="flex min-w-0 items-center gap-2.5">
+            <article
+              key={message.id}
+              data-chat-message-id={message.id}
+              data-chat-message-layout="flat"
+              data-chat-message-role={message.role}
+              data-chat-message-role-label={message.roleLabel}
+              data-chat-message-selectable={String(isTextSelectionReferenceEnabled)}
+              className="w-full min-w-0 space-y-2"
+            >
+              <div
+                data-chat-message-header="flat"
+                hidden={flatAssistantIdentityHidden}
+                className={cn("flex min-w-0 items-center gap-2.5", {
+                  hidden: flatAssistantIdentityHidden,
+                })}
+              >
                 <ChatMessageAvatar
                   assistantIcon={assistantAvatarIcon}
                   role={message.role}
@@ -198,7 +272,11 @@ export function ChatMessageList({
                     {message.timestampLabel}
                     {message.executionSummaryLabel ? ` · ${message.executionSummaryLabel}` : null}
                   </span>
-                  <ChatMessageActions message={message} texts={texts} />
+                  <ChatMessageActions
+                    message={message}
+                    onAction={(action) => onMessageAction?.(message, action)}
+                    texts={texts}
+                  />
                 </div>
               )}
             </article>
@@ -208,7 +286,11 @@ export function ChatMessageList({
         return (
           <div
             key={message.id}
+            data-chat-message-id={message.id}
             data-chat-message-layout="card"
+            data-chat-message-role={message.role}
+            data-chat-message-role-label={message.roleLabel}
+            data-chat-message-selectable={String(isTextSelectionReferenceEnabled)}
             className={cn('flex gap-3', isUser ? 'justify-end' : 'justify-start')}
           >
             {!isUser ? (
@@ -225,15 +307,20 @@ export function ChatMessageList({
                 ) : (
                   <>
                     <div
+                      role={meta.role}
                       className={cn(
                         'px-1 text-[11px] leading-4 text-muted-foreground',
                         isUser ? 'text-right' : 'text-left'
                       )}
                     >
-                      {message.roleLabel} · {message.timestampLabel}
+                      {meta.label}
                       {message.executionSummaryLabel ? ` · ${message.executionSummaryLabel}` : null}
                     </div>
-                    <ChatMessageActions message={message} texts={texts} />
+                    <ChatMessageActions
+                      message={message}
+                      onAction={(action) => onMessageAction?.(message, action)}
+                      texts={texts}
+                    />
                   </>
                 )}
               </div>
@@ -243,13 +330,18 @@ export function ChatMessageList({
         );
       })}
 
-      {isSending && !hasRenderableAssistantDraft ? (
+      {isSending && !hasAssistantDraftContent ? (
         <div data-chat-message-layout={layout} className="flex justify-start gap-3">
-          <ChatMessageAvatar
-            assistantIcon={assistantAvatarIcon}
-            role="assistant"
-            size={layout === "flat" ? "compact" : "default"}
-          />
+          <div
+            hidden={flatAssistantIdentityHidden}
+            className={cn({ hidden: flatAssistantIdentityHidden })}
+          >
+            <ChatMessageAvatar
+              assistantIcon={assistantAvatarIcon}
+              role="assistant"
+              size={layout === "flat" ? "compact" : "default"}
+            />
+          </div>
           <ChatTypingIndicator label={texts.typingLabel} layout={layout} />
         </div>
       ) : null}

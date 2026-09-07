@@ -11,6 +11,8 @@
 export type NcpMessageRole = "user" | "assistant" | "system" | "tool" | "service";
 
 export const NCP_INTERNAL_VISIBILITY_METADATA_KEY = "ncp_internal_visibility";
+/** Stable extension envelope for an external observation event. */
+export const OBSERVATION_EVENT_EXTENSION_TYPE = "observation.event";
 
 export function isHiddenNcpMessage(message: Pick<NcpMessage, "metadata"> | null | undefined): boolean {
   return message?.metadata?.[NCP_INTERNAL_VISIBILITY_METADATA_KEY] === "hidden";
@@ -115,6 +117,12 @@ export type NcpToolOutputContentItem =
   | NcpToolOutputTextItem
   | NcpToolOutputImageItem;
 
+export type NcpToolExecutionTiming = {
+  startedAt?: string;
+  endedAt?: string;
+  durationMs?: number;
+};
+
 /**
  * Represents a tool call and its lifecycle.
  *
@@ -129,12 +137,18 @@ export type NcpToolInvocationPart = {
   toolName: string;
   toolCallId?: string;
   state?: "call" | "partial-call" | "result" | "cancelled";
+  /**
+   * The history view omitted this call's large payload fields. The part
+   * remains in the ordered structure so timeline boundaries stay stable.
+   */
+  payloadDeferred?: boolean;
   /** Tool input arguments. May be partial when `state === "partial-call"`. */
   args?: unknown;
   /** Tool output. Populated when `state === "result"`. */
   result?: unknown;
   /** Model-visible structured output items. Text is bounded; images remain image items. */
   resultContentItems?: NcpToolOutputContentItem[];
+  execution?: NcpToolExecutionTiming;
 };
 
 // ---------------------------------------------------------------------------

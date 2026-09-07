@@ -21,7 +21,6 @@ describe("LinuxSystemdAutostartService", () => {
       runtimeService: new HostAutostartRuntimeService({
         nodePath: "/usr/local/bin/node",
         argvEntry: "/opt/nextclaw/dist/cli/app/index.js",
-        importMetaUrl: "file:///opt/nextclaw/dist/cli/commands/service/index.js",
         getDataDir: () => "/srv/nextclaw-home",
       }),
     });
@@ -34,15 +33,45 @@ describe("LinuxSystemdAutostartService", () => {
     expect(writeFileSync).toHaveBeenCalledTimes(1);
     const unitFile = writeFileSync.mock.calls[0]?.[1];
     expect(String(unitFile)).toContain("Environment=NEXTCLAW_HOME=/srv/nextclaw-home");
+    expect(String(unitFile)).toContain("Environment=NEXTCLAW_PROCESS_SUPERVISOR=systemd");
     expect(String(unitFile)).toContain("ExecStart=/usr/local/bin/node /opt/nextclaw/dist/cli/app/index.js serve");
+    expect(String(unitFile)).toContain("Restart=always");
     expect(runCommand).toHaveBeenNthCalledWith(1, "systemctl", ["--user", "daemon-reload"]);
     expect(runCommand).toHaveBeenNthCalledWith(2, "systemctl", ["--user", "enable", "nextclaw.service"]);
     expect(runCommand).toHaveBeenNthCalledWith(3, "systemctl", ["--user", "restart", "nextclaw.service"]);
   });
 
+  it("keeps the stable npm launcher entry when installed from a runtime bundle child", async () => {
+    const writeFileSync = vi.fn();
+    const runCommand = vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+    const service = new LinuxSystemdAutostartService({
+      platform: "linux",
+      env: {},
+      getHomeDir: () => "/home/alice",
+      existsSync: () => false,
+      mkdirSync: vi.fn(),
+      writeFileSync,
+      runCommand,
+      runtimeService: new HostAutostartRuntimeService({
+        nodePath: "/usr/bin/node",
+        argvEntry: "/usr/lib/node_modules/nextclaw/dist/cli/launcher/index.js",
+        getDataDir: () => "/home/alice/.nextclaw"
+      })
+    });
+
+    await service.install("system");
+
+    expect(String(writeFileSync.mock.calls[0]?.[1])).toContain(
+      "ExecStart=/usr/bin/node /usr/lib/node_modules/nextclaw/dist/cli/launcher/index.js serve"
+    );
+  });
+
   it("reports unsupported status outside linux", async () => {
     const service = new LinuxSystemdAutostartService({
       platform: "darwin",
+      runtimeService: new HostAutostartRuntimeService({
+        argvEntry: "/opt/nextclaw/dist/cli/app/index.js",
+      }),
     });
 
     const status = await service.status();
@@ -64,7 +93,6 @@ describe("LinuxSystemdAutostartService", () => {
       runtimeService: new HostAutostartRuntimeService({
         nodePath: "/usr/bin/node",
         argvEntry: "/opt/nextclaw/dist/cli/app/index.js",
-        importMetaUrl: "file:///opt/nextclaw/dist/cli/commands/service/index.js",
         getDataDir: () => "/home/alice/.nextclaw",
       }),
     });
@@ -104,7 +132,6 @@ describe("LinuxSystemdAutostartService", () => {
       runtimeService: new HostAutostartRuntimeService({
         nodePath: "/usr/bin/node",
         argvEntry: "/opt/nextclaw/dist/cli/app/index.js",
-        importMetaUrl: "file:///opt/nextclaw/dist/cli/commands/service/index.js",
         getDataDir: () => "/home/alice/.nextclaw",
       }),
     });
@@ -133,7 +160,6 @@ describe("LinuxSystemdAutostartService", () => {
       runtimeService: new HostAutostartRuntimeService({
         nodePath: "/usr/local/bin/node",
         argvEntry: "/opt/nextclaw/dist/cli/app/index.js",
-        importMetaUrl: "file:///opt/nextclaw/dist/cli/commands/service/index.js",
         getDataDir: () => "/srv/nextclaw-home",
       }),
     });

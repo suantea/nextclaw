@@ -10,6 +10,7 @@ import {
 } from './doc-browser-context';
 import { normalizeDocUrl } from './utils/doc-browser-url.utils';
 import { DocBrowserHomePage } from './doc-browser-home-page';
+import { useDocBrowserScrollRestoration } from './hooks/use-doc-browser-scroll-restoration';
 import type { DocBrowserCustomTabRenderers } from './doc-browser-renderer.types';
 import {
   DocBrowserAddressToolbar,
@@ -27,6 +28,7 @@ import {
 import { ResizableRightPanel } from '@/shared/components/resizable-right-panel/resizable-right-panel';
 import { cn } from '@/shared/lib/utils';
 import { t } from '@/shared/lib/i18n';
+import type { ContextMenuGroup } from '@/shared/components/ui/context-menu/context-menu';
 import { GripVertical } from 'lucide-react';
 import {
   DOC_BROWSER_DOCKED_MAX_WIDTH,
@@ -37,7 +39,10 @@ type DocBrowserProps = {
   customTabRenderers?: DocBrowserCustomTabRenderers;
   displayMode?: 'desktop' | 'fullscreen';
   dockControls?: DocBrowserDockControls;
+  getTabMenuGroups?: (tab: DocBrowserTab) => readonly ContextMenuGroup[] | undefined;
 };
+
+export type DocBrowserTabMenuGroupsResolver = NonNullable<DocBrowserProps['getTabMenuGroups']>;
 
 type FloatingPanelInteraction = {
   startX: number;
@@ -159,7 +164,12 @@ function useDocBrowserAddressBar({
   };
 }
 
-export function DocBrowser({ customTabRenderers = {}, displayMode = 'desktop', dockControls }: DocBrowserProps) {
+export function DocBrowser({
+  customTabRenderers = {},
+  displayMode = 'desktop',
+  dockControls,
+  getTabMenuGroups,
+}: DocBrowserProps) {
   const {
     isOpen,
     mode,
@@ -200,6 +210,12 @@ export function DocBrowser({ customTabRenderers = {}, displayMode = 'desktop', d
   const dockState = dockControls?.getDockState(currentTab);
   const isContentTab = currentTab?.kind === 'content';
   const isAddressToolbarTab = isDocsTab || isContentTab;
+  const supportsScrollRestoration = customRenderer?.supportsScrollRestoration === true;
+  const restoreScroll = useDocBrowserScrollRestoration({
+    currentTab,
+    iframeRef,
+    isEnabled: supportsScrollRestoration,
+  });
   const { handleUrlSubmit, setUrlInput, urlInput } = useDocBrowserAddressBar({
     activeTabId,
     currentUrl,
@@ -359,6 +375,7 @@ export function DocBrowser({ customTabRenderers = {}, displayMode = 'desktop', d
         onClose={close}
         onDragStart={startFloatDrag}
         onToggleMode={toggleMode}
+        getTabMenuGroups={getTabMenuGroups}
       />
 
       <DocBrowserAddressToolbar
@@ -381,6 +398,7 @@ export function DocBrowser({ customTabRenderers = {}, displayMode = 'desktop', d
         iframeSandbox={iframeSandbox}
         isDragging={floatInteraction?.kind === 'drag'}
         isResizing={floatInteraction?.kind === 'resize'}
+        onIframeLoad={restoreScroll}
         onIframePointerOver={customRenderer?.onIframePointerOver}
       />
 
@@ -392,6 +410,7 @@ export function DocBrowser({ customTabRenderers = {}, displayMode = 'desktop', d
     return (
       <ResizableRightPanel
         data-testid="doc-browser-panel"
+        data-theme-surface="doc-browser"
         defaultWidth={dockedWidth}
         width={dockedWidth}
         minWidth={DOC_BROWSER_DOCKED_MIN_WIDTH}
@@ -406,6 +425,7 @@ export function DocBrowser({ customTabRenderers = {}, displayMode = 'desktop', d
   return (
     <div
       data-testid="doc-browser-panel"
+      data-theme-surface="doc-browser"
       className={cn(
         'relative flex flex-col overflow-hidden bg-card text-card-foreground',
         isFullscreen

@@ -1,6 +1,7 @@
 import {
   isHiddenNcpMessage,
   NcpEventType,
+  readNcpRunTriggerMetadata,
   type NcpEndpointEvent,
   type NcpMessage,
 } from "@nextclaw/ncp";
@@ -15,6 +16,14 @@ import { t } from "@/shared/lib/i18n";
 
 const NOTIFICATION_PREVIEW_MAX_CHARACTERS = 120;
 const NOTIFIED_MESSAGE_HISTORY_LIMIT = 200;
+
+function isChildSessionMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return [metadata?.parent_session_id, metadata?.parentSessionId].some(
+    (value) => typeof value === "string" && value.trim().length > 0,
+  );
+}
 
 function buildNotificationPreview(value: string): string {
   const normalized = value
@@ -61,7 +70,7 @@ function readAssistantReplyPreview(message: NcpMessage): string {
 export class ChatCompletionNotificationManager {
   private readonly cleanups: Array<() => void> = [];
   private readonly handledMessageIds = new Set<string>();
-  private activeSessionId: string | null = null;
+  private visibleSessionIds = new Set<string>();
   private started = false;
 
   constructor(
@@ -88,8 +97,14 @@ export class ChatCompletionNotificationManager {
     }
   };
 
-  syncActiveSession = (sessionId: string | null): void => {
-    this.activeSessionId = sessionId?.trim() || null;
+  syncVisibleSessions = (
+    sessionIds: readonly (string | null | undefined)[],
+  ): void => {
+    this.visibleSessionIds = new Set(
+      sessionIds
+        .map((sessionId) => sessionId?.trim())
+        .filter((sessionId): sessionId is string => Boolean(sessionId)),
+    );
   };
 
   private readonly handleNcpEvent = (event: NcpEndpointEvent): void => {
@@ -109,11 +124,22 @@ export class ChatCompletionNotificationManager {
       return;
     }
     this.rememberHandledMessage(message.id);
-    if (sessionId === this.activeSessionId) {
+    if (this.visibleSessionIds.has(sessionId)) {
       return;
     }
 
-    const title = this.resolveSessionTitle(sessionId);
+    const summary = this.resolveSessionSummary(sessionId);
+    const trigger = readNcpRunTriggerMetadata(message.metadata);
+    if (
+      (trigger && trigger.actor !== "human") ||
+      (!trigger && summary && isChildSessionMetadata(summary.metadata))
+    ) {
+      return;
+    }
+
+    const title = summary
+      ? sessionDisplayName(adaptNcpSessionSummary(summary))
+      : t("chatBackgroundReplyFallbackTitle");
     const preview = readAssistantReplyPreview(message);
     this.notificationManager.show({
       id: `chat-reply:${message.id}`,
@@ -124,13 +150,10 @@ export class ChatCompletionNotificationManager {
     });
   };
 
-  private readonly resolveSessionTitle = (sessionId: string): string => {
+  private readonly resolveSessionSummary = (sessionId: string) => {
     const summaries =
       useChatQueryStore.getState().snapshot.sessionsQuery?.data?.sessions ?? [];
-    const summary = summaries.find((item) => item.sessionId === sessionId);
-    return summary
-      ? sessionDisplayName(adaptNcpSessionSummary(summary))
-      : t("chatBackgroundReplyFallbackTitle");
+    return summaries.find((item) => item.sessionId === sessionId);
   };
 
   private readonly rememberHandledMessage = (messageId: string): void => {

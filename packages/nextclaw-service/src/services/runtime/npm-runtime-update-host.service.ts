@@ -17,6 +17,7 @@ import { NpmRuntimeUpdateSourceService } from "@nextclaw-service/services/runtim
 import { NpmRuntimeUpdateStateStore } from "@nextclaw-service/stores/npm-runtime-update-state.store.js";
 import { NextclawDistributionService } from "@nextclaw-service/services/runtime/nextclaw-distribution.service.js";
 import { requestManagedServiceRestart } from "@nextclaw-service/services/ui/service-remote-access.service.js";
+import type { ManagedServiceState } from "@nextclaw-service/stores/managed-service-state.store.js";
 import type { RequestRestartParams } from "@nextclaw-service/types/cli.types.js";
 
 const INITIAL_DOWNLOAD_PROGRESS: UpdateProgress = {
@@ -30,14 +31,55 @@ type NpmRuntimeUpdateHostDeps = {
   logger?: Pick<AppLogger, "error">;
   requestRestart: (params: RequestRestartParams) => Promise<void>;
   uiConfig: Pick<Config["ui"], "port">;
-  applyRestartMode: "managed-service-restart" | "manual-process-restart";
+  applyRestartMode: NpmRuntimeUpdateApplyRestartMode;
   automaticCheckIntervalMs?: number;
 };
+
+export type NpmRuntimeUpdateApplyRestartMode =
+  | "managed-service-restart"
+  | "supervised-process-restart"
+  | "manual-process-restart";
+
+export type NpmRuntimeUpdateApplyRestartResolution = {
+  mode: NpmRuntimeUpdateApplyRestartMode;
+  source: "configured-systemd" | "legacy-systemd-invocation" | "managed-service" | "manual-process";
+};
+
+export const SUPERVISED_RUNTIME_UPDATE_EXIT_CODE = 75;
+
+export function resolveNpmRuntimeUpdateApplyRestartMode(options: {
+  currentPid: number;
+  env: NodeJS.ProcessEnv;
+  launchedByLauncher: boolean;
+  serviceState: Pick<ManagedServiceState, "pid" | "uiPort"> | null;
+  uiPort: number;
+}): NpmRuntimeUpdateApplyRestartResolution {
+  const { currentPid, env, launchedByLauncher, serviceState, uiPort } = options;
+  const configuredSupervisor = env.NEXTCLAW_PROCESS_SUPERVISOR?.trim();
+  if (configuredSupervisor === "systemd") {
+    return { mode: "supervised-process-restart", source: "configured-systemd" };
+  }
+  if (!configuredSupervisor && env.INVOCATION_ID?.trim()) {
+    return { mode: "supervised-process-restart", source: "legacy-systemd-invocation" };
+  }
+  if (serviceState?.pid === currentPid) {
+    return { mode: "managed-service-restart", source: "managed-service" };
+  }
+  if (
+    launchedByLauncher
+    && typeof serviceState?.uiPort === "number"
+    && serviceState.uiPort === uiPort
+  ) {
+    return { mode: "managed-service-restart", source: "managed-service" };
+  }
+  return { mode: "manual-process-restart", source: "manual-process" };
+}
 
 export class NpmRuntimeUpdateHost implements UiRuntimeUpdateHost {
   private readonly source: NpmRuntimeUpdateSourceService;
   private readonly layout: NpmRuntimeBundleLayoutStore;
   private readonly launcherVersion: string;
+  private readonly runningVersion: string;
   private readonly stateStore: NpmRuntimeUpdateStateStore;
   private readonly bundleService: NpmRuntimeBundleService;
   private readonly updateService: NpmRuntimeUpdateService;
@@ -54,7 +96,8 @@ export class NpmRuntimeUpdateHost implements UiRuntimeUpdateHost {
       packagedPublicKeyPath: distribution.runtimeUpdatePublicKeyPath
     });
     this.layout = new NpmRuntimeBundleLayoutStore();
-    this.launcherVersion = distribution.version;
+    this.launcherVersion = distribution.launcherVersion;
+    this.runningVersion = distribution.version;
     this.stateStore = new NpmRuntimeUpdateStateStore(this.layout.getStatePath(), {
       defaultChannel: this.source.resolveChannel(undefined, this.launcherVersion)
     });
@@ -102,17 +145,26 @@ export class NpmRuntimeUpdateHost implements UiRuntimeUpdateHost {
     try {
       const snapshot = this.createManager().applyDownloadedUpdate();
       this.setSnapshot(
-        this.deps.applyRestartMode === "managed-service-restart"
-          ? snapshot
-          : {
+        this.deps.applyRestartMode === "manual-process-restart"
+          ? {
               ...snapshot,
               recoveryCommand: "Restart this NextClaw process to launch the downloaded runtime."
-            },
+            }
+          : snapshot,
       );
       if (this.deps.applyRestartMode === "managed-service-restart") {
         await requestManagedServiceRestart(this.deps.requestRestart, {
           reason: "runtime update apply",
           uiPort: this.deps.uiConfig.port
+        });
+      } else if (this.deps.applyRestartMode === "supervised-process-restart") {
+        await this.deps.requestRestart({
+          reason: "runtime update apply",
+          manualMessage: "Restart the supervised NextClaw process to apply the runtime update.",
+          strategy: "exit-process",
+          exitCode: SUPERVISED_RUNTIME_UPDATE_EXIT_CODE,
+          delayMs: 500,
+          silentNotification: true
         });
       }
       return this.snapshot;
@@ -243,8 +295,9 @@ export class NpmRuntimeUpdateHost implements UiRuntimeUpdateHost {
       stateStore: this.stateStore,
       bundleService: this.bundleService,
       updateService: this.updateService,
-      resolveManifestUrl: (resolvedChannel) => this.source.resolveManifestUrl(resolvedChannel),
+      resolveManifestUrls: (resolvedChannel) => this.source.resolveManifestUrls(resolvedChannel),
       launcherVersion: this.launcherVersion,
+      runningVersion: this.runningVersion,
       channel
     });
   };

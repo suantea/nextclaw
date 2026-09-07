@@ -38,7 +38,34 @@ vi.mock("@/features/marketplace", () => ({
   MarketplacePage: () => <div>Marketplace</div>,
 }));
 
+vi.mock("@/features/projects", () => ({
+  ProjectsPage: () => <div>Project Home</div>,
+}));
+
 describe("ChatPageLayout", () => {
+  it("uses the same canvas width for management pages", () => {
+    const agentsView = render(
+      <ChatPageLayout view="agents" confirmDialog={<div />} />,
+    );
+    const agentsCanvas = screen.getByText("Agents").parentElement;
+
+    expect(agentsCanvas?.className).toContain("max-w-[min(1180px,100%)]");
+    agentsView.unmount();
+
+    const cronView = render(
+      <ChatPageLayout view="cron" confirmDialog={<div />} />,
+    );
+    const cronCanvas = screen.getByText("Cron").parentElement;
+
+    expect(cronCanvas?.className).toContain("max-w-[min(1180px,100%)]");
+    cronView.unmount();
+
+    render(<ChatPageLayout view="skills" confirmDialog={<div />} />);
+    const skillsCanvas = screen.getByText("Marketplace").parentElement;
+
+    expect(skillsCanvas?.className).toContain("max-w-[min(1180px,100%)]");
+  });
+
   it("uses the dedicated mobile chat shell instead of the desktop split layout", () => {
     useViewportLayoutMock.mockReturnValue({
       mode: "mobile",
@@ -57,5 +84,22 @@ describe("ChatPageLayout", () => {
     expect(screen.queryByTestId("desktop-chat-sidebar")).toBeNull();
     expect(screen.queryByTestId("chat-conversation-panel")).toBeNull();
     expect(screen.getByTestId("confirm-dialog")).toBeTruthy();
+  });
+
+  it("keeps the chat sidebar while rendering the project home in the workspace", async () => {
+    useViewportLayoutMock.mockReturnValue({
+      mode: "desktop",
+      isMobile: false,
+      isDesktop: true,
+    });
+
+    render(<ChatPageLayout view="projects" confirmDialog={<div />} />);
+
+    expect(screen.getByTestId("desktop-chat-sidebar")).toBeTruthy();
+    const projectHome = await screen.findByText("Project Home");
+    expect(projectHome).toBeTruthy();
+    expect(projectHome.parentElement?.className).toContain("flex");
+    expect(projectHome.parentElement?.className).toContain("overflow-hidden");
+    expect(screen.queryByTestId("chat-conversation-panel")).toBeNull();
   });
 });

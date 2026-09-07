@@ -1,0 +1,575 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Stable release target"
+        required: true
+        default: product
+        type: choice
+        options:
+          - npm
+          - product
+          - all
+
+permissions: {}
+
+concurrency:
+  group: nextclaw-stable-release
+  cancel-in-progress: false
+
+jobs:
+  resolve-release-identity:
+    name: resolve immutable stable release identity
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.identity.outputs.mode }}
+      target_version: ${{ steps.identity.outputs.target_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Materialize exact master ref for Changesets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git update-ref refs/heads/master "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse master)" = "$GITHUB_SHA"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile --prefer-offline
+      - id: identity
+        name: Resolve planned release or existing recovery identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec changeset status --output .changeset-status.json
+          node - .changeset-status.json <<'NODE' >> "$GITHUB_OUTPUT"
+          const { execFileSync } = require("node:child_process");
+          const fs = require("node:fs");
+          const status = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          if (status.preState?.mode === "pre") throw new Error("stable release cannot use Changesets prerelease mode");
+          const planned = (status.releases ?? []).find((entry) => entry.name === "nextclaw");
+          if (planned && /^\d+\.\d+\.\d+$/.test(planned.newVersion ?? "")) {
+            process.stdout.write(`mode=new\ntarget_version=${planned.newVersion}\n`);
+            process.exit(0);
+          }
+          const version = JSON.parse(fs.readFileSync("packages/nextclaw/package.json", "utf8")).version;
+          if (!/^\d+\.\d+\.\d+$/.test(version ?? "")) throw new Error("no planned NextClaw release and source version is not stable");
+          const published = execFileSync("npm", ["view", `nextclaw@${version}`, "version"], { encoding: "utf8" }).trim();
+          execFileSync("git", ["ls-remote", "--exit-code", "--tags", "origin", `refs/tags/nextclaw@${version}`], { stdio: "ignore" });
+          if (published !== version) throw new Error(`no planned NextClaw release and ${version} is not a published recovery identity`);
+          process.stdout.write(`mode=recovery\ntarget_version=${version}\n`);
+          NODE
+
+  publish-npm:
+    name: publish stable NPM batch
+    needs: resolve-release-identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: npm-production
+    permissions:
+      actions: write
+      contents: write
+    outputs:
+      closure_commit: ${{ steps.release.outputs.closure_commit || steps.recovery.outputs.closure_commit }}
+      desktop_target: ${{ steps.recovery.outputs.desktop_target || steps.release.outputs.closure_commit }}
+      content_ready: ${{ steps.release.outputs.content_ready || steps.recovery.outputs.content_ready }}
+      compatibility_matrix: ${{ steps.mode.outputs.compatibility_matrix }}
+      compatibility_reused: ${{ steps.mode.outputs.compatibility_reused }}
+      compatibility_source_run: ${{ steps.mode.outputs.compatibility_source_run }}
+      has_nextclaw: ${{ steps.release.outputs.has_nextclaw || steps.recovery.outputs.has_nextclaw }}
+      is_recovery: ${{ steps.mode.outputs.is_recovery }}
+      previous_version: ${{ steps.release.outputs.previous_version || steps.recovery.outputs.previous_version }}
+      prepared_source_sha: ${{ steps.release.outputs.prepared_source_sha || steps.recovery.outputs.prepared_source_sha }}
+      release_commit: ${{ steps.release.outputs.release_commit || steps.recovery.outputs.release_commit }}
+      release_tags_json: ${{ steps.release.outputs.release_tags_json || steps.recovery.outputs.release_tags_json }}
+      runtime_ready: ${{ steps.mode.outputs.runtime_ready }}
+      target_version: ${{ steps.release.outputs.target_version || steps.recovery.outputs.target_version }}
+    steps:
+      - name: Require the protected master release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/master" ]; then
+            echo "Stable releases must be dispatched from master; got $GITHUB_REF."
+            exit 1
+          fi
+
+      - name: Checkout exact release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+
+      - name: Setup NPM publishing runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Bind checkout to master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch -C master "$GITHUB_SHA"
+          git branch --set-upstream-to=origin/master master
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install release toolchain
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Infer release checkpoint
+        id: mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TARGET: ${{ inputs.target }}
+          RELEASE_MODE: ${{ needs.resolve-release-identity.outputs.mode }}
+          RELEASE_TARGET_VERSION: ${{ needs.resolve-release-identity.outputs.target_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_version="$RELEASE_TARGET_VERSION"
+          [[ "$target_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          published_version="$(npm view "nextclaw@$target_version" version 2>/dev/null || true)"
+          is_recovery=false
+          if [ "$RELEASE_MODE" = "recovery" ]; then
+            is_recovery=true
+          elif [ "$RELEASE_MODE" != "new" ]; then
+            echo "Unsupported immutable release mode: $RELEASE_MODE" >&2
+            exit 1
+          fi
+          runtime_ready=false
+          compatibility_source_run=""
+          tag="nextclaw@$target_version"
+          if [ "$is_recovery" = true ]; then
+            if [ "$published_version" != "$target_version" ] || ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+              echo "Resolved recovery identity is no longer published/tagged: $tag" >&2
+              exit 1
+            fi
+            if gh release view "$tag" --json isDraft,assets --jq 'select(.isDraft == false) | .assets[].name' > "$RUNNER_TEMP/runtime-assets" 2>/dev/null; then
+              runtime_ready=true
+              for platform in darwin-arm64 darwin-x64 linux-x64 win32-x64; do
+                grep -qx "nextclaw-runtime-$platform-$target_version.zip" "$RUNNER_TEMP/runtime-assets" || runtime_ready=false
+              done
+            fi
+          fi
+          : > "$RUNNER_TEMP/previous-compatibility-jobs.ndjson"
+          if [ "$is_recovery" = true ]; then
+            git fetch origin "refs/tags/$tag:refs/tags/$tag"
+            release_commit="$(git rev-list -n 1 "$tag")"
+            while read -r candidate_run candidate_sha candidate_conclusion; do
+              # A completed successful recovery can supply the missing cells from an
+              # earlier failed run. Keep every actionable completed run, then let the
+              # matrix resolver give immutable success evidence precedence.
+              if [ -z "$candidate_conclusion" ] || [ "$candidate_conclusion" = "skipped" ]; then
+                continue
+              fi
+              if git merge-base --is-ancestor "$candidate_sha" "$release_commit"; then
+                gh run view "$candidate_run" --json jobs --jq '.jobs[]' >> "$RUNNER_TEMP/previous-compatibility-jobs.ndjson"
+                compatibility_source_run="${compatibility_source_run:+$compatibility_source_run,}$candidate_run"
+              fi
+            done < <(gh run list --workflow release.yml --status completed --limit 40 --json conclusion,databaseId,headSha --jq '.[] | "\(.databaseId) \(.headSha) \(.conclusion)"')
+          fi
+          compatibility_result="$(node scripts/release/npm-compatibility-recovery-matrix.mjs \
+            --is-recovery "$is_recovery" \
+            --jobs-file "$RUNNER_TEMP/previous-compatibility-jobs.ndjson")"
+          compatibility_matrix="$(node -e 'const result = JSON.parse(process.argv[1]); process.stdout.write(JSON.stringify({ include: result.include }))' "$compatibility_result")"
+          compatibility_reused="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).reused))' "$compatibility_result")"
+          previous_version="$(git tag -l 'nextclaw@*' --sort=-version:refname | sed 's/^nextclaw@//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "$target_version" | head -n 1)"
+          {
+            echo "is_recovery=$is_recovery"
+            echo "compatibility_matrix=$compatibility_matrix"
+            echo "compatibility_reused=$compatibility_reused"
+            echo "compatibility_source_run=$compatibility_source_run"
+            echo "runtime_ready=$runtime_ready"
+            echo "target_version=$target_version"
+            echo "previous_version=$previous_version"
+          } >> "$GITHUB_OUTPUT"
+          echo "[release] mode=$([ "$is_recovery" = true ] && echo recovery || echo new) runtime_ready=$runtime_ready compatibility_reused=$compatibility_reused source_run=${compatibility_source_run:-none} target=$target_version"
+
+      - name: Publish prepared batch and close Git state
+        id: release
+        if: ${{ steps.mode.outputs.is_recovery != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TARGET: ${{ inputs.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$RELEASE_TARGET" = "all" ]; then
+            args+=(--require-product-artifacts)
+          fi
+          pnpm release:npm:stable -- "${args[@]}"
+
+      - name: Resolve existing stable release for automatic recovery
+        id: recovery
+        if: ${{ steps.mode.outputs.is_recovery == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_VERSION: ${{ steps.mode.outputs.previous_version }}
+          TARGET_VERSION: ${{ steps.mode.outputs.target_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          semver='^[0-9]+\.[0-9]+\.[0-9]+$'
+          if [[ ! "$TARGET_VERSION" =~ $semver ]] || [[ ! "$PREVIOUS_VERSION" =~ $semver ]]; then
+            echo "Automatically inferred target and previous versions must both be stable semantic versions."
+            exit 1
+          fi
+          tag="nextclaw@$TARGET_VERSION"
+          git fetch origin "refs/tags/$tag:refs/tags/$tag"
+          release_commit="$(git rev-list -n 1 "$tag")"
+          prepared_source_sha="$(git rev-parse "$release_commit^")"
+          desktop_target="$release_commit"
+          if [ "${{ inputs.target }}" = "all" ]; then
+            desktop_target="$(node --input-type=module - "$release_commit" "$GITHUB_SHA" <<'NODE'
+          import { resolveDesktopReleaseTarget } from './scripts/release/desktop-release-preflight.mjs';
+          process.stdout.write(resolveDesktopReleaseTarget(...process.argv.slice(2)));
+          NODE
+            )"
+          fi
+          test "$(npm view "nextclaw@$TARGET_VERSION" version)" = "$TARGET_VERSION"
+          content_ready="$(node --input-type=module - "$PREVIOUS_VERSION" "$TARGET_VERSION" <<'NODE'
+          import {
+            hasStructuredReleaseNotes,
+            inspectReleaseSurfaceReview,
+          } from './scripts/release/release-stable-preparation.mjs';
+
+          const [previousVersion, targetVersion] = process.argv.slice(2);
+          const surfaceReview = inspectReleaseSurfaceReview(previousVersion, targetVersion);
+          process.stdout.write(String(hasStructuredReleaseNotes(targetVersion) && surfaceReview.ready));
+          NODE
+          )"
+          if [ "$content_ready" != "true" ]; then
+            echo "Automatic recovery requires existing structured release notes and a ready surface review for $TARGET_VERSION." >&2
+            exit 1
+          fi
+          {
+            echo "closure_commit=$release_commit"
+            echo "desktop_target=$desktop_target"
+            echo "content_ready=$content_ready"
+            echo "has_nextclaw=true"
+            echo "previous_version=$PREVIOUS_VERSION"
+            echo "prepared_source_sha=$prepared_source_sha"
+            echo "release_commit=$release_commit"
+            echo "release_tags_json=[\"$tag\"]"
+            echo "target_version=$TARGET_VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create or reuse stable Desktop Draft
+        if: ${{ inputs.target == 'all' && (steps.release.outputs.has_nextclaw == 'true' || steps.recovery.outputs.has_nextclaw == 'true') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DESKTOP_TARGET: ${{ steps.recovery.outputs.desktop_target || steps.release.outputs.closure_commit }}
+          TARGET_VERSION: ${{ steps.release.outputs.target_version || steps.recovery.outputs.target_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Content may arrive after the immutable product release commit.
+          notes_file="$RUNNER_TEMP/desktop-release-notes.md"
+          node scripts/release/release-core-notes.mjs --version "$TARGET_VERSION" --format notes > "$notes_file"
+          notes_url="$(node scripts/release/release-core-notes.mjs --version "$TARGET_VERSION" --format url)"
+          pnpm release:desktop:stable -- \
+            --prepare-draft-only \
+            --branch master \
+            --target "$DESKTOP_TARGET" \
+            --runtime-version "$TARGET_VERSION" \
+            --notes-file "$notes_file" \
+            --release-notes-url "$notes_url" \
+            --skip-local-verify
+
+      - name: Record core release status
+        shell: bash
+        env:
+          CONTENT_READY: ${{ steps.release.outputs.content_ready || steps.recovery.outputs.content_ready }}
+          TARGET_VERSION: ${{ steps.release.outputs.target_version || steps.recovery.outputs.target_version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## NPM_READY"
+            echo
+            echo "- target: ${{ inputs.target }}"
+            echo "- version: ${TARGET_VERSION:-package-only batch}"
+            echo "- content: $([ "$CONTENT_READY" = "true" ] && echo CONTENT_READY || echo CONTENT_PENDING)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-runtime:
+    name: publish stable Runtime channel
+    needs: [publish-npm, verify-npm-node-compatibility, verify-npm-unsupported-node]
+    if: ${{ always() && inputs.target != 'npm' && needs.publish-npm.outputs.has_nextclaw == 'true' && needs.verify-npm-node-compatibility.result == 'success' && needs.verify-npm-unsupported-node.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish-npm.outputs.closure_commit }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install release verification toolchain
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Publish and verify stable Runtime channel
+        if: ${{ needs.publish-npm.outputs.runtime_ready != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          pnpm release:stable:runtime --
+          --branch master
+          --prepared-source-sha "${{ needs.publish-npm.outputs.prepared_source_sha || github.sha }}"
+          --version "${{ needs.publish-npm.outputs.target_version }}"
+          --release-tag "nextclaw@${{ needs.publish-npm.outputs.target_version }}"
+
+      - name: Reuse published stable Runtime channel
+        if: ${{ needs.publish-npm.outputs.runtime_ready == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_VERSION: ${{ needs.publish-npm.outputs.target_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="nextclaw@$TARGET_VERSION"
+          assets="$(gh release view "$tag" --json assets --jq '.assets[].name')"
+          for target in darwin-arm64 darwin-x64 linux-x64 win32-x64; do
+            grep -qx "nextclaw-runtime-$target-$TARGET_VERSION.zip" <<< "$assets"
+          done
+
+      - name: Verify upgrade from previous stable
+        run: >-
+          pnpm -C packages/nextclaw validation:npm-update --
+          --published-stable
+          --expected-version "${{ needs.publish-npm.outputs.target_version }}"
+          --previous-version "${{ needs.publish-npm.outputs.previous_version }}"
+
+      - name: Record product release status
+        shell: bash
+        run: |
+          {
+            echo "## NEXTCLAW_STABLE_READY"
+            echo
+            echo "- version: ${{ needs.publish-npm.outputs.target_version }}"
+            echo "- release: https://github.com/${{ github.repository }}/releases/tag/nextclaw@${{ needs.publish-npm.outputs.target_version }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  verify-npm-node-compatibility:
+    name: verify NPM ${{ matrix.platform }} Node ${{ matrix.node }}
+    needs: publish-npm
+    if: ${{ needs.publish-npm.outputs.has_nextclaw == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.publish-npm.outputs.compatibility_matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout release commit
+        if: ${{ matrix.reused != true }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup compatibility Node
+        if: ${{ matrix.reused != true }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install published package and open SQLite
+        if: ${{ matrix.reused != true }}
+        run: >-
+          node packages/nextclaw/scripts/verify-published-npm-node-compatibility.mjs
+          --expected-version "${{ needs.publish-npm.outputs.target_version }}"
+
+      - name: Reuse completed immutable compatibility evidence
+        if: ${{ matrix.reused == true }}
+        run: echo "Reusing the completed cross-platform compatibility evidence for nextclaw@${{ needs.publish-npm.outputs.target_version }}."
+
+  verify-npm-unsupported-node:
+    name: verify NPM unsupported Node fails clearly
+    needs: publish-npm
+    if: ${{ needs.publish-npm.outputs.has_nextclaw == 'true' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18.20.8"
+      - name: Verify launcher version guard
+        run: >-
+          node packages/nextclaw/scripts/verify-published-npm-node-compatibility.mjs
+          --expected-version "${{ needs.publish-npm.outputs.target_version }}"
+          --expect-unsupported
+
+  publish-desktop:
+    name: publish stable Desktop release
+    needs: [publish-npm, publish-runtime]
+    if: ${{ always() && inputs.target == 'all' && needs.publish-npm.outputs.has_nextclaw == 'true' && needs.publish-npm.outputs.content_ready == 'true' && needs.publish-runtime.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@v4
+        with:
+          # Recovery must run the current release control plane while the
+          # Desktop builder receives the immutable product target below.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Bind checkout to master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch -C master "$GITHUB_SHA"
+          git branch --set-upstream-to=origin/master master
+
+      - name: Install release toolchain
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Publish and verify stable Desktop release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_VERSION: ${{ needs.publish-npm.outputs.target_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes_file="$RUNNER_TEMP/desktop-release-notes.md"
+          node scripts/release/release-core-notes.mjs --version "$TARGET_VERSION" --format notes > "$notes_file"
+          notes_url="$(node scripts/release/release-core-notes.mjs --version "$TARGET_VERSION" --format url)"
+          pnpm release:desktop:stable -- \
+            --branch master \
+            --target "${{ needs.publish-npm.outputs.desktop_target }}" \
+            --runtime-version "$TARGET_VERSION" \
+            --notes-file "$notes_file" \
+            --release-notes-url "$notes_url" \
+            --skip-local-verify
+
+      - name: Record all-platform release status
+        shell: bash
+        run: |
+          {
+            echo "## ALL_PLATFORMS_READY"
+            echo
+            echo "- version: ${{ needs.publish-npm.outputs.target_version }}"
+            echo "- npm: NPM_READY"
+            echo "- runtime: NEXTCLAW_STABLE_READY"
+            echo "- desktop: DESKTOP_READY"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  summarize:
+    name: summarize release state
+    if: ${{ always() }}
+    needs: [publish-npm, verify-npm-node-compatibility, verify-npm-unsupported-node, publish-runtime, publish-desktop]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Write final state
+        shell: bash
+        env:
+          CONTENT_READY: ${{ needs.publish-npm.outputs.content_ready }}
+          DESKTOP_RESULT: ${{ needs.publish-desktop.result }}
+          HAS_NEXTCLAW: ${{ needs.publish-npm.outputs.has_nextclaw }}
+          IS_RECOVERY: ${{ needs.publish-npm.outputs.is_recovery }}
+          NPM_RESULT: ${{ needs.publish-npm.result }}
+          NPM_NODE_COMPATIBILITY_RESULT: ${{ needs.verify-npm-node-compatibility.result }}
+          NPM_UNSUPPORTED_NODE_RESULT: ${{ needs.verify-npm-unsupported-node.result }}
+          RUNTIME_RESULT: ${{ needs.publish-runtime.result }}
+          TARGET: ${{ inputs.target }}
+          TARGET_VERSION: ${{ needs.publish-npm.outputs.target_version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Stable release summary"
+            echo
+            echo "- target: $TARGET"
+            echo "- version: ${TARGET_VERSION:-unresolved}"
+            echo "- npm: $NPM_RESULT"
+            echo "- npm node compatibility: $NPM_NODE_COMPATIBILITY_RESULT"
+            echo "- npm unsupported node guard: $NPM_UNSUPPORTED_NODE_RESULT"
+            echo "- runtime: $RUNTIME_RESULT"
+            echo "- desktop: $DESKTOP_RESULT"
+            echo "- content: $([ "$CONTENT_READY" = "true" ] && echo CONTENT_READY || echo CONTENT_PENDING)"
+            echo
+            echo "CONTENT_PENDING does not invalidate an immutable core release; finish the existing release-notes, docs, website, and social workflows against this same version."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$NPM_RESULT" != "success" ]; then
+            exit 1
+          fi
+          if [ "$IS_RECOVERY" != "true" ] && [ "$HAS_NEXTCLAW" = "true" ] && [ "$NPM_NODE_COMPATIBILITY_RESULT" != "success" ]; then
+            exit 1
+          fi
+          if [ "$IS_RECOVERY" != "true" ] && [ "$HAS_NEXTCLAW" = "true" ] && [ "$NPM_UNSUPPORTED_NODE_RESULT" != "success" ]; then
+            exit 1
+          fi
+          if [ "$TARGET" = "product" ] && [ "$HAS_NEXTCLAW" = "true" ] && [ "$RUNTIME_RESULT" != "success" ]; then
+            exit 1
+          fi
+          if [ "$TARGET" = "all" ]; then
+            if [ "$HAS_NEXTCLAW" != "true" ]; then
+              echo "target=all requires a release batch containing nextclaw."
+              exit 1
+            fi
+            if [ "$CONTENT_READY" != "true" ]; then
+              echo "target=all requires CONTENT_READY before Desktop publication."
+              exit 1
+            fi
+            if [ "$RUNTIME_RESULT" != "success" ] || [ "$DESKTOP_RESULT" != "success" ]; then
+              exit 1
+            fi
+          fi

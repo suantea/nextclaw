@@ -5,6 +5,7 @@ import {
   getConfigPath,
   getWorkspacePath,
   hasSecretRef,
+  HostIncidentStore,
   loadConfig,
   resolveAppLogPath
 } from "@nextclaw/core";
@@ -100,6 +101,7 @@ export class DiagnosticsCommands {
     checkPort: { available: boolean; detail: string }
   ): DoctorCheck[] => {
     const providerConfigured = report.providers.some((provider) => provider.configured);
+    const failedExtensions = report.extensions.runtimes.filter((runtime) => runtime.state === "failed");
     return [
       {
         name: "config-file",
@@ -146,6 +148,24 @@ export class DiagnosticsCommands {
         name: "provider-config",
         status: providerConfigured ? "pass" : "warn",
         detail: providerConfigured ? "at least one provider configured" : "no provider api key configured"
+      },
+      {
+        name: "extension-runtime",
+        status: report.extensions.state !== "ok"
+          ? "warn"
+          : failedExtensions.length > 0
+            ? "fail"
+            : "pass",
+        detail: report.extensions.state !== "ok"
+          ? report.extensions.detail
+          : `${report.extensions.runtimes.length} tracked, ${failedExtensions.length} failed`
+      },
+      {
+        name: "desktop-host-incident",
+        status: report.hostIncident.latest?.resolution.status === "unresolved" ? "warn" : "pass",
+        detail: report.hostIncident.latest
+          ? `${report.hostIncident.latest.reasonCode} (${report.hostIncident.latest.confidence}) at ${report.hostIncident.latest.observedEndedAt ?? report.hostIncident.latest.startedAt}`
+          : "no unresolved Desktop incident"
       }
     ] as const;
   };
@@ -183,11 +203,15 @@ export class DiagnosticsCommands {
     const managedHealth: HealthProbe = running && managedApiUrl
       ? await this.probeApiHealth(`${managedApiUrl}/health`)
       : { state: "unreachable", detail: "service not running" };
+    const extensions = running && managedApiUrl
+      ? await this.probeExtensionRuntimes(`${managedApiUrl}/runtime/extensions`)
+      : { state: "unavailable" as const, detail: "service not running", runtimes: [] };
 
     const configuredHealth = await this.probeApiHealth(`${configuredApiUrl}/health`, 900);
     const remote = resolveNextclawRemoteStatusSnapshot(config);
     const orphanSuspected = !running && configuredHealth.state === "ok";
     const providers = this.listProviderStatuses(config);
+    const latestHostIncident = new HostIncidentStore().getLatestIncident({ unresolvedOnly: true });
 
     const issues: string[] = [];
     const recommendations: string[] = [];
@@ -201,6 +225,7 @@ export class DiagnosticsCommands {
       serviceState,
       orphanSuspected,
       providers,
+      latestHostIncident,
       issues,
       recommendations
     });
@@ -257,10 +282,12 @@ export class DiagnosticsCommands {
         managed: managedHealth,
         configured: configuredHealth
       },
+      extensions,
       issues,
       recommendations,
       logTail,
       remote,
+      hostIncident: { latest: latestHostIncident },
       level,
       exitCode
     };
@@ -312,6 +339,39 @@ export class DiagnosticsCommands {
     }
   };
 
+  private readonly probeExtensionRuntimes = async (
+    url: string,
+    timeoutMs = 1500
+  ): Promise<RuntimeStatusReport["extensions"]> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        return { state: "unavailable", detail: `HTTP ${response.status}`, runtimes: [] };
+      }
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        data?: RuntimeStatusReport["extensions"]["runtimes"];
+      };
+      if (payload.ok !== true || !Array.isArray(payload.data)) {
+        return { state: "invalid-response", detail: "unexpected extension status payload", runtimes: [] };
+      }
+      return {
+        state: "ok",
+        detail: `${payload.data.length} extension runtimes tracked`,
+        runtimes: payload.data,
+      };
+    } catch (error) {
+      return { state: "unavailable", detail: String(error), runtimes: [] };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   private readonly listProviderStatuses = (config: ReturnType<typeof loadConfig>): RuntimeStatusReport["providers"] => {
     return listBuiltinProviders().map((spec) => {
       const provider = (config.providers as Record<string, { enabled?: boolean; apiKey?: string; apiBase?: string } | undefined>)[spec.name];
@@ -329,10 +389,17 @@ export class DiagnosticsCommands {
           detail: provider.apiBase ? provider.apiBase : "apiBase not set"
         };
       }
+      const hasAnonymousAccess = Boolean(spec.anonymousApiKey);
       return {
         name: spec.displayName ?? spec.name,
-        configured: Boolean(provider.apiKey) || apiKeyRefSet,
-        detail: provider.apiKey ? "apiKey set" : apiKeyRefSet ? "apiKey ref set" : "apiKey not set"
+        configured: Boolean(provider.apiKey) || apiKeyRefSet || hasAnonymousAccess,
+        detail: provider.apiKey
+          ? "apiKey set"
+          : apiKeyRefSet
+            ? "apiKey ref set"
+            : hasAnonymousAccess
+              ? "anonymous access"
+              : "apiKey not set"
       };
     });
   };
@@ -346,6 +413,7 @@ export class DiagnosticsCommands {
     serviceState: ManagedServiceState | null;
     orphanSuspected: boolean;
     providers: RuntimeStatusReport["providers"];
+    latestHostIncident: RuntimeStatusReport["hostIncident"]["latest"];
     issues: string[];
     recommendations: string[];
   }): void => {
@@ -355,6 +423,7 @@ export class DiagnosticsCommands {
       managedHealth,
       orphanSuspected,
       providers,
+      latestHostIncident,
       recommendations,
       running,
       serviceState,
@@ -403,6 +472,20 @@ export class DiagnosticsCommands {
     if (!providers.some((provider) => provider.configured)) {
       recommendations.push("Configure at least one provider API key in UI or config before expecting agent replies.");
     }
+    this.appendLatestHostIncidentIssue({ latestHostIncident, issues, recommendations });
+  };
+
+  private readonly appendLatestHostIncidentIssue = (params: {
+    latestHostIncident: RuntimeStatusReport["hostIncident"]["latest"];
+    issues: string[];
+    recommendations: string[];
+  }): void => {
+    const { latestHostIncident, issues, recommendations } = params;
+    if (!latestHostIncident) {
+      return;
+    }
+    issues.push(`Latest Desktop incident: ${latestHostIncident.reasonCode} (${latestHostIncident.confidence}).`);
+    recommendations.push("Ask NextClaw to inspect the latest Desktop incident for the recovered run and supporting evidence.");
   };
 
   private readonly readLogTail = (path: string, maxLines = 25): string[] => {

@@ -2,7 +2,7 @@ import { NextClawClientError } from '@nextclaw/client-sdk';
 import { waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PanelAppBridgeManager } from '@/features/panel-apps/managers/panel-app-bridge.manager';
-import type { ServiceActionAuthorizationManager } from '@/features/service-apps';
+import type { PanelAppServiceActionAuthorizationManager } from '@/features/panel-apps/managers/panel-app-service-action-authorization.manager';
 
 const mocks = vi.hoisted(() => ({
   generateAgentObject: vi.fn(),
@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   grantServiceActions: vi.fn(),
   invokeServiceAction: vi.fn(),
   listServiceActions: vi.fn(),
+  listVerificationRecords: vi.fn(),
+  getPortableRuntimeAcceptanceStatus: vi.fn(),
+  exportPortableRuntimeAcceptance: vi.fn(),
   sendAgentMessage: vi.fn(),
   requestAuthorization: vi.fn(),
 }));
@@ -27,6 +30,9 @@ vi.mock('@/shared/lib/api', () => ({
       grantServiceActions: mocks.grantServiceActions,
       invokeServiceAction: mocks.invokeServiceAction,
       listServiceActions: mocks.listServiceActions,
+      listVerificationRecords: mocks.listVerificationRecords,
+      getPortableRuntimeAcceptanceStatus: mocks.getPortableRuntimeAcceptanceStatus,
+      exportPortableRuntimeAcceptance: mocks.exportPortableRuntimeAcceptance,
       revokeServiceAction: vi.fn(),
     },
   },
@@ -39,7 +45,7 @@ afterEach(() => {
 function createManager(): PanelAppBridgeManager {
   return new PanelAppBridgeManager({
     requestAuthorization: mocks.requestAuthorization,
-  } as unknown as ServiceActionAuthorizationManager);
+  } as unknown as PanelAppServiceActionAuthorizationManager);
 }
 
 function createIframeHarness(manager: PanelAppBridgeManager) {
@@ -48,10 +54,7 @@ function createIframeHarness(manager: PanelAppBridgeManager) {
   const iframe = { contentWindow } as HTMLIFrameElement;
   return {
     postMessage,
-    send: (
-      data: Record<string, unknown>,
-      iframeInstanceId = 'tab-1:0:0',
-    ) => manager.handleIframeMessage({
+    send: (data: Record<string, unknown>) => manager.handleIframeMessage({
       event: {
         data: {
           appId: 'mood-calendar',
@@ -61,16 +64,6 @@ function createIframeHarness(manager: PanelAppBridgeManager) {
         source: contentWindow,
       } as MessageEvent,
       iframe,
-      iframeInstanceId,
-      tab: {
-        currentUrl: '/api/panel-apps/mood-calendar/content',
-        history: [],
-        historyIndex: 0,
-        id: 'tab-1',
-        kind: 'content',
-        navVersion: 0,
-        title: 'Mood Calendar',
-      },
     }),
   };
 }
@@ -242,6 +235,51 @@ describe('PanelAppBridgeManager', () => {
     });
     expect(mocks.listServiceActions).toHaveBeenNthCalledWith(3, {
       bridgeSessionToken: 'token-3',
+    });
+  });
+
+  it('projects sandbox-safe verification and acceptance reads through the host bridge', async () => {
+    const manager = createManager();
+    const { postMessage, send } = createIframeHarness(manager);
+    mocks.listVerificationRecords.mockResolvedValue({ entries: [{ acceptanceId: 'PRT-ENTRY-001' }] });
+    mocks.getPortableRuntimeAcceptanceStatus.mockResolvedValue({ schemaVersion: 1, entries: [] });
+    mocks.exportPortableRuntimeAcceptance.mockResolvedValue({ schemaVersion: 1, entries: [] });
+
+    send({
+      method: 'verification.list',
+      payload: { appId: 'nextclaw.portable-runtime-lab', limit: 500 },
+      requestId: 'verification-1',
+      type: 'nextclaw:panel-app-service-actions:request',
+    });
+    send({
+      method: 'acceptance.status',
+      payload: { locale: 'zh-CN' },
+      requestId: 'acceptance-1',
+      type: 'nextclaw:panel-app-service-actions:request',
+    });
+    send({
+      method: 'acceptance.export',
+      payload: { locale: 'zh-CN' },
+      requestId: 'acceptance-2',
+      type: 'nextclaw:panel-app-service-actions:request',
+    });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(3));
+    expect(mocks.listVerificationRecords).toHaveBeenCalledWith({
+      acceptanceId: undefined,
+      appId: 'nextclaw.portable-runtime-lab',
+      bridgeSessionToken: 'token-1',
+      limit: 500,
+    });
+    expect(mocks.getPortableRuntimeAcceptanceStatus).toHaveBeenCalledWith({
+      appId: undefined,
+      bridgeSessionToken: 'token-1',
+      locale: 'zh-CN',
+    });
+    expect(mocks.exportPortableRuntimeAcceptance).toHaveBeenCalledWith({
+      appId: undefined,
+      bridgeSessionToken: 'token-1',
+      locale: 'zh-CN',
     });
   });
 });

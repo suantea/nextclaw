@@ -50,13 +50,54 @@ function createLlmApi(chunks: OpenAIChatChunk[]): NcpLLMApi {
 }
 
 function createSessionRun() {
+  const messages: Array<{
+    id: string;
+    sessionId: string;
+    role: "assistant";
+    status: "streaming" | "pending" | "final";
+    parts: Array<{ type: "text" | "reasoning"; text: string }>;
+    timestamp: string;
+  }> = [];
+  const ensureMessage = (messageId: string) => {
+    let message = messages.find(({ id }) => id === messageId);
+    if (!message) {
+      message = {
+        id: messageId,
+        sessionId: "session-1",
+        role: "assistant",
+        status: "streaming",
+        parts: [],
+        timestamp: new Date().toISOString(),
+      };
+      messages.push(message);
+    }
+    return message;
+  };
   return {
     sessionRun: {
-      applyEvents: async () => {},
-      getSnapshot: () => ({ messages: [] }),
-      inbox: {
-        drain: () => [],
+      applyEvents: async (events: readonly NcpEndpointEvent[]) => {
+        for (const event of events) {
+          if (event.type === NcpEventType.MessageTextStart) {
+            ensureMessage(event.payload.messageId);
+          } else if (event.type === NcpEventType.MessageTextDelta) {
+            const message = ensureMessage(event.payload.messageId);
+            const last = message.parts.at(-1);
+            if (last?.type === "text") last.text += event.payload.delta;
+            else message.parts.push({ type: "text", text: event.payload.delta });
+          } else if (event.type === NcpEventType.MessageReasoningStart) {
+            ensureMessage(event.payload.messageId);
+          } else if (event.type === NcpEventType.MessageReasoningDelta) {
+            const message = ensureMessage(event.payload.messageId);
+            const last = message.parts.at(-1);
+            if (last?.type === "reasoning") last.text += event.payload.delta;
+            else message.parts.push({ type: "reasoning", text: event.payload.delta });
+          } else if (event.type === NcpEventType.MessageCompleted) {
+            const index = messages.findIndex(({ id }) => id === event.payload.message.id);
+            if (index >= 0) messages[index] = event.payload.message as typeof messages[number];
+          }
+        }
       },
+      getSnapshot: () => ({ messages }),
       sessionId: "session-1",
     },
   };
@@ -182,7 +223,7 @@ describe("DefaultNcpAgentRuntime reasoning normalization", () => {
     expect(runFinished?.payload).not.toHaveProperty("durationMs");
   });
 
-  it("emits aggregated execution metadata immediately before a successful terminal event", async () => {
+  it("emits aggregated execution metadata before finalizing the last assistant step", async () => {
     const runtime = new DefaultNcpAgentRuntime({
       llmApi: createLlmApi([
         textChunk("done"),
@@ -203,7 +244,11 @@ describe("DefaultNcpAgentRuntime reasoning normalization", () => {
     const finishedIndex = events.findIndex((event) => event.type === NcpEventType.RunFinished);
 
     expect(executionIndex).toBeGreaterThan(-1);
-    expect(executionIndex).toBe(finishedIndex - 1);
+    expect(events.slice(executionIndex, finishedIndex + 1).map(({ type }) => type)).toEqual([
+      NcpEventType.RunMetadata,
+      NcpEventType.MessageCompleted,
+      NcpEventType.RunFinished,
+    ]);
     expect(events[executionIndex]).toMatchObject({
       payload: {
         metadata: {
@@ -280,6 +325,64 @@ describe("DefaultNcpAgentRuntime reasoning normalization", () => {
   });
 });
 
+describe("DefaultNcpAgentRuntime next-step steering", () => {
+  it("finalizes A1, consumes U2 with its stable id, then creates a distinct A2 in the same run", async () => {
+    let modelCall = 0;
+    const runtime = new DefaultNcpAgentRuntime({
+      llmApi: {
+        generate: async function* () {
+          modelCall += 1;
+          yield textChunk(modelCall === 1 ? "first answer" : "revised answer");
+          yield finishChunk("stop");
+        },
+      },
+      modelInputBuilder,
+    });
+    const baseSessionRun = createSessionRun().sessionRun;
+    let claimed = false;
+    const acknowledgeNextStepRequests = vi.fn();
+    const steeringMessage = {
+      id: "user-steering-1",
+      sessionId: "session-1",
+      role: "user" as const,
+      status: "final" as const,
+      timestamp: new Date().toISOString(),
+      parts: [{ type: "text" as const, text: "change direction" }],
+    };
+    const events: NcpEndpointEvent[] = [];
+    for await (const event of runtime.run(spec, {
+      contextBlocks: [],
+      initialMessages: [],
+      sessionRun: {
+        ...baseSessionRun,
+        acknowledgeNextStepRequests,
+        claimNextStepRequests: () => {
+          if (claimed) return [];
+          claimed = true;
+          return [{ id: "pending-1", request: { message: steeringMessage } }];
+        },
+      },
+      tools: [],
+    })) {
+      events.push(event);
+    }
+
+    const completed = events.filter((event) => event.type === NcpEventType.MessageCompleted);
+    const sent = events.find((event) => event.type === NcpEventType.MessageSent);
+    const finished = events.find((event) => event.type === NcpEventType.RunFinished);
+    expect(completed).toHaveLength(2);
+    expect(completed[0]?.payload.message.id).not.toBe(completed[1]?.payload.message.id);
+    expect(sent).toMatchObject({
+      payload: { message: { id: steeringMessage.id } },
+      type: NcpEventType.MessageSent,
+    });
+    expect(finished?.payload.runId).toBe("run-1");
+    expect(acknowledgeNextStepRequests).toHaveBeenCalledWith(["pending-1"]);
+    expect(events.indexOf(completed[0]!)).toBeLessThan(events.indexOf(sent!));
+    expect(events.indexOf(sent!)).toBeLessThan(events.indexOf(completed[1]!));
+  });
+});
+
 describe("DefaultNcpAgentRuntime stream recovery", () => {
   it("publishes retry metadata and retries transient stream failures", async () => {
     vi.useFakeTimers();
@@ -346,6 +449,123 @@ describe("DefaultNcpAgentRuntime stream recovery", () => {
     expect(
       events.filter((event) => event.type === NcpEventType.MessageTextDelta).map((event) => event.payload.delta),
     ).toEqual(["partial", "recovered"]);
+  });
+});
+
+describe("DefaultNcpAgentRuntime preflight", () => {
+  it("runs preflight again before continuing after tool results", async () => {
+    const phases: Array<"pre-run" | "mid-run"> = [];
+    let generateRound = 0;
+    const llmApi: NcpLLMApi = {
+      generate: async function* () {
+        generateRound += 1;
+        if (generateRound === 1) {
+          yield toolCallChunk(0, "call-1", "lookup", "{}");
+          yield finishChunk("tool_calls");
+          return;
+        }
+
+        yield finishChunk("stop");
+      },
+    };
+    const tool: NcpTool = {
+      execute: async () => ({ ok: true }),
+      name: "lookup",
+    };
+    const runtime = new DefaultNcpAgentRuntime({
+      llmApi,
+      modelInputBuilder,
+      runPreflight: async function* (input) {
+        phases.push(input.phase);
+        yield* [];
+      },
+    });
+    const { sessionRun } = createSessionRun();
+
+    for await (const _event of runtime.run(spec, {
+      contextBlocks: [],
+      sessionRun,
+      tools: [tool],
+    })) {
+      // Consume the complete run.
+    }
+
+    expect(phases).toEqual(["pre-run", "mid-run"]);
+    expect(generateRound).toBe(2);
+  });
+
+  it("publishes the preflight cancellation terminal before aborting the run", async () => {
+    const controller = new AbortController();
+    const compressingSeen = deferred();
+    const runtime = new DefaultNcpAgentRuntime({
+      llmApi: createLlmApi([finishChunk("stop")]),
+      modelInputBuilder,
+      runPreflight: async function* ({ signal }) {
+        yield {
+          type: NcpEventType.MessageSent,
+          payload: {
+            sessionId: "session-1",
+            message: {
+              id: "compaction-marker",
+              sessionId: "session-1",
+              role: "service",
+              status: "final",
+              timestamp: "2026-08-08T00:00:00.000Z",
+              parts: [{ type: "text", text: "compressing" }],
+              metadata: { checkpoint: { status: "compressing" } },
+            },
+          },
+        };
+        compressingSeen.resolve();
+        await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), {
+          once: true,
+        }));
+        yield {
+          type: NcpEventType.MessageSent,
+          payload: {
+            sessionId: "session-1",
+            message: {
+              id: "compaction-marker",
+              sessionId: "session-1",
+              role: "service",
+              status: "final",
+              timestamp: "2026-08-08T00:00:01.000Z",
+              parts: [{ type: "text", text: "cancelled" }],
+              metadata: { checkpoint: { status: "cancelled" } },
+            },
+          },
+        };
+      },
+    });
+    const { sessionRun } = createSessionRun();
+    const eventsPromise = (async () => {
+      const events: NcpEndpointEvent[] = [];
+      for await (const event of runtime.run(spec, {
+        contextBlocks: [],
+        sessionRun,
+        signal: controller.signal,
+        tools: [],
+      })) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await compressingSeen.promise;
+    controller.abort();
+    const events = await eventsPromise;
+    const compactionEvents = events.filter((event) => event.type === NcpEventType.MessageSent);
+    const abortIndex = events.findIndex((event) => event.type === NcpEventType.MessageAbort);
+
+    expect(compactionEvents.map((event) =>
+      event.type === NcpEventType.MessageSent
+        ? (event.payload.message.metadata?.checkpoint as { status?: string })?.status
+        : undefined,
+    )).toEqual(["compressing", "cancelled"]);
+    expect(events.findIndex((event) =>
+      event.type === NcpEventType.MessageSent &&
+      (event.payload.message.metadata?.checkpoint as { status?: string })?.status === "cancelled",
+    )).toBeLessThan(abortIndex);
   });
 });
 
@@ -560,6 +780,61 @@ describe("DefaultNcpAgentRuntime tool call scheduling", () => {
     expect(markers.indexOf("execute:call-1")).toBeLessThan(
       markers.indexOf("model-finish-released"),
     );
+  });
+});
+
+describe("DefaultNcpAgentRuntime parallel tool call scheduling", () => {
+  it("executes explicitly parallel-safe tool calls concurrently", async () => {
+    const bothCallsStarted = deferred();
+    const markers: string[] = [];
+    let startedCount = 0;
+    let generateRound = 0;
+    const llmApi: NcpLLMApi = {
+      generate: async function* () {
+        generateRound += 1;
+        if (generateRound === 1) {
+          yield toolCallChunk(0, "call-1", "lookup", "{\"value\":1}");
+          yield toolCallChunk(1, "call-2", "lookup", "{\"value\":2}");
+          yield finishChunk("tool_calls");
+          return;
+        }
+        yield finishChunk("stop");
+      },
+    };
+    const tool: NcpTool = {
+      execute: async (_args, context) => {
+        const toolCallId = context?.toolCallId ?? "missing-tool-call-id";
+        markers.push(`start:${toolCallId}`);
+        startedCount += 1;
+        if (startedCount === 2) bothCallsStarted.resolve();
+        await bothCallsStarted.promise;
+        markers.push(`finish:${toolCallId}`);
+        return { ok: true, toolCallId };
+      },
+      name: "lookup",
+      supportsParallelToolCalls: true,
+    };
+    const runtime = new DefaultNcpAgentRuntime({ llmApi, modelInputBuilder });
+    const { sessionRun } = createSessionRun();
+    const events: NcpEndpointEvent[] = [];
+
+    await Promise.race([
+      (async () => {
+        for await (const event of runtime.run(spec, {
+          contextBlocks: [],
+          sessionRun,
+          tools: [tool],
+        })) {
+          events.push(event);
+        }
+      })(),
+      rejectAfter(1_000, "timed out waiting for parallel tool calls"),
+    ]);
+
+    expect(markers.slice(0, 2)).toEqual(["start:call-1", "start:call-2"]);
+    expect(
+      events.filter((event) => event.type === NcpEventType.MessageToolCallResult),
+    ).toHaveLength(2);
   });
 });
 

@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   grantPanelAppClient: vi.fn(),
   navigate: vi.fn(),
+  recordOpened: vi.fn(),
   refetchPanelApps: vi.fn(),
   requestAuthorization: vi.fn(async () => true),
   requestDraft: vi.fn(),
@@ -62,7 +63,7 @@ vi.mock('@/features/panel-apps/hooks/use-panel-apps', () => ({
     refetch: mocks.refetchPanelApps,
   }),
   useRecordPanelAppOpened: () => ({
-    mutateAsync: vi.fn(async (id: string) => mocks.entries.find((entry) => entry.id === id)),
+    mutate: mocks.recordOpened,
   }),
   useUpdatePanelAppPreferences: () => ({
     isPending: false,
@@ -96,6 +97,7 @@ describe('PanelAppsList', () => {
     mocks.grantPanelAppClient.mockReset();
     mocks.navigate.mockReset();
     mocks.refetchPanelApps.mockReset();
+    mocks.recordOpened.mockReset();
     mocks.requestAuthorization.mockReset();
     mocks.requestAuthorization.mockResolvedValue(true);
     mocks.requestDraft.mockReset();
@@ -134,7 +136,7 @@ describe('PanelAppsList', () => {
 
     expect(screen.getByText('Demo Panel')).toBeTruthy();
 
-    await user.click(screen.getByRole('button', { name: 'Favorites' }));
+    await user.click(screen.getByRole('tab', { name: 'Favorites' }));
 
     expect(screen.getByText('No panel apps in this view')).toBeTruthy();
     expect(screen.queryByText('Create your first panel app')).toBeNull();
@@ -163,5 +165,9 @@ describe('PanelAppsList', () => {
     }));
     expect(mocks.grantPanelAppClient).toHaveBeenCalledWith('demo-app');
     expect(onOpenPanelApp).toHaveBeenCalledWith(entry);
+    expect(mocks.recordOpened).toHaveBeenCalledWith(entry.id);
+    expect(onOpenPanelApp.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.recordOpened.mock.invocationCallOrder[0]!,
+    );
   });
 });

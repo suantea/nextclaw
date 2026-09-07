@@ -6,7 +6,9 @@ import { EventBus } from "@nextclaw/shared";
 import type { LlmProviderManager } from "@nextclaw/kernel";
 
 const tempDirs: string[] = [];
-const testConnectionMock = vi.fn(async (_params: { defaultModel: string; maxTokens?: number }) => {});
+const testConnectionMock = vi.fn(
+  async (_params: { defaultModel: string; maxTokens?: number }) => {},
+);
 
 import { ConfigSchema, saveConfig } from "@nextclaw/core";
 import { createUiRouter } from "./router.js";
@@ -26,14 +28,36 @@ function createProviderProbeApp(configPath: string) {
       assetStore: {} as never,
       eventBus: new EventBus(),
       ingress: {} as never,
+      observations: {} as never,
+      extensions: {
+        getDesktopHost: () => ({
+          status: async () => ({ online: false }),
+        }),
+      } as never,
+      capabilityGrants: {} as never,
+      featureControls: {
+        get: async () => ({ desktopAutomation: { available: false } }),
+      } as never,
       inboxDeliveryManager: {} as never,
+      systemObjectReferenceManager: {} as never,
       agentRunRequestManager: {} as never,
+      agentContextWindowManager: {} as never,
+      appPackageManager: {
+        listPackages: async () => ({ entries: [] }),
+      } as never,
+      appDataManager: {
+        list: async () => ({ entries: [], diagnostics: [] }),
+      } as never,
       isSessionRunning: () => false,
       listSessionTypes: async () => ({ defaultType: "native", options: [] }),
       sessionManager: {} as never,
       sessionRunManager: {} as never,
       panelAppManager: {
-        listPanelApps: async () => ({ workspacePath: "", panelsPath: "", entries: [] }),
+        listPanelApps: async () => ({
+          workspacePath: "",
+          panelsPath: "",
+          entries: [],
+        }),
         getPanelAppContent: async () => {
           throw new Error("not used");
         },
@@ -49,9 +73,30 @@ function createProviderProbeApp(configPath: string) {
         listProjects: async () => [],
         listTemplates: () => [],
       } as never,
+      projectMaterials: {
+        getAgreement: async () => {
+          throw new Error("not used");
+        },
+        listSkills: async () => {
+          throw new Error("not used");
+        },
+      } as never,
+      projectWorkManager: {} as never,
       serviceAppManager: {} as never,
+      portableRuntimeAcceptance: {} as never,
       sessionContextCompactionManager: {} as never,
-      llmProviders: { testConnection: testConnectionMock } as unknown as LlmProviderManager,
+      llmProviders: {
+        testConnection: testConnectionMock,
+      } as unknown as LlmProviderManager,
+      providerModelCatalog: {
+        getSnapshot: () => ({
+          refreshIntervalMs: 43_200_000,
+          refreshing: false,
+          lastRefreshStartedAt: null,
+          lastRefreshCompletedAt: null,
+          providers: {},
+        }),
+      } as never,
     } satisfies UiKernelHost,
   });
 }
@@ -67,6 +112,40 @@ afterEach(() => {
 });
 
 describe("provider connection probe route", () => {
+  it("probes OpenCode Zen without a user API key", async () => {
+    const configPath = createTempConfigPath();
+    saveConfig(ConfigSchema.parse({}), configPath);
+
+    const app = createProviderProbeApp(configPath);
+    await app.request("http://localhost/api/providers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ providerType: "opencode" }),
+    });
+
+    const response = await app.request(
+      "http://localhost/api/providers/opencode/test",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "opencode/big-pickle" }),
+      },
+    );
+    const payload = (await response.json()) as {
+      ok: true;
+      data: { success: boolean };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.data.success).toBe(true);
+    expect(testConnectionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: "public",
+        defaultModel: "opencode/big-pickle",
+      }),
+    );
+  });
+
   it("uses maxTokens >= 16 when probing provider connection", async () => {
     const configPath = createTempConfigPath();
     saveConfig(ConfigSchema.parse({}), configPath);
@@ -75,23 +154,28 @@ describe("provider connection probe route", () => {
     await app.request("http://localhost/api/providers", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ providerType: "openai" })
+      body: JSON.stringify({ providerType: "openai" }),
     });
 
-    const response = await app.request("http://localhost/api/providers/openai/test", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
+    const response = await app.request(
+      "http://localhost/api/providers/openai/test",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          apiKey: "sk_test_probe",
+          model: "gpt-5.2-codex",
+        }),
       },
-      body: JSON.stringify({
-        apiKey: "sk_test_probe",
-        model: "gpt-5.2-codex"
-      })
-    });
+    );
 
     expect(response.status).toBe(200);
     expect(testConnectionMock).toHaveBeenCalledTimes(1);
-    expect(Number(testConnectionMock.mock.calls[0]?.[0]?.maxTokens ?? 0)).toBeGreaterThanOrEqual(16);
+    expect(
+      Number(testConnectionMock.mock.calls[0]?.[0]?.maxTokens ?? 0),
+    ).toBeGreaterThanOrEqual(16);
   });
 
   it("does not rewrite provider instance ids inside a provider-local model id", async () => {
@@ -102,20 +186,28 @@ describe("provider connection probe route", () => {
     await app.request("http://localhost/api/providers", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ providerId: "openrouter-2", providerType: "openrouter" })
+      body: JSON.stringify({
+        providerId: "openrouter-2",
+        providerType: "openrouter",
+      }),
     });
 
-    const response = await app.request("http://localhost/api/providers/openrouter-2/test", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        apiKey: "sk_test_probe",
-        model: "bedrock/openrouter-2/claude-fable-5"
-      })
-    });
+    const response = await app.request(
+      "http://localhost/api/providers/openrouter-2/test",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          apiKey: "sk_test_probe",
+          model: "bedrock/openrouter-2/claude-fable-5",
+        }),
+      },
+    );
 
     expect(response.status).toBe(200);
     expect(testConnectionMock).toHaveBeenCalledTimes(1);
-    expect(testConnectionMock.mock.calls[0]?.[0]?.defaultModel).toBe("bedrock/openrouter-2/claude-fable-5");
+    expect(testConnectionMock.mock.calls[0]?.[0]?.defaultModel).toBe(
+      "bedrock/openrouter-2/claude-fable-5",
+    );
   });
 });

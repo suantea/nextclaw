@@ -1,5 +1,166 @@
 # @nextclaw/extension-sdk
 
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies [b51f599]
+  - @nextclaw/shared@0.5.1
+
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [3cd57bf]
+  - @nextclaw/shared@0.5.0
+
+## 0.5.2-beta.0
+
+### Patch Changes
+
+- Updated dependencies [3cd57bf]
+  - @nextclaw/shared@0.5.0-beta.0
+
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [60febb5]
+  - @nextclaw/shared@0.4.30
+
+## 0.5.0
+
+### Minor Changes
+
+- f80df69: 新增统一的桌面应用授权与操作链路。NextClaw AI 现在可以在受限 `node_repl` 中使用私有 `desktop` SDK，在用户按 Agent 和目标应用授权后读取有界界面、点击、写入文本或发送常用按键；设置中可检查 macOS 辅助功能状态、查看并撤销 Agent 与 Extension 的应用访问许可。
+
+  新增微信桌面观察 Extension，可把当前微信窗口的可见内容作为会话上下文，并通过持续关注关系将新出现的可见消息送回原会话。桌面 SDK 不按“发送”或“确认”等控件文案另设产品级阻断；系统权限、用户 grant、目标窗口绑定和审计仍然有效。
+
+  Panel App 与 Service App 现在复用同一授权存储和撤销语义：启用、禁用、卸载或失败恢复时，会一并保持或恢复关联的面板状态、桥接会话与服务动作授权，避免包生命周期留下失效或越权的调用路径。
+
+  平台支持由统一 feature-controls 合同提供；当前运行环境不支持桌面自动化时，不显示桌面操作设置入口。
+
+### Patch Changes
+
+- Updated dependencies [882b6e0]
+  - @nextclaw/shared@0.4.29
+
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/ncp@0.10.0
+  - @nextclaw/shared@0.4.28
+
+## 0.4.0
+
+### Minor Changes
+
+- 2c7ce8c: 新增持久化的 Agent Observation 能力：Agent 可绑定持续刷新的 Context、订阅带过滤与预算的事件源，并通过现有 started/queued/steered 输入链路可靠接收事件。Context 会作为低权限数据固定追加到模型输入尾部，订阅关系、cursor 与待投递事件可在重启后恢复，重复投递由幂等合同拦截。
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+- Updated dependencies [70dd515]
+  - @nextclaw/ncp@0.9.0
+  - @nextclaw/shared@0.4.27
+
+## 0.4.0-beta.0
+
+### Minor Changes
+
+- 2c7ce8c: 新增持久化的 Agent Observation 能力：Agent 可绑定持续刷新的 Context、订阅带过滤与预算的事件源，并通过现有 started/queued/steered 输入链路可靠接收事件。Context 会作为低权限数据固定追加到模型输入尾部，订阅关系、cursor 与待投递事件可在重启后恢复，重复投递由幂等合同拦截。
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+- Updated dependencies [70dd515]
+  - @nextclaw/ncp@0.9.0-beta.0
+  - @nextclaw/shared@0.4.27-beta.0
+
+## 0.3.26
+
+### Patch Changes
+
+- Updated dependencies [7cc703c]
+  - @nextclaw/ncp@0.8.1
+  - @nextclaw/shared@0.4.26
+
+## 0.3.25
+
+### Patch Changes
+
+- c10dcaa: 新增统一的结构化运行诊断事件、安全错误分类和日志查询命令，覆盖 Service、扩展、配置、渠道、Agent、全部 kernel 工具、外部 transport 与定时任务关键链路；取消、网络与未知异常都有独立可查询终态。内置 AI 现在可以按时间窗和关联 ID 从日志证据排查运行故障。QQ 渠道首先接入完整投递链路，并默认不记录消息正文、工具参数/结果、完整 URL、用户身份或凭据。
+- Updated dependencies [c10dcaa]
+  - @nextclaw/shared@0.4.25
+
+## 0.3.24
+
+### Patch Changes
+
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+  - @nextclaw/ncp@0.8.0
+  - @nextclaw/shared@0.4.24
+
+## 0.3.23
+
+### Patch Changes
+
+- Updated dependencies [9b22a7d]
+  - @nextclaw/shared@0.4.23
+
+## 0.3.22
+
+### Patch Changes
+
+- Updated dependencies [7179c7a]
+  - @nextclaw/shared@0.4.22
+
+## 0.3.21
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+  - @nextclaw/ncp@0.7.17
+  - @nextclaw/shared@0.4.21
+
+## 0.3.20
+
+### Patch Changes
+
+- 4ab158d: 渠道扩展改为按需启动：未启用渠道不再常驻独立 Node 进程，运行中启用或禁用渠道会自动创建或回收对应扩展；同时增加 ready/generation 隔离、鉴权会话租约、有限故障恢复和扩展进程内存诊断。
+
+  在 ARM64 Linux、2 vCPU / 2 GiB 限制和无活跃任务的空配置基准中，三轮平均 working set 从旧版本约 865～885 MiB 降至 164.94 MiB，下降约 81%。活跃 Agent runtime、浏览器、MCP、本地模型和已启用渠道仍会按实际工作增加内存占用。
+
+- Updated dependencies [4ab158d]
+- Updated dependencies [c54a1d9]
+  - @nextclaw/shared@0.4.20
+
+## 0.3.19
+
+### Patch Changes
+
+- Updated dependencies [8049f49]
+- Updated dependencies [8e53d92]
+- Updated dependencies [bf3ff68]
+- Updated dependencies [08325d3]
+  - @nextclaw/shared@0.4.19
+  - @nextclaw/ncp@0.7.16
+
+## 0.3.18
+
+### Patch Changes
+
+- Updated dependencies [dbececb]
+  - @nextclaw/shared@0.4.18
+
 ## 0.3.17
 
 ### Patch Changes

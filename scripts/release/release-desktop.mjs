@@ -3,14 +3,17 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { waitForDesktopReleaseClosure } from "./desktop-release-closure.mjs";
-import { resolveDesktopReleaseNotesUrl } from "./desktop-release-notes.mjs";
-import { runRemotePreflight } from "./desktop-release-preflight.mjs";
+import { verifyExistingDesktopReleaseClosure, waitForDesktopReleaseClosure } from "./desktop-release-closure.mjs";
+import { assertReleaseIsDraft, createDraftRelease, dispatchReleaseWorkflow, prepareDesktopDraft } from "./desktop-release-github.mjs";
 import {
-  createReleaseWorktree,
-  installReleaseWorktreeDependencies,
-  runReleaseWorktreePackageVerify
-} from "./desktop-release-worktree.mjs";
+  inferExistingDesktopDraft,
+  inferExistingReleaseRecovery,
+  readNextDesktopReleaseTag
+} from "./desktop-release-recovery.mjs";
+import { assertDesktopGithubReleaseNotes, buildDesktopGithubReleaseNotes, resolveDesktopReleaseNotesUrl } from "./desktop-release-notes.mjs";
+import { assertPublishedDesktopRuntimeIdentity, runRemotePreflight } from "./desktop-release-preflight.mjs";
+import { reconcileReleaseMainline } from "./reconcile-release-mainline.mjs";
+import { createReleaseWorktree, installReleaseWorktreeDependencies, runReleaseWorktreePackageVerify } from "./desktop-release-worktree.mjs";
 
 const ROOT_DIR = process.cwd();
 const DEFAULT_REPO = "Peiiii/nextclaw";
@@ -18,7 +21,7 @@ const DEFAULT_PREFLIGHT_WORKFLOW = "desktop-release-preflight.yml";
 const DEFAULT_WORKFLOW = "desktop-release.yml";
 const DEFAULT_PUBLIC_ATTEMPTS = 24;
 const DEFAULT_PUBLIC_DELAY_MS = 10000;
-const DEFAULT_RUN_ATTEMPTS = 150;
+const DEFAULT_RUN_ATTEMPTS = 720;
 const DEFAULT_RUN_DELAY_MS = 10000;
 const CHANNELS = new Set(["beta", "stable"]);
 const RELEASE_SENSITIVE_PATHS = [
@@ -33,7 +36,8 @@ const RELEASE_SENSITIVE_PATHS = [
 ];
 
 function printHelp() {
-  console.log(`
+  console.log(
+    `
 Usage:
   pnpm release:desktop:beta -- [options]
   pnpm release:desktop:stable -- [options]
@@ -50,19 +54,21 @@ Options:
   --preflight-workflow <file>     Desktop release preflight workflow. Defaults to ${DEFAULT_PREFLIGHT_WORKFLOW}
   --workflow <file>               Desktop release workflow. Defaults to ${DEFAULT_WORKFLOW}
   --target <git-ref>              Release target. Defaults to the current HEAD SHA
-  --notes-file <path>             Release notes body file
+  --notes-file <path>             Override the stable GitHub body; defaults to exact-version structured release notes
   --release-notes-url <url>       User-facing release notes URL expected in update manifests
   --run-id <id>                   Reuse a known desktop-release run
   --reuse-existing-release        Do not create the GitHub release; verify/close an existing tag
   --skip-local-verify             Skip pnpm desktop:package:verify
   --skip-remote-preflight         Skip GitHub signing-secret preflight
   --skip-public-pages             Verify gh-pages only; skip public Pages propagation polling
+  --prepare-draft-only             Create or verify the hidden Draft, without preflight, build, or dispatch
   --release-worktree              Run local verification in a temporary detached worktree. This is the default.
   --no-release-worktree           Run local verification in the current checkout instead of a temporary worktree.
                                   This also requires a fully clean tracked worktree.
   --dry-run                       Print planned actions without mutating remote state
   --help                          Show this help
-`.trim());
+`.trim()
+  );
 }
 
 function parseArgs(argv) {
@@ -73,7 +79,9 @@ function parseArgs(argv) {
     desktopVersion: null,
     dryRun: false,
     minimumLauncherVersion: null,
+    nodeVersion: readFileSync(resolve(ROOT_DIR, ".nvmrc"), "utf8").trim(),
     notesFile: null,
+    prepareDraftOnly: false,
     preflightWorkflow: DEFAULT_PREFLIGHT_WORKFLOW,
     publicAttempts: DEFAULT_PUBLIC_ATTEMPTS,
     publicDelayMs: DEFAULT_PUBLIC_DELAY_MS,
@@ -126,6 +134,9 @@ function parseArgs(argv) {
         break;
       case "--skip-public-pages":
         options.skipPublicPages = true;
+        break;
+      case "--prepare-draft-only":
+        options.prepareDraftOnly = true;
         break;
       case "--release-worktree":
         options.releaseWorktree = true;
@@ -227,9 +238,7 @@ function assertCleanWorktree(options) {
           `[desktop:release] ignoring unrelated tracked worktree changes; release uses committed target ${target ?? "HEAD"}:\n${trackedChanges.join("\n")}`
         );
       } else if (dryRun) {
-        console.warn(
-          `[desktop:release] dry-run continuing with release-sensitive tracked worktree changes:\n${sensitiveChanges.join("\n")}`
-        );
+        console.warn(`[desktop:release] dry-run continuing with release-sensitive tracked worktree changes:\n${sensitiveChanges.join("\n")}`);
       } else {
         throw new Error(
           [
@@ -245,20 +254,17 @@ function assertCleanWorktree(options) {
       console.warn("[desktop:release] dry-run continuing with tracked worktree changes.");
       return;
     }
-    throw new Error(
-      `Desktop release requires no tracked worktree changes. Commit or stash these first:\n${trackedChanges.join("\n")}`
-    );
+    throw new Error(`Desktop release requires no tracked worktree changes. Commit or stash these first:\n${trackedChanges.join("\n")}`);
   }
   if (untrackedChanges.length > 0) {
-    console.warn(
-      `[desktop:release] ignoring untracked files; they will not be included in the release:\n${untrackedChanges.join("\n")}`
-    );
+    console.warn(`[desktop:release] ignoring untracked files; they will not be included in the release:\n${untrackedChanges.join("\n")}`);
   }
 }
 
 function ensureRequiredCommands() {
   run("git", ["--version"]);
   run("gh", ["--version"]);
+  run("npm", ["--version"]);
   run("pnpm", ["--version"]);
   run("curl", ["--version"]);
 }
@@ -293,66 +299,47 @@ function readMinimumLauncherVersion(channel) {
   return value.trim();
 }
 
-function buildTagPrefix(channel, runtimeVersion) {
-  return channel === "beta"
-    ? `v${runtimeVersion}-desktop-beta.`
-    : `v${runtimeVersion}-desktop.`;
-}
-
-function readNextTag(channel, runtimeVersion) {
-  const prefix = buildTagPrefix(channel, runtimeVersion);
-  const output = run("git", ["ls-remote", "--tags", "origin", `refs/tags/${prefix}*`]);
-  const nextNumber = output
-    .split("\n")
-    .map((line) => line.trim().split(/\s+/)[1] ?? "")
-    .map((ref) => ref.replace(/^refs\/tags\//, "").replace(/\^\{\}$/, ""))
-    .map((tag) => Number(tag.startsWith(prefix) ? tag.slice(prefix.length) : NaN))
-    .filter(Number.isInteger)
-    .reduce((max, value) => Math.max(max, value), 0) + 1;
-  return `${prefix}${nextNumber}`;
-}
-
-function buildReleaseTitle(options) {
-  const { channel, desktopVersion, tag } = options;
-  const suffix = Number(tag.split(".").at(-1));
-  if (channel === "beta") {
-    return `NextClaw Desktop ${desktopVersion} Preview Beta ${Number.isInteger(suffix) ? suffix : ""}`.trim();
-  }
-  return `NextClaw Desktop ${desktopVersion}`;
-}
-
 function buildReleaseNotes(options) {
   const { channel, desktopVersion, minimumLauncherVersion, notesFile, runtimeVersion } = options;
   if (notesFile) {
-    return readFileSync(resolve(ROOT_DIR, notesFile), "utf8");
+    return {
+      notes: readFileSync(resolve(ROOT_DIR, notesFile), "utf8"),
+      structuredReleaseNotesPath: null
+    };
   }
 
   if (channel === "beta") {
-    return [
-      `NextClaw Desktop preview build for runtime ${runtimeVersion}.`,
-      "",
-      "- Includes desktop installers, portable Windows builds, update bundles, and beta update manifests.",
-      `- Desktop app version: ${desktopVersion}`,
-      `- Runtime bundle version: ${runtimeVersion}`,
-      `- Minimum launcher version: ${minimumLauncherVersion}`
-    ].join("\n");
+    return {
+      notes: [
+        `NextClaw Desktop preview build for runtime ${runtimeVersion}.`,
+        "",
+        "- Includes desktop installers, portable Windows builds, update bundles, and beta update manifests.",
+        `- Desktop app version: ${desktopVersion}`,
+        `- Runtime bundle version: ${runtimeVersion}`,
+        `- Minimum launcher version: ${minimumLauncherVersion}`
+      ].join("\n"),
+      structuredReleaseNotesPath: null
+    };
   }
 
-  return [
-    "English Version",
-    "",
-    `NextClaw Desktop ${desktopVersion} stable release for runtime ${runtimeVersion}.`,
-    "",
-    "- Includes desktop installers, update bundles, stable update manifests, and Linux APT publishing.",
-    `- Minimum launcher version: ${minimumLauncherVersion}`,
-    "",
-    "中文版",
-    "",
-    `NextClaw Desktop ${desktopVersion} 正式版，运行时版本 ${runtimeVersion}。`,
-    "",
-    "- 包含桌面安装包、更新包、stable 更新 manifest 与 Linux APT 发布。",
-    `- 最低 launcher 版本：${minimumLauncherVersion}`
-  ].join("\n");
+  const structuredReleaseNotesPath = `apps/docs/public/release-notes/nextclaw-v${runtimeVersion}.json`;
+  const rawStructuredReleaseNotes = readTargetFile(options.target, structuredReleaseNotesPath);
+  if (!rawStructuredReleaseNotes) {
+    throw new Error(`Stable desktop release target ${options.target} is missing ${structuredReleaseNotesPath}.`);
+  }
+  let metadata;
+  try {
+    metadata = JSON.parse(rawStructuredReleaseNotes);
+  } catch (error) {
+    throw new Error(`Invalid structured release notes at ${options.target}:${structuredReleaseNotesPath}: ${error instanceof Error ? error.message : error}`);
+  }
+  return {
+    notes: buildDesktopGithubReleaseNotes({
+      expectedVersion: runtimeVersion,
+      metadata
+    }),
+    structuredReleaseNotesPath
+  };
 }
 
 function runLocalVerify(options) {
@@ -379,57 +366,8 @@ function runLocalVerify(options) {
   }
 }
 
-function pushBranchIfNeeded(branch, aheadCount, options) {
-  if (aheadCount === 0) {
-    return;
-  }
-  const message = `[desktop:release] pushing ${aheadCount} local commit(s) to origin/${branch}`;
-  if (options.dryRun) {
-    console.log(`${message} (dry-run)`);
-    return;
-  }
-  console.log(message);
-  run("git", ["push", "origin", `HEAD:${branch}`], { capture: false });
-}
-
-function createRelease(options) {
-  const { channel, dryRun, repo, tag, target } = options;
-  const args = [
-    "release",
-    "create",
-    tag,
-    "--repo",
-    repo,
-    "--target",
-    target,
-    "--title",
-    buildReleaseTitle(options),
-    "--notes",
-    buildReleaseNotes(options)
-  ];
-  if (channel === "beta") {
-    args.push("--prerelease");
-  }
-
-  if (dryRun) {
-    console.log(`[desktop:release] would create GitHub ${channel} release ${tag}`);
-    return;
-  }
-  run("gh", args, { capture: false });
-}
-
 function printPlan(options, aheadCount) {
-  const {
-    branch,
-    channel,
-    desktopVersion,
-    minimumLauncherVersion,
-    releaseNotesUrl,
-    releaseWorktree,
-    runtimeVersion,
-    tag,
-    target
-  } = options;
+  const { branch, channel, desktopVersion, minimumLauncherVersion, prepareDraftOnly, releaseNotesUrl, releaseWorktree, runtimeVersion, tag, target } = options;
   console.log(
     [
       `[desktop:release] channel=${channel}`,
@@ -441,9 +379,56 @@ function printPlan(options, aheadCount) {
       `branch=${branch}`,
       `target=${target}`,
       `ahead=${aheadCount}`,
-      `releaseWorktree=${releaseWorktree}`
+      `releaseWorktree=${releaseWorktree}`,
+      "publication=draft-until-assets-verified",
+      "npmPublish=excluded",
+      prepareDraftOnly ? "publishedRuntimeIdentity=deferred" : "publishedRuntimeIdentity=verified"
     ].join(" ")
   );
+}
+
+async function executeRelease(options, aheadCount) {
+  const { branch, channel, dryRun, existingReleaseComplete, publishLinuxAptOnly, reuseExistingRelease, runId, tag, target, workflow } = options;
+  if (dryRun) {
+    console.log(publishLinuxAptOnly ? `[desktop:release] would recover APT for existing public release ${tag}` : `[desktop:release] would create hidden Draft ${tag}`);
+    console.log(`[desktop:release] would dispatch ${workflow} for exact target ${target}`);
+    console.log("[desktop:release] public gate: complete Draft assets verified before publication");
+    console.log("[desktop:release] dry-run complete; no release was created.");
+    return;
+  }
+
+  if (existingReleaseComplete) {
+    await verifyExistingDesktopReleaseClosure(options);
+    console.log(channel === "stable" ? "DESKTOP_READY" : "DESKTOP_BETA_READY");
+    return;
+  }
+  if (!publishLinuxAptOnly) runLocalVerify(options);
+  if (aheadCount > 0) {
+    const message = `[desktop:release] pushing ${aheadCount} local commit(s) to origin/${branch}`;
+    if (dryRun) {
+      console.log(`${message} (dry-run)`);
+    } else {
+      console.log(message);
+      run("git", ["push", "origin", `HEAD:${branch}`], { capture: false });
+    }
+  }
+  if (!publishLinuxAptOnly) await runRemotePreflight(options);
+  if (!reuseExistingRelease) {
+    createDraftRelease(options);
+  } else if (!runId && !publishLinuxAptOnly) {
+    assertReleaseIsDraft(options);
+  }
+  const workflowDispatch = runId ? {} : dispatchReleaseWorkflow(options);
+  await waitForDesktopReleaseClosure({ ...options, ...workflowDispatch });
+  const mainlineReconciliation = reconcileReleaseMainline({
+    rootDir: ROOT_DIR,
+    targetBranch: "master"
+  });
+  console.log(`[desktop:release] mainline reconciliation: ${mainlineReconciliation.status}`);
+  if (["FAILED", "MAINLINE_RECONCILIATION_RECOVERING"].includes(mainlineReconciliation.status)) {
+    throw new Error(`Desktop release mainline reconciliation failed: ${mainlineReconciliation.status}`);
+  }
+  console.log(channel === "stable" ? "DESKTOP_READY" : "DESKTOP_BETA_READY");
 }
 
 async function main() {
@@ -460,30 +445,40 @@ async function main() {
   options.target ??= readHeadSha();
   options.desktopVersion ??= readPackageVersion("apps/desktop/package.json");
   options.runtimeVersion ??= readPackageVersion("packages/nextclaw/package.json");
+  if (!options.prepareDraftOnly) {
+    assertPublishedDesktopRuntimeIdentity(options.channel, options.runtimeVersion);
+  }
   options.minimumLauncherVersion ??= readMinimumLauncherVersion(options.channel);
-  options.tag ??= readNextTag(options.channel, options.runtimeVersion);
+  if (!options.tag) {
+    Object.assign(
+      options,
+      inferExistingReleaseRecovery(options, run) ?? inferExistingDesktopDraft(options, run) ?? {}
+    );
+  }
+  options.tag ??= readNextDesktopReleaseTag(options, run);
   options.releaseNotesUrl = resolveDesktopReleaseNotesUrl({
     ...options,
     explicitReleaseNotesUrl: options.releaseNotesUrl,
     readTargetFile
   });
+  const releaseNotes = buildReleaseNotes(options);
+  options.releaseNotes = releaseNotes.notes;
+  options.structuredReleaseNotesPath = releaseNotes.structuredReleaseNotesPath;
+  assertDesktopGithubReleaseNotes({
+    channel: options.channel,
+    notes: options.releaseNotes,
+    notesFile: options.notesFile,
+    structuredReleaseNotesPath: options.structuredReleaseNotesPath
+  });
 
   fetchReleaseRefs(options.branch);
   const aheadCount = assertBranchIsNotBehind(options.branch);
   printPlan(options, aheadCount);
-
-  if (options.dryRun) {
-    console.log("[desktop:release] dry-run complete; no release was created.");
+  if (options.prepareDraftOnly) {
+    prepareDesktopDraft(options, aheadCount, run);
     return;
   }
-
-  runLocalVerify(options);
-  pushBranchIfNeeded(options.branch, aheadCount, options);
-  await runRemotePreflight(options);
-  if (!options.reuseExistingRelease) {
-    createRelease(options);
-  }
-  await waitForDesktopReleaseClosure(options);
+  await executeRelease(options, aheadCount);
 }
 
 try {

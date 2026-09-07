@@ -8,17 +8,17 @@ export const COMPARISON_COPY: Record<Locale, ComparisonCopy> = {
     values: [
       {
         icon: 'server-cog',
-        title: 'Deploy to your own Linux device, NAS, or cloud server',
+        title: 'Keep NextClaw running on your own VPS, NAS, or Linux device',
         description:
-          'Run NextClaw directly or with Docker on infrastructure you control, keeping its data, configuration, apps, and runtime environment with you.',
-        linkLabel: 'Installation options',
-        href: 'https://docs.nextclaw.io/en/guide/install'
+          'Unused messaging channels do not keep separate processes resident. NextClaw stays lean while idle and starts channel runtimes only when you enable or use them.',
+        linkLabel: 'Deployment and resource usage',
+        href: 'https://docs.nextclaw.io/en/guide/resource-usage'
       },
       {
         icon: 'code-xml',
-        title: 'Open source and open to extension',
+        title: 'Open source, scriptable, and open to extension',
         description:
-          'Study and learn from a clear architecture, then modify and extend the system with the models, APIs, agent runtimes, skills, and tools that fit the way you want to work.',
+          'Study and extend a clear architecture, and use core operations through the nextclaw CLI from a terminal, script, CI job, or another Agent.',
         linkLabel: 'View the source',
         href: 'https://github.com/Peiiii/nextclaw'
       },
@@ -38,15 +38,15 @@ export const COMPARISON_COPY: Record<Locale, ComparisonCopy> = {
     values: [
       {
         icon: 'server-cog',
-        title: '部署到自己的 Linux 设备、NAS 或云服务器',
-        description: '可以直接运行或通过 Docker 部署，数据、配置、应用和运行环境都由自己掌控。',
-        linkLabel: '查看安装方式',
-        href: 'https://docs.nextclaw.io/zh/guide/install'
+        title: '让 NextClaw 在自己的 VPS、NAS 或 Linux 设备上长期运行',
+        description: '未启用的消息渠道不会常驻独立进程。空闲时保持轻量，需要启用或使用渠道时再按需启动。',
+        linkLabel: '查看部署与资源占用',
+        href: 'https://docs.nextclaw.io/zh/guide/resource-usage'
       },
       {
         icon: 'code-xml',
-        title: '开放开源，可以持续改造和扩展',
-        description: '源码开放、架构清晰，方便理解和学习整套 Agent 系统；也可以按自己的需要修改和扩展，接入模型、API、Agent runtime、技能和工具。',
+        title: '开放开源，也方便通过命令行集成',
+        description: '源码开放、架构清晰，方便理解和扩展整套 Agent 系统；核心操作也可以通过 nextclaw 命令行接入终端、脚本、CI 或其他 Agent。',
         linkLabel: '查看源代码',
         href: 'https://github.com/Peiiii/nextclaw'
       },

@@ -2,11 +2,13 @@ import { forwardRef, useImperativeHandle, useMemo, useRef } from 'react';
 import type {
   ChatInputBarProps,
   ChatInputSurfaceConfig,
+  ChatComposerTokenData,
+  ChatComposerTokenKind,
 } from '@agent-chat-ui/components/chat/view-models/chat-ui.types';
 import { ChatInputSurfaceHost } from '@agent-chat-ui/components/chat/ui/input-surface/chat-input-surface-host';
 import { ChatUiPrimitives } from '@agent-chat-ui/components/chat/ui/primitives/chat-ui-primitives';
 import { ChatInputBarToolbar } from './chat-input-bar-toolbar';
-import { ChatInputBarTokenizedComposer, type ChatInputBarTokenizedComposerHandle } from './chat-input-bar-tokenized-composer';
+import { ChatComposerEditor, type ChatComposerEditorHandle } from './chat-composer-editor';
 
 const SEND_ERROR_PREVIEW_MAX_CHARS = 120;
 
@@ -98,8 +100,20 @@ function ChatInputBarSendError({ sendError, sendErrorDetailsLabel }: Pick<ChatIn
 }
 
 export type ChatInputBarHandle = {
-  insertFileToken: (tokenKey: string, label: string) => void;
-  insertFileTokens: (tokens: Array<{ tokenKey: string; label: string }>) => void;
+  insertInputSurfaceToken: (token: {
+    data?: ChatComposerTokenData;
+    tokenKind: ChatComposerTokenKind;
+    tokenKey: string;
+    label: string;
+  }) => void;
+  insertToken: (token: {
+    data?: ChatComposerTokenData;
+    tokenKind: ChatComposerTokenKind;
+    tokenKey: string;
+    label: string;
+  }) => void;
+  insertFileToken: (tokenKey: string, label: string, previewUrl?: string) => void;
+  insertFileTokens: (tokens: Array<{ tokenKey: string; label: string; previewUrl?: string }>) => void;
   focusComposer: () => void;
   focusComposerAtEnd: (nodes?: ChatInputBarProps['composer']['nodes']) => void;
 };
@@ -108,7 +122,7 @@ export const ChatInputBar = forwardRef<ChatInputBarHandle, ChatInputBarProps>(fu
   { composer, hint, inputSurface, sendError, sendErrorDetailsLabel, slashMenu, surface, toolbar: toolbarProps, topSlot },
   ref
 ) {
-  const composerRef = useRef<ChatInputBarTokenizedComposerHandle | null>(null);
+  const composerRef = useRef<ChatComposerEditorHandle | null>(null);
   const resolvedInputSurface: ChatInputSurfaceConfig | null = inputSurface ?? (slashMenu
       ? {
         isLoading: slashMenu.isLoading,
@@ -142,20 +156,31 @@ export const ChatInputBar = forwardRef<ChatInputBarHandle, ChatInputBarProps>(fu
   }, [toolbarProps]);
 
   useImperativeHandle(ref, () => ({
-    insertFileToken: (tokenKey, label) => composerRef.current?.insertFileToken(tokenKey, label),
+    insertInputSurfaceToken: (token) => composerRef.current?.insertInputSurfaceItem({
+      key: `resolved-token:${token.tokenKind}:${token.tokenKey}`,
+      title: token.label,
+      subtitle: '',
+      description: '',
+      detailLines: [],
+      tokenKind: token.tokenKind,
+      tokenKey: token.tokenKey,
+      data: token.data,
+    }, composer.inputSurfaceTriggerSpecs),
+    insertToken: (token) => composerRef.current?.insertToken(token),
+    insertFileToken: (tokenKey, label, previewUrl) => composerRef.current?.insertFileToken(tokenKey, label, previewUrl),
     insertFileTokens: (tokens) => composerRef.current?.insertFileTokens(tokens),
     focusComposer: () => composerRef.current?.focusComposer(),
     focusComposerAtEnd: (nodes) => composerRef.current?.focusComposerAtEnd(nodes),
-  }), []);
+  }), [composer.inputSurfaceTriggerSpecs]);
   const surfaceClassName =
     surface === 'embedded'
       ? 'bg-transparent px-0 py-0'
       : 'bg-background px-3 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-2';
 
   return (
-    <div className={surfaceClassName}>
+    <div className={`nextclaw-chat-input-bar-surface ${surfaceClassName}`}>
       <div className="nextclaw-chat-input-bar-shell mx-auto w-full max-w-[min(1120px,100%)] [container:nextclaw-chat-input-bar/inline-size]">
-        <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+        <div className="nextclaw-chat-composer-surface overflow-hidden rounded-2xl border border-border bg-card shadow-card">
           {topSlot ? (
             <div className="px-3 pb-0 pt-2 sm:px-4 sm:pt-2.5">
               {topSlot}
@@ -166,7 +191,7 @@ export const ChatInputBar = forwardRef<ChatInputBarHandle, ChatInputBarProps>(fu
               inputSurface={resolvedInputSurface}
               onInputSurfaceTriggerChange={composer.onInputSurfaceTriggerChange}
               onSelectItem={(item) => {
-                if (item.selectionBehavior === 'navigate') {
+                if (item.selectionBehavior === 'navigate' || item.selectionBehavior === 'action') {
                   resolvedInputSurface?.onSelectItem?.(item);
                   return;
                 }
@@ -179,10 +204,12 @@ export const ChatInputBar = forwardRef<ChatInputBarHandle, ChatInputBarProps>(fu
                 onInputSurfaceOpenChange,
                 onInputSurfaceSnapshotChange,
               }) => (
-                <ChatInputBarTokenizedComposer
+                <ChatComposerEditor
                   ref={composerRef}
                   nodes={composer.nodes}
                   placeholder={composer.placeholder}
+                  excerptCharacterCountTemplate={composer.excerptCharacterCountTemplate}
+                  removeTokenLabel={composer.removeTokenLabel}
                   disabled={composer.disabled}
                   onInputSurfaceItemSelect={resolvedInputSurface?.onSelectItem}
                   actions={toolbarProps.actions}

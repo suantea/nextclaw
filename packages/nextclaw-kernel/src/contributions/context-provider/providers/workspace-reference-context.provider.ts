@@ -3,6 +3,7 @@ import {
   CHAT_INLINE_TOKENS_SCHEMA_VERSION,
   CHAT_PROJECT_TOKEN_KIND,
   CHAT_WORKSPACE_DIRECTORY_TOKEN_KIND,
+  CHAT_WORKSPACE_EXCERPT_TOKEN_KIND,
   CHAT_WORKSPACE_FILE_TOKEN_KIND,
 } from "@nextclaw/shared";
 import type {
@@ -10,12 +11,13 @@ import type {
   ContextBlock,
   ContextProvider,
 } from "@kernel/types/agent-run.types.js";
-import type { ProjectManager } from "@kernel/managers/project.manager.js";
+import type { ProjectManager } from "@kernel/features/projects/index.js";
 import type { ContextProviderRunContextService } from "@kernel/contributions/context-provider/services/context-provider-run-context.service.js";
 import {
   type RegisteredProjectReference,
   WorkspaceReferenceMaterializerService,
   type WorkspaceContextReference,
+  type WorkspaceExcerptReference,
   type WorkspaceReference,
 } from "@kernel/contributions/context-provider/services/workspace-reference-materializer.service.js";
 
@@ -28,7 +30,16 @@ function readString(value: unknown): string | null {
 }
 
 type ProjectReference = Omit<RegisteredProjectReference, "project">;
-type RawWorkspaceContextReference = ProjectReference | WorkspaceReference;
+type RawWorkspaceContextReference =
+  | ProjectReference
+  | WorkspaceReference
+  | WorkspaceExcerptReference;
+
+function readLine(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : null;
+}
 
 function readWorkspaceReferences(
   metadata: Record<string, unknown> | undefined,
@@ -54,6 +65,8 @@ function readWorkspaceReferences(
       ? CHAT_WORKSPACE_FILE_TOKEN_KIND
       : rawToken.kind === CHAT_WORKSPACE_DIRECTORY_TOKEN_KIND
         ? CHAT_WORKSPACE_DIRECTORY_TOKEN_KIND
+        : rawToken.kind === CHAT_WORKSPACE_EXCERPT_TOKEN_KIND
+          ? CHAT_WORKSPACE_EXCERPT_TOKEN_KIND
         : rawToken.kind === CHAT_PROJECT_TOKEN_KIND
           ? CHAT_PROJECT_TOKEN_KIND
           : null;
@@ -62,6 +75,23 @@ function readWorkspaceReferences(
       continue;
     }
     seen.add(`${kind}:${key}`);
+    if (kind === CHAT_WORKSPACE_EXCERPT_TOKEN_KIND) {
+      const path = readString(rawToken.path);
+      const excerpt = readString(rawToken.excerpt);
+      if (!path || !excerpt) {
+        continue;
+      }
+      references.push({
+        kind,
+        key,
+        path,
+        excerpt,
+        label: readString(rawToken.label) ?? path,
+        startLine: readLine(rawToken.startLine),
+        endLine: readLine(rawToken.endLine),
+      });
+      continue;
+    }
     references.push({
       kind,
       key,

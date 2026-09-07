@@ -18,6 +18,10 @@ import { ChatConversationWelcome } from "@/features/chat/features/welcome/compon
 import { useChatSessionListStore } from "@/features/chat/stores/chat-session-list.store";
 import { useSystemStatus } from "@/features/system-status";
 import { t } from "@/shared/lib/i18n";
+import type { SystemObjectResolvedReference } from "@nextclaw/shared";
+import { deriveChatComposerDraft } from "@/features/chat/features/input/utils/chat-composer-state.utils";
+import { appendSystemObjectReferenceToken } from "@/features/chat/features/input/utils/chat-system-object-reference.utils";
+import type { ChatDraftIntent } from "@/features/chat/managers/chat-draft-intent.manager";
 
 import {
   useSessionConversationController,
@@ -42,18 +46,23 @@ type SessionConversationAreaProps = {
 function useSessionConversationDraftIntent(params: {
   readonly consumeDraftIntent: boolean;
   readonly applyPromptSuggestion: (prompt: string) => void;
+  readonly applySystemObjectReference: (reference: SystemObjectResolvedReference) => void;
 }) {
-  const { applyPromptSuggestion, consumeDraftIntent } = params;
+  const { applyPromptSuggestion, applySystemObjectReference, consumeDraftIntent } = params;
   const appPresenter = useAppPresenter();
   const presenter = usePresenter();
   useEffect(() => {
     if (!consumeDraftIntent) {
       return undefined;
     }
-    const applyIntent = (intent: { id: number; prompt: string }) => {
+    const applyIntent = (intent: ChatDraftIntent) => {
       presenter.chatSessionListManager.createSession();
       presenter.chatSessionListManager.setSelectedAgentId("main");
-      applyPromptSuggestion(intent.prompt);
+      if (intent.kind === 'prompt') {
+        applyPromptSuggestion(intent.prompt);
+      } else {
+        applySystemObjectReference(intent.reference);
+      }
       appPresenter.chatDraftIntentManager.markConsumed(intent.id);
     };
     const unsubscribe =
@@ -63,7 +72,7 @@ function useSessionConversationDraftIntent(params: {
       applyIntent(pendingIntent);
     }
     return unsubscribe;
-  }, [appPresenter, applyPromptSuggestion, consumeDraftIntent, presenter]);
+  }, [appPresenter, applyPromptSuggestion, applySystemObjectReference, consumeDraftIntent, presenter]);
 }
 
 type ChatDraftRouteState = {
@@ -84,11 +93,13 @@ function readChatDraftRouteState(value: unknown): ChatDraftRouteState | null {
 }
 
 function useSessionConversationDraftRouteState(params: {
+  readonly applyPromptSuggestion: (prompt: string) => void;
   readonly sessionKey: string | null;
   readonly setPendingProjectRoot: (projectRoot: string | null) => void;
   readonly setPendingSessionType: (sessionType: string) => void;
 }) {
   const {
+    applyPromptSuggestion,
     sessionKey,
     setPendingProjectRoot,
     setPendingSessionType,
@@ -119,6 +130,9 @@ function useSessionConversationDraftRouteState(params: {
     ) {
       setPendingSessionType(draftState.sessionType);
     }
+    if (typeof draftState.prompt === "string" && draftState.prompt.trim()) {
+      applyPromptSuggestion(draftState.prompt);
+    }
     setPendingProjectRoot(
       typeof draftState.projectRoot === "string" &&
         draftState.projectRoot.trim()
@@ -126,6 +140,7 @@ function useSessionConversationDraftRouteState(params: {
         : null,
     );
   }, [
+    applyPromptSuggestion,
     location.key,
     location.state,
     sessionKey,
@@ -194,7 +209,21 @@ export function SessionConversationArea(props: SessionConversationAreaProps) {
   );
   const agent = useNcpSessionConversation(sessionKey ?? undefined);
   const runQueue = useSessionRunQueue(sessionKey);
-  const { inputActions, inputSnapshot } = useSessionConversationInputState(initialPrompt);
+  const { inputActions, inputSnapshot } = useSessionConversationInputState(
+    initialPrompt,
+    sessionKey,
+  );
+  const applySystemObjectReference = useCallback((reference: SystemObjectResolvedReference) => {
+    inputActions.update((current) => {
+      const nodes = appendSystemObjectReferenceToken(current.nodes, reference);
+      return {
+        nodes,
+        text: deriveChatComposerDraft(nodes),
+        composerFocusRequestId: Date.now(),
+        sendError: null,
+      };
+    });
+  }, [inputActions]);
   const inputQuery = useSessionConversationInputQuery({
     sessionKey,
     inputSnapshot,
@@ -242,6 +271,7 @@ export function SessionConversationArea(props: SessionConversationAreaProps) {
     inputQuery.sessionTypeState.selectedSessionType,
   ]);
   useSessionConversationDraftRouteState({
+    applyPromptSuggestion: inputActions.applyPromptSuggestion,
     sessionKey,
     setPendingProjectRoot: inputActions.setPendingProjectRoot,
     setPendingSessionType: inputActions.setPendingSessionType,
@@ -249,8 +279,10 @@ export function SessionConversationArea(props: SessionConversationAreaProps) {
   const isRuntimeBlocked = isNcpChatRuntimeBlocked(systemStatus);
   const currentSessionRunning =
     agent.isRunning || inputQuery.selectedSession?.status === "running";
-  const rawLastSendError =
-    agent.hydrateError?.message ?? agent.snapshot.error?.message ?? null;
+  const runtimeError = agent.snapshot.error;
+  const rawLastSendError = agent.hydrateError?.message
+    ?? (runtimeError?.code === "run-interrupted" ? null : runtimeError?.message)
+    ?? null;
   const filteredLastSendError =
     systemStatus.phase === "ready" &&
     isNcpAgentStartupUnavailableErrorMessage(rawLastSendError)
@@ -286,27 +318,44 @@ export function SessionConversationArea(props: SessionConversationAreaProps) {
     restoreComposer: inputActions.restoreComposer,
     setSendError: inputActions.setSendError,
   });
+  const conversationMessages = useMemo(() => {
+    const durableMessageIds = new Set(agent.visibleMessages.map(({ id }) => id));
+    const pendingSteeringMessages = runQueue.pendingInputs.flatMap((input) =>
+      input.placement === "steering" && !durableMessageIds.has(input.message.id)
+        ? [{ ...input.message, status: "pending" as const }]
+        : []
+    );
+    return [...agent.visibleMessages, ...pendingSteeringMessages];
+  }, [agent.visibleMessages, runQueue.pendingInputs]);
   const controllerRef = useRef(controller);
   useEffect(() => {
     controllerRef.current = controller;
   }, [controller]);
   const inputController = useMemo<SessionConversationInputController>(
     () => ({
+      canEditQueuedInput: controller.canEditQueuedInput,
       canStopGeneration: controller.canStopGeneration,
       deleteQueuedInput: (id: string) =>
         controllerRef.current.deleteQueuedInput(id),
       editQueuedInput: (id: string) =>
         controllerRef.current.editQueuedInput(id),
       isSending: controller.isSending,
+      primaryAction: controller.primaryAction,
       queuedInputs: controller.queuedInputs,
       send: () => controllerRef.current.send(),
+      sendSteering: () => controllerRef.current.sendSteering(),
+      sendPresetMessage: (message: string) =>
+        controllerRef.current.sendPresetMessage(message).catch(() => undefined),
       sendDisabled: controller.sendDisabled,
       stop: () => controllerRef.current.stop(),
       stopDisabled: controller.stopDisabled,
+      steerQueuedInput: (id: string) => controllerRef.current.steerQueuedInput(id),
     }),
     [
       controller.canStopGeneration,
+      controller.canEditQueuedInput,
       controller.isSending,
+      controller.primaryAction,
       controller.queuedInputs,
       controller.sendDisabled,
       controller.stopDisabled,
@@ -319,60 +368,58 @@ export function SessionConversationArea(props: SessionConversationAreaProps) {
       ),
     [agent.snapshot.contextWindow],
   );
-  const displayInputSnapshot = useMemo(
-    () => ({
-      ...inputSnapshot,
-      sendError: lastSendError ?? inputSnapshot.sendError,
-    }),
-    [inputSnapshot, lastSendError],
-  );
-  const sessionFailurePreview = inputQuery.selectedSession?.activityPreview;
-  const sessionFailureMessage =
-    sessionFailurePreview?.state === "failed"
-      ? sessionFailurePreview.statusText?.trim() ||
-        sessionFailurePreview.replyText?.trim() ||
-        null
-      : null;
-  const sessionFailureSlot = sessionFailureMessage ? (
-    <div className="rounded-lg border border-red-200/80 bg-red-50/80 px-3 py-2.5 shadow-sm">
-      <div className="text-xs font-semibold text-red-800">
-        {t("chatSessionErrorTitle")}
-      </div>
-      <div className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-red-700">
-        {sessionFailureMessage}
-      </div>
+  const { selectedSession } = inputQuery;
+  const conversationFailureMessage =
+    inputSnapshot.sendError?.trim() ||
+    lastSendError?.trim() ||
+    (selectedSession?.activityPreview?.state === "failed" &&
+      selectedSession.activityPreview.statusKind !== "run-interrupted"
+      ? selectedSession.activityPreview.statusText?.trim()
+      : null) ||
+    null;
+  const conversationFailureSlot = conversationFailureMessage ? (
+    <div
+      className="rounded-lg border-l-2 border-destructive/40 bg-muted/45 px-3 py-2.5"
+      role="status"
+    >
+      <pre className="max-h-32 select-text overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-muted-foreground">
+        {conversationFailureMessage}
+      </pre>
     </div>
   ) : null;
   useSessionConversationDraftIntent({
     consumeDraftIntent,
     applyPromptSuggestion: inputActions.applyPromptSuggestion,
+    applySystemObjectReference,
   });
   const renderInput = useCallback(
-    (surface: "default" | "embedded") => (
+    (surface: "default" | "embedded", placeholder?: string) => (
       <SessionConversationInput
         contextWindow={contextWindow}
         controller={inputController}
         inputActions={inputActions}
         inputQuery={inputQuery}
-        inputSnapshot={displayInputSnapshot}
+        inputSnapshot={inputSnapshot}
         onContextCompactingChange={handleContextCompactingChange}
+        placeholder={placeholder}
         surface={surface}
       />
     ),
     [
       contextWindow,
-      displayInputSnapshot,
       inputController,
       inputActions,
       inputQuery,
+      inputSnapshot,
       handleContextCompactingChange,
     ],
   );
   const showWelcome =
     showWelcomeForDraft &&
     !sessionKey &&
-    agent.visibleMessages.length === 0 &&
-    !agent.isHydrating;
+    conversationMessages.length === 0 &&
+    !agent.isHydrating &&
+    !controller.isSending;
 
   return (
     <>
@@ -380,23 +427,31 @@ export function SessionConversationArea(props: SessionConversationAreaProps) {
       <ChatConversationContent
         hasPreviousMessages={agent.hasPreviousMessages}
         historyError={agent.historyError}
-        isAwaitingAssistantOutput={
-          controller.isSending && currentSessionRunning
-        }
         isHistoryLoading={agent.isHydrating}
         isLoadingPreviousMessages={agent.isLoadingPreviousMessages}
         isSending={controller.isSending}
+        canContinue={controller.canContinue}
+        messageActionsDisabled={controller.isSending || isRuntimeBlocked}
         isContextCompacting={Boolean(
           sessionKey && compactingSessionIds.has(sessionKey),
         )}
-        bottomSlot={sessionFailureSlot}
-        messages={agent.visibleMessages}
+        bottomSlot={showWelcome ? null : conversationFailureSlot}
+        messages={conversationMessages}
+        messageDetailStates={agent.messageDetailStates}
         sessionKey={sessionKey}
         showWelcome={showWelcome}
         onLoadPreviousMessages={agent.loadPreviousMessages}
+        onLoadMessageDetails={agent.loadMessageDetails}
+        onContinueRun={() => controllerRef.current.continueRun()}
+        onEditMessage={(payload) => controllerRef.current.editMessage(payload)}
         welcomeSlot={
           <ChatConversationWelcome
-            inputSlot={renderInput("embedded")}
+            inputSlot={
+              <div className="space-y-2">
+                {renderInput("embedded", t("chatWelcomeInputPlaceholder"))}
+                {conversationFailureSlot}
+              </div>
+            }
             pendingProjectRoot={inputSnapshot.pendingProjectRoot}
             pendingSessionType={inputSnapshot.pendingSessionType}
             selectedSessionTypeValue={inputSnapshot.selectedSessionType}

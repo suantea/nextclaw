@@ -1,5 +1,438 @@
 # @nextclaw/client-sdk
 
+## 0.12.0
+
+### Minor Changes
+
+- db88c76: 完全移除旧项目 Marker 与项目观测机制。Projects 不再读取 `.nextclaw/project.yaml`、扫描项目文件或全部历史会话，也不再提供 observation API 与 `nextclaw projects observe`；历史配置不会再产生 Marker 或未知字段诊断。
+
+  项目材料改为零配置的单一来源：产物只展示 Project Work 工作项显式关联的文件，支持去重、分页与搜索；Skills 固定读取 `.agents/skills`；工作约定固定读取项目根目录 `AGENTS.md`。
+
+  同时简化项目工作项列表与看板的状态分组，移除外层卡片边框和底色，只保留工作项自身的边界与轻量分组标题。
+
+### Patch Changes
+
+- Updated dependencies [b51f599]
+- Updated dependencies [db88c76]
+  - @nextclaw/shared@0.5.1
+  - @nextclaw/server@0.23.0
+
+## 0.11.2
+
+### Patch Changes
+
+- 25a59ef: 新增安全的项目移除能力：用户可在项目页面确认影响后将项目从列表移除，或通过要求精确项目 ID 确认的 CLI 执行同一操作；本地目录、历史会话和 Project Work 保持不变，重新添加同一目录会恢复原项目。
+- 7b960b9: 恢复项目概览中同等重要的当前工作与最近产物双区域，并为 UI、API、Agent Tool 和 CLI 增加按状态分组的有界工作项游标分页。
+- Updated dependencies [25a59ef]
+- Updated dependencies [7b960b9]
+  - @nextclaw/server@0.22.2
+
+## 0.11.1
+
+### Patch Changes
+
+- @nextclaw/server@0.22.1
+
+## 0.11.0
+
+### Minor Changes
+
+- 3cd57bf: 新增由 NextClaw 独立持久化的项目工作项：支持自定义状态、完整状态变化历史、关注标记、软删除恢复和项目内产物关联，不再依赖扫描会话历史或向项目目录写入追踪文件。
+
+  项目内会话会按条件获得工作项工具；CLI 提供同一套 CRUD、状态与产物入口并强制指定项目 ID。项目主页的概览、列表和看板会响应实时变更，所有工作项统一在右侧详情抽屉中打开，同时保留原有产物、Skills、工作约定与项目会话能力。
+
+- 86d3479: 新增 Projects 项目主页：通过项目配置、项目文件、会话 Marker 和项目 Skills 展示可追溯的工作项、产物、上下文、AI 运行状态、待关注事项与诊断。已有项目会话与旧版观测快照会保持可读。
+
+  新增 `client.projects.getObservation()`、`GET /api/projects/:projectId/observation` 和 `nextclaw projects observe`，三条入口复用同一份 Kernel 快照合同。项目 setup 经用户确认后会建立 `.nextclaw/project.yaml`、根 `AGENTS.md` 与项目内工作追踪 Skill；后续 AI 在每个工作节点开始前输出紧凑 Marker，项目页会在流式输出期间更新。不会新增项目任务数据库、特殊会话类型或运行时 Skill 注入。
+
+### Patch Changes
+
+- 50f2129: 为 WASI 应用补齐用户目录授权闭环。用户现在可以在应用页面或 CLI 中查看声明的目录权限，选择运行主机上的文件夹，以只读或读写方式授权，并随时替换或撤销；授权变化会立即淘汰旧的 Runtime 挂载。
+- Updated dependencies [3cd57bf]
+- Updated dependencies [86d3479]
+- Updated dependencies [50f2129]
+  - @nextclaw/server@0.22.0
+  - @nextclaw/shared@0.5.0
+
+## 0.11.0-beta.1
+
+### Minor Changes
+
+- 3cd57bf: 新增由 NextClaw 独立持久化的项目工作项：支持自定义状态、完整状态变化历史、关注标记、软删除恢复和项目内产物关联，不再依赖扫描会话历史或向项目目录写入追踪文件。
+
+  项目内会话会按条件获得工作项工具；CLI 提供同一套 CRUD、状态与产物入口并强制指定项目 ID。项目主页的概览、列表和看板会响应实时变更，所有工作项统一在右侧详情抽屉中打开，同时保留原有产物、Skills、工作约定与项目会话能力。
+
+### Patch Changes
+
+- 50f2129: 为 WASI 应用补齐用户目录授权闭环。用户现在可以在应用页面或 CLI 中查看声明的目录权限，选择运行主机上的文件夹，以只读或读写方式授权，并随时替换或撤销；授权变化会立即淘汰旧的 Runtime 挂载。
+- Updated dependencies [3cd57bf]
+- Updated dependencies [50f2129]
+  - @nextclaw/server@0.22.0-beta.1
+  - @nextclaw/shared@0.5.0-beta.0
+
+## 0.11.0-beta.0
+
+### Minor Changes
+
+- 86d3479: 新增 Projects 项目主页：通过项目配置、项目文件、会话 Marker 和项目 Skills 展示可追溯的工作项、产物、上下文、AI 运行状态、待关注事项与诊断。已有项目会话与旧版观测快照会保持可读。
+
+  新增 `client.projects.getObservation()`、`GET /api/projects/:projectId/observation` 和 `nextclaw projects observe`，三条入口复用同一份 Kernel 快照合同。项目 setup 经用户确认后会建立 `.nextclaw/project.yaml`、根 `AGENTS.md` 与项目内工作追踪 Skill；后续 AI 在每个工作节点开始前输出紧凑 Marker，项目页会在流式输出期间更新。不会新增项目任务数据库、特殊会话类型或运行时 Skill 注入。
+
+### Patch Changes
+
+- Updated dependencies [86d3479]
+  - @nextclaw/server@0.22.0-beta.0
+
+## 0.10.0
+
+### Minor Changes
+
+- f38b756: Complete the Portable Capability Runtime with host-mediated files, secrets, networking, SQLite, jobs, streaming, resident events, AI and Agent slots, versioned providers, shared Panel/Agent/CLI invocation, and a current-evidence acceptance contract. Add end-to-end developer commands, real reference apps, cross-platform release gates, and user/developer documentation.
+
+### Patch Changes
+
+- Updated dependencies [f38b756]
+  - @nextclaw/server@0.21.0
+
+## 0.9.5
+
+### Patch Changes
+
+- Updated dependencies [99a2f2c]
+- Updated dependencies [9180398]
+  - @nextclaw/server@0.20.5
+
+## 0.9.4
+
+### Patch Changes
+
+- @nextclaw/server@0.20.4
+
+## 0.9.3
+
+### Patch Changes
+
+- Updated dependencies [824f59e]
+  - @nextclaw/server@0.20.3
+
+## 0.9.2
+
+### Patch Changes
+
+- Updated dependencies [51fac6a]
+  - @nextclaw/server@0.20.2
+
+## 0.9.1
+
+### Patch Changes
+
+- Updated dependencies [60febb5]
+  - @nextclaw/shared@0.4.30
+  - @nextclaw/server@0.20.1
+
+## 0.9.0
+
+### Minor Changes
+
+- 4066c41: 新增 Rust-first Portable Runtime 产品基础：NextClaw 现在可以从产品资源启动共享 Wasmtime runner，在现有 App Package、Panel App 与 Service Action 体系内运行 Rust/WASM Component，不需要手工配置开发者 runner 路径。
+
+  内置「日常小工具箱」提供今日清单、灵感便签、专注小钟和联系人整理四个真实场景，覆盖持久数据、Resident 后台事件、Provider/Consumer 组合、Panel 授权与 Agent Tool 复用。runner 超时或异常退出后会按依赖顺序恢复持久组件，并保留宿主管理的数据。
+
+  应用安装失败时会清理新建的不可变版本目录，避免发布者或实例校验失败阻塞后续合法安装。`nextclaw app check/dev/call` 已复用同一 Runtime 支持 Portable Service，构建合同和 CI 覆盖 macOS arm64、Linux x64 与 Windows x64，并保留 macOS x64、Linux arm64 目标映射；平台 runner 资源使用原子替换，热构建不会覆盖正在执行的二进制。Secret、Blob、长任务、流式能力和生产级资源隔离仍在整体产品计划中保持为未关闭项。
+
+### Patch Changes
+
+- Updated dependencies [4066c41]
+  - @nextclaw/server@0.20.0
+
+## 0.8.0
+
+### Minor Changes
+
+- f80df69: 新增统一的桌面应用授权与操作链路。NextClaw AI 现在可以在受限 `node_repl` 中使用私有 `desktop` SDK，在用户按 Agent 和目标应用授权后读取有界界面、点击、写入文本或发送常用按键；设置中可检查 macOS 辅助功能状态、查看并撤销 Agent 与 Extension 的应用访问许可。
+
+  新增微信桌面观察 Extension，可把当前微信窗口的可见内容作为会话上下文，并通过持续关注关系将新出现的可见消息送回原会话。桌面 SDK 不按“发送”或“确认”等控件文案另设产品级阻断；系统权限、用户 grant、目标窗口绑定和审计仍然有效。
+
+  Panel App 与 Service App 现在复用同一授权存储和撤销语义：启用、禁用、卸载或失败恢复时，会一并保持或恢复关联的面板状态、桥接会话与服务动作授权，避免包生命周期留下失效或越权的调用路径。
+
+  平台支持由统一 feature-controls 合同提供；当前运行环境不支持桌面自动化时，不显示桌面操作设置入口。
+
+- 4a6fc30: 现在可以在 MCP 页面连接任意受信任的 stdio、HTTP 或 SSE MCP 服务。保存前会测试连接并显示发现的工具数量；已保存的服务可与 Marketplace 项目一起启用、停用、诊断和移除。配置抽屉适合长表单输入，命令行与 Agent 也可使用 `nextclaw mcp` 完成同一套管理操作。
+
+### Patch Changes
+
+- Updated dependencies [f80df69]
+- Updated dependencies [4a6fc30]
+- Updated dependencies [882b6e0]
+  - @nextclaw/server@0.19.0
+  - @nextclaw/shared@0.4.29
+
+## 0.7.7
+
+### Patch Changes
+
+- Auto-generated full public release batch.
+
+  Packages:
+  - @nextclaw/client-sdk
+  - @nextclaw/server
+
+- Updated dependencies
+  - @nextclaw/server@0.18.3
+
+## 0.7.6
+
+### Patch Changes
+
+- 667c4fd: 产品活跃统计改为默认开启的匿名汇总：每个客户端仅为当日、当周和当月生成相互独立的一次性收据，不再上传或保存稳定安装标识、账号、令牌、IP、User-Agent、消息内容或工具参数；隐私设置新增本机投递状态，管理后台同步展示当前自然日、自然周、自然月活跃与成功使用趋势。
+- Updated dependencies [667c4fd]
+  - @nextclaw/server@0.18.2
+
+## 0.7.5
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/ncp@0.10.0
+  - @nextclaw/shared@0.4.28
+  - @nextclaw/server@0.18.1
+
+## 0.7.4
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+- Updated dependencies [70dd515]
+- Updated dependencies [f9c6477]
+  - @nextclaw/ncp@0.9.0
+  - @nextclaw/server@0.18.0
+  - @nextclaw/shared@0.4.27
+
+## 0.7.4-beta.0
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+- Updated dependencies [70dd515]
+- Updated dependencies [f9c6477]
+  - @nextclaw/ncp@0.9.0-beta.0
+  - @nextclaw/server@0.18.0-beta.0
+  - @nextclaw/shared@0.4.27-beta.0
+
+## 0.7.3
+
+### Patch Changes
+
+- Updated dependencies [9816eaf]
+  - @nextclaw/server@0.17.3
+
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [82e8b03]
+  - @nextclaw/server@0.17.2
+
+## 0.7.1
+
+### Patch Changes
+
+- 3e6da7e: 应用市场现在使用 NextClaw 提供的真实宿主 target 判断兼容性：不支持当前设备的应用会被明确标注并禁用安装，同时仍可查看详情；历史安装失败不再跨页面刷新持续显示为错误和“重试”。
+- 6587602: 新增默认关闭的产品活跃统计与隐私设置：未登录安装使用随机匿名标识，登录后按账号归并，并可将团队和 QA 测试流量从外部 DAU、WAU、MAU 中分开。
+- 7cc703c: 新增会话插话能力：AI 运行中普通发送继续自动排队，使用 Command/Ctrl + Enter 可在下一安全步骤插入完整消息；排队内容也可直接转为插话，并以独立用户消息和后续 AI 消息呈现在会话中。排队区域会保留并展示图片缩略图和文件摘要，编辑时仍可完整恢复富内容。
+- Updated dependencies [1d63057]
+- Updated dependencies [3e6da7e]
+- Updated dependencies [6587602]
+- Updated dependencies [0f0753a]
+- Updated dependencies [7cc703c]
+  - @nextclaw/server@0.17.1
+  - @nextclaw/ncp@0.8.1
+  - @nextclaw/shared@0.4.26
+
+## 0.7.0
+
+### Minor Changes
+
+- c19ae8f: 大工具调用历史会话改为按预算分级加载：首屏显示真实工具调用数量和类型，只有展开处理过程时才按消息读取完整参数与结果，并对超大工具组分批展示。历史分页与会话摘要改走有界投影读模型，避免打开会话时扫描完整 journal；会话列表先限量并限制 metadata 读取并发，减少首屏请求之间的 I/O 争用。
+
+  <!-- release-note-blog: docs/blog-drafts/2026-08-20-heavy-tool-call-session-performance.blog-draft.md -->
+
+### Patch Changes
+
+- e8d725a: 支持用户从 Panel Apps 列表或运行中 App 的更多菜单手动添加主侧栏入口，并在主内容区无重复宿主 Header 地完整使用。安装不会自动占用主侧栏；禁用后入口暂时隐藏并可在重新启用后恢复，卸载或删除则会清理入口。添加/移除即时反馈，打开 App 不再等待活动统计写盘；右侧 Panel App 移除重复的“返回应用”动作，统一遵循资源浏览器历史。
+- Updated dependencies [c19ae8f]
+- Updated dependencies [e8d725a]
+- Updated dependencies [c10dcaa]
+  - @nextclaw/server@0.17.0
+  - @nextclaw/shared@0.4.25
+
+## 0.6.7
+
+### Patch Changes
+
+- @nextclaw/server@0.16.7
+
+## 0.6.6
+
+### Patch Changes
+
+- @nextclaw/server@0.16.6
+
+## 0.6.5
+
+### Patch Changes
+
+- Updated dependencies [7da88a5]
+- Updated dependencies [65dc8fb]
+  - @nextclaw/server@0.16.5
+
+## 0.6.4
+
+### Patch Changes
+
+- @nextclaw/server@0.16.4
+
+## 0.6.3
+
+### Patch Changes
+
+- @nextclaw/server@0.16.3
+
+## 0.6.2
+
+### Patch Changes
+
+- 004d51f: 增强会话工作台：概览底部新增当前会话的 Token 用量，支持按模型查看输入、输出、缓存输入、总量与缓存命中率；子会话管理页新增“新建子会话”入口，并复用侧边对话的上下文继承链路。
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+- Updated dependencies [004d51f]
+  - @nextclaw/ncp@0.8.0
+  - @nextclaw/server@0.16.2
+  - @nextclaw/shared@0.4.24
+
+## 0.6.1
+
+### Patch Changes
+
+- 27d7293: Harden App, Panel App, and Service App data management with isolated instance storage, crash-safe deletion recovery, side-effect-free catalog reads, and explicit keep-or-delete uninstall controls.
+- Updated dependencies [27d7293]
+  - @nextclaw/server@0.16.1
+
+## 0.6.0
+
+### Minor Changes
+
+- ca2c98d: 把 App 数据生命周期补齐为可管理的产品能力：App 更新继续复用原实例，卸载与 Workspace Service 删除默认保留个人数据，也可以在确认后同时永久删除 data、config、state、cache、tmp 和 logs。
+
+  Apps 页面会显示六类数据占用、受管路径和已保留数据，并支持稍后清理；CLI 新增 `nextclaw app data list/delete`，开发态可用 `nextclaw app dev --reset-data --confirm <app-id>` 精确重置当前实例。HTTP、Client SDK、双语文档与内建自管理 Skill 同步使用同一套安全确认和 active/retained 规则。
+
+### Patch Changes
+
+- Updated dependencies [ca2c98d]
+  - @nextclaw/server@0.16.0
+
+## 0.5.29
+
+### Patch Changes
+
+- @nextclaw/server@0.15.29
+
+## 0.5.28
+
+### Patch Changes
+
+- Updated dependencies [4be6947]
+  - @nextclaw/server@0.15.28
+
+## 0.5.27
+
+### Patch Changes
+
+- @nextclaw/server@0.15.27
+
+## 0.5.26
+
+### Patch Changes
+
+- 9b22a7d: 支持将文档浏览器中的文档、应用、Panel App 和网页标签添加到聊天。发送后仍可识别并重新打开对应资源，AI 也能获得当时的资源地址和页面信息。项目文件树现在会保留展开与滚动状态，刷新会覆盖全部展开目录，“全部折叠”可可靠生效，并通过低开销的按需文件监听自动反映可见目录变化。
+- efb52a7: 应用市场现在按页加载并支持服务端搜索，安装、更新、版本切换与卸载在后台持续执行；同时补齐应用图标、封面、详情与失败恢复体验，并允许用户卸载内置应用后按需重新安装。
+
+  <!-- release-note-image: en-US | images/screenshots/nextclaw-app-marketplace-en.png | NextClaw Add apps dialog showing Personal Space, Hello Notes, and Workspace Glance with their artwork and install state -->
+
+- Updated dependencies [9b22a7d]
+- Updated dependencies [efb52a7]
+  - @nextclaw/shared@0.4.23
+  - @nextclaw/server@0.15.26
+
+## 0.5.25
+
+### Patch Changes
+
+- 7179c7a: 新增统一的系统管理对象 `@` 引用协议，首批支持收件箱报告和定时任务的分类浏览、分组搜索、不可变快照与模型上下文；`@` 面板中的文件和文件夹现在拥有独立入口、搜索分组与选择语义；收件箱“继续聊”进入带可见报告引用的聊天草稿，不再创建隐藏关联会话。
+- 6b3127f: 新增完整的 Apps 与 Mini App 体验：可从内置市场发现、安装、启用、更新、回滚和卸载组合应用，并首发由待办、Markdown 笔记、收藏与日历组成的“个人空间”。应用代码按版本不可变安装，个人数据保存在稳定目录；安装事务、包完整性、运行时授权清理、远程下载预算与日历订阅网络边界也得到强化。
+- Updated dependencies [fb73f89]
+- Updated dependencies [7179c7a]
+- Updated dependencies [6b3127f]
+  - @nextclaw/server@0.15.25
+  - @nextclaw/shared@0.4.22
+
+## 0.5.24
+
+### Patch Changes
+
+- ffb365c: 会话工作区现在提供与文件预览连续协作的项目文件 Explorer：目录树和预览可同时显示，支持新建文件与文件夹、上传、下载、重命名、删除、路径复制以及将文件或文件夹添加到聊天。Explorer 宽度可拖动并记忆，空间不足时才切换为覆盖式侧栏；所有写操作均由服务端限制在当前项目根目录内，同名上传只有在用户明确确认后才会覆盖。
+
+  <!-- release-note-image: zh-CN | images/screenshots/nextclaw-workspace-explorer-cn.png | NextClaw 项目文件 Explorer 和 Markdown 预览同时打开 -->
+  <!-- release-note-image: en-US | images/screenshots/nextclaw-workspace-explorer-en.png | NextClaw project Explorer beside a Markdown file preview -->
+
+- Updated dependencies [ffb365c]
+- Updated dependencies [c783019]
+- Updated dependencies [0b7df97]
+  - @nextclaw/server@0.15.24
+  - @nextclaw/ncp@0.7.17
+  - @nextclaw/shared@0.4.21
+
+## 0.5.23
+
+### Patch Changes
+
+- Updated dependencies [4ab158d]
+- Updated dependencies [c54a1d9]
+  - @nextclaw/server@0.15.23
+  - @nextclaw/shared@0.4.20
+
+## 0.5.22
+
+### Patch Changes
+
+- 8049f49: 支持直接编辑当前会话最近一条用户消息并在同一会话继续执行；中断或失败后可从输入框或最近一条 AI 回复继续运行，后续输出会直接续写原回复而不是新增消息气泡，并准确区分续写前后成功与取消的工具操作。编辑器会自动聚焦到末尾，运行中隐藏编辑操作，所有纯图标入口均提供明确提示；切换模型时会继续保留可用的恢复入口。
+- 071c144: 增加提供商模型目录获取与后台自动刷新：Kimi 现在也能在提供商设置中获取当前模型列表，并参与每 12 小时的目录刷新；未填写 API Key 或上游拒绝鉴权时会直接给出可操作的本地化提示，不再展示原始英文 401，后台目录失败也不再被其他 Provider 的刷新状态拖成持续加载。其他尚未确认支持模型目录的提供商继续支持手工配置。候选只保留文本输出的聊天 LLM，图像、视频、语音、Embedding、Rerank 与 Moderation 模型不会进入聊天配置。聊天模型选择器只在展开后提示上次已见基线之后真正新增的模型，并支持“本批不再提醒”；首次大目录不会制造数百条提醒。具体提供商页会自动提示对应差集，超过 50 个候选时隐藏“全部添加”、支持搜索并只渲染前 50 个匹配项；已配置模型也可进入批量删除模式后全选或删除所选。显式获取、自动刷新和批量操作都只修改当前草稿或目录快照，不会绕过用户保存。
+- Updated dependencies [8049f49]
+- Updated dependencies [db9cab7]
+- Updated dependencies [e309470]
+- Updated dependencies [8e53d92]
+- Updated dependencies [bf3ff68]
+- Updated dependencies [071c144]
+- Updated dependencies [08325d3]
+  - @nextclaw/shared@0.4.19
+  - @nextclaw/server@0.15.22
+  - @nextclaw/ncp@0.7.16
+
+## 0.5.21
+
+### Patch Changes
+
+- Updated dependencies [dbececb]
+- Updated dependencies [43b0e1d]
+- Updated dependencies [14f321a]
+  - @nextclaw/shared@0.4.18
+  - @nextclaw/server@0.15.21
+
 ## 0.5.20
 
 ### Patch Changes

@@ -2,6 +2,7 @@ import {
   CHAT_INPUT_SURFACE_SLASH_TRIGGER_SPEC,
   createInputSurfaceTriggeredPanelPlugin,
   type ChatInputSurfaceItem,
+  type ChatInputSurfaceItemIcon,
   type ChatInputSurfaceMenuTexts,
   type ChatInputSurfacePlugin,
 } from '@nextclaw/agent-chat-ui';
@@ -11,7 +12,7 @@ import type { ChatInputBarAdapterTexts } from '@/features/chat/types/chat-input-
 import {
   buildPanelAppInputSurfaceItems,
   type PanelAppInputSurfaceItemTexts,
-} from './context-reference-plugin.utils';
+} from './panel-app-input-surface-items.utils';
 import {
   resolveInputSurfaceMatchTier,
   scoreInputSurfaceSearchCandidate,
@@ -24,6 +25,7 @@ const SLASH_SKILL_SECTION_KEY = 'skills';
 
 export type ChatSlashCommandDescriptor = {
   key: string;
+  icon: ChatInputSurfaceItemIcon;
   title: string;
   description: string;
   detailLines?: readonly string[];
@@ -69,7 +71,7 @@ function buildSlashCommandItems(params: {
     })
     .map(({ command }) => ({
       key: `command:${command.key}`,
-      icon: 'command',
+      icon: command.icon,
       title: command.title,
       subtitle: params.texts.commandSubtitle,
       description: command.description,

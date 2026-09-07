@@ -10,13 +10,7 @@ function readSearchApiKey(
   searchConfig: SearchConfig | undefined,
   provider: SearchProviderName,
 ): string {
-  if (provider === "bocha") {
-    return searchConfig?.providers?.bocha?.apiKey?.trim() ?? "";
-  }
-  if (provider === "tavily") {
-    return searchConfig?.providers?.tavily?.apiKey?.trim() ?? "";
-  }
-  return searchConfig?.providers?.brave?.apiKey?.trim() ?? "";
+  return searchConfig?.providers?.[provider]?.apiKey?.trim() ?? "";
 }
 
 function renderWebSearchReadiness(params: {
@@ -38,6 +32,12 @@ function renderWebSearchReadiness(params: {
   return `web_search is ready with provider ${provider}.`;
 }
 
+function renderDelegationGuidance(toolNames: readonly string[]): string {
+  return toolNames.includes("sessions_spawn")
+    ? "If a task is more complex or takes longer, spawn a sub-agent. Completion is push-based: it will auto-announce when done."
+    : "Sub-agent spawning is unavailable in this delegated session. Complete the assigned task directly and return any further delegation needs to the parent session.";
+}
+
 export class ToolingContextProvider implements ContextProvider {
   constructor(private readonly context: ContextProviderRunContextService) {}
 
@@ -45,20 +45,11 @@ export class ToolingContextProvider implements ContextProvider {
     request: AgentRunRequest,
   ): Promise<readonly ContextBlock[]> => {
     const { runContext, toolCatalog } = await this.context.resolve(request);
-    const toolLines =
-      toolCatalog.length > 0
-        ? toolCatalog.map(
-            (tool) =>
-              `- ${tool.name}: ${tool.description ?? "No description available"}`,
-          )
-        : ["- No tools available for this turn."];
 
     return [
       [
         "## Tooling",
-        "Tool availability (filtered by policy):",
-        "Tool names are case-sensitive. Call tools exactly as listed.",
-        ...toolLines,
+        "The provider tool schemas are the complete policy-filtered tool catalog for this turn. Tool names are case-sensitive; call them exactly as defined there.",
         "Web access policy:",
         `- ${renderWebSearchReadiness({
           searchConfig: runContext.profile.searchConfig,
@@ -71,7 +62,7 @@ export class ToolingContextProvider implements ContextProvider {
         "TOOLS.md does not control tool availability; it is user guidance for how to use external tools.",
         "For long waits, avoid rapid poll loops: use exec with enough yieldMs.",
         "For relative time/date scheduling requests (for example 'in 5 minutes' / '1分钟后'), first check the current local time with an available tool such as exec/date, then convert it to an absolute ISO time with timezone. Do not guess.",
-        "If a task is more complex or takes longer, spawn a sub-agent. Completion is push-based: it will auto-announce when done.",
+        renderDelegationGuidance(toolCatalog.map((tool) => tool.name)),
         "Do not poll `subagents list` / `sessions_list` in a loop; only check status on-demand (for intervention, debugging, or when explicitly asked).",
       ].join("\n"),
     ];

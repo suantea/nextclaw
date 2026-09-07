@@ -1,0 +1,73 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { summarizeRepoLineChanges } from "./maintainability-guard-line-changes.mjs";
+import { isCodePath } from "./maintainability-guard-support.mjs";
+
+test("isCodePath excludes generated Panel App assets but keeps Panel App source", () => {
+  assert.equal(isCodePath(
+    "packages/nextclaw/resources/apps/personal-organizer/panels/todos.panel/assets/app.js",
+  ), false);
+  assert.equal(isCodePath(
+    "apps/personal-organizer-panels/src/features/todos/components/todos-app.tsx",
+  ), true);
+});
+
+test("summarizeRepoLineChanges excludes test files from non-test totals", () => {
+  const summary = summarizeRepoLineChanges({
+    diffNumstatOutput: [
+      "10\t3\tpackages/demo/src/chat.service.ts",
+      "4\t1\tpackages/demo/src/chat.service.test.ts",
+      "6\t2\tpackages/demo/src/test-fixtures/active-agent.utils.mjs"
+    ].join("\n"),
+    statusOutput: ""
+  });
+
+  assert.deepEqual(summary.total, { added: 20, deleted: 6, net: 14 });
+  assert.deepEqual(summary.non_test, { added: 10, deleted: 3, net: 7 });
+});
+
+test("summarizeRepoLineChanges counts untracked files", () => {
+  const contents = new Map([
+    ["packages/demo/src/new.service.ts", "a\nb\nc"],
+    ["packages/demo/src/new.service.test.ts", "a\nb"]
+  ]);
+
+  const summary = summarizeRepoLineChanges({
+    diffNumstatOutput: "",
+    statusOutput: [
+      "?? packages/demo/src/new.service.ts",
+      "?? packages/demo/src/new.service.test.ts"
+    ].join("\n"),
+    readFileTextImpl: (pathText) => contents.get(pathText) ?? ""
+  });
+
+  assert.deepEqual(summary.total, { added: 5, deleted: 0, net: 5 });
+  assert.deepEqual(summary.non_test, { added: 3, deleted: 0, net: 3 });
+});
+
+test("summarizeRepoLineChanges respects scoped paths", () => {
+  const summary = summarizeRepoLineChanges({
+    candidatePaths: ["packages/demo/src/chat.service.ts"],
+    diffNumstatOutput: [
+      "10\t3\tpackages/demo/src/chat.service.ts",
+      "20\t5\tpackages/demo/src/other.service.ts"
+    ].join("\n"),
+    statusOutput: ""
+  });
+
+  assert.deepEqual(summary.total, { added: 10, deleted: 3, net: 7 });
+  assert.deepEqual(summary.non_test, { added: 10, deleted: 3, net: 7 });
+  assert.deepEqual(summary.code_paths, ["packages/demo/src/chat.service.ts"]);
+});
+
+test("summarizeRepoLineChanges normalizes git brace rename paths to the target path", () => {
+  const summary = summarizeRepoLineChanges({
+    diffNumstatOutput: "2\t1\tpackages/{old/src => new/src}/chat.service.ts",
+    statusOutput: ""
+  });
+
+  assert.deepEqual(summary.total, { added: 2, deleted: 1, net: 1 });
+  assert.deepEqual(summary.non_test, { added: 2, deleted: 1, net: 1 });
+  assert.deepEqual(summary.code_paths, ["packages/new/src/chat.service.ts"]);
+});

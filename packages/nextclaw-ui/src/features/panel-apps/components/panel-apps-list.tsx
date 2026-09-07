@@ -3,7 +3,8 @@ import { AppWindow, FileCode2, HelpCircle, MessageSquarePlus, RefreshCw } from '
 import { useNavigate } from 'react-router-dom';
 import { useAppPresenter } from '@/app/components/app-presenter-provider';
 import { PanelAppListItem } from '@/features/panel-apps/components/panel-app-list-item';
-import { useDeletePanelApp, useGrantPanelAppClient, usePanelApps, useRecordPanelAppOpened, useUpdatePanelAppPreferences } from '@/features/panel-apps/hooks/use-panel-apps';
+import { usePanelAppClientGrant } from '@/features/panel-apps/hooks/use-panel-app-client-grant';
+import { useDeletePanelApp, usePanelApps, useRecordPanelAppOpened, useUpdatePanelAppPreferences } from '@/features/panel-apps/hooks/use-panel-apps';
 import { getPanelAppViewEntries } from '@/features/panel-apps/utils/panel-app-view.utils';
 import type { PanelAppViewMode } from '@/features/panel-apps/utils/panel-app-view.utils';
 import type { PanelAppEntryView } from '@/shared/lib/api';
@@ -14,17 +15,15 @@ import { t } from '@/shared/lib/i18n';
 const EMPTY_PANEL_APP_ENTRIES: PanelAppEntryView[] = [];
 
 export function PanelAppsList({
-  headerContent,
   onOpenPanelApp,
 }: {
-  headerContent?: ReactNode;
   onOpenPanelApp: (entry: PanelAppEntryView) => void;
 }) {
   const panelApps = usePanelApps();
   const deletePanelApp = useDeletePanelApp();
   const updatePreferences = useUpdatePanelAppPreferences();
   const recordOpened = useRecordPanelAppOpened();
-  const grantClient = useGrantPanelAppClient();
+  const { ensurePanelAppClientGrant } = usePanelAppClientGrant();
   const presenter = useAppPresenter();
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<PanelAppViewMode>('smart');
@@ -38,31 +37,8 @@ export function PanelAppsList({
     if (!(await ensurePanelAppClientGrant(entry))) {
       return;
     }
-    try {
-      onOpenPanelApp(await recordOpened.mutateAsync(entry.id));
-    } catch {
-      onOpenPanelApp(entry);
-    }
-  };
-
-  const ensurePanelAppClientGrant = async (entry: PanelAppEntryView): Promise<boolean> => {
-    if (!entry.clientDeclared || entry.clientGranted) {
-      return true;
-    }
-    const allowed = await presenter.serviceActionAuthorizationManager.requestAuthorization({
-      panelAppId: entry.appId,
-      actions: [{
-        actionId: 'nextclaw.client',
-        actionTitle: t('panelAppsClientGrantTitle'),
-        actionDescription: t('panelAppsClientGrantDescription'),
-        risk: 'dangerous',
-      }],
-    });
-    if (!allowed) {
-      return false;
-    }
-    await grantClient.mutateAsync(entry.appId);
-    return true;
+    onOpenPanelApp(entry);
+    recordOpened.mutate(entry.id);
   };
 
   const toggleFavorite = (entry: PanelAppEntryView) => {
@@ -95,16 +71,13 @@ export function PanelAppsList({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-card text-card-foreground">
-      <div className="flex items-center justify-between gap-2 border-b border-border/70 px-4 py-3">
+      <div className="flex min-h-12 shrink-0 items-center justify-end gap-2 border-b border-border/70 px-4 py-2">
         <div className="flex min-w-0 items-center gap-1.5">
-          {headerContent ?? (
-            <div className="truncate text-sm font-semibold text-foreground">{t('panelAppsTitle')}</div>
-          )}
           {panelApps.data?.panelsPath ? (
             <TooltipProvider delayDuration={250}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button type="button" className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground" aria-label={t('panelAppsTitle')}><HelpCircle className="h-3.5 w-3.5" /></button>
+                  <button type="button" className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-[var(--interaction-hover)] hover:text-accent-foreground" aria-label={t('panelAppsTitle')}><HelpCircle className="h-3.5 w-3.5" /></button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-[320px] break-all font-mono text-xs">{panelApps.data.panelsPath}</TooltipContent>
               </Tooltip>
@@ -114,7 +87,7 @@ export function PanelAppsList({
         <button
           type="button"
           onClick={() => void panelApps.refetch()}
-          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-[var(--interaction-hover)] hover:text-accent-foreground"
           title={t('panelAppsRefresh')}
           aria-label={t('panelAppsRefresh')}
         >
@@ -204,7 +177,7 @@ function PanelAppsEmptyGuide({
         <button
           type="button"
           onClick={onRefresh}
-          className="mt-4 inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border"
+          className="mt-4 inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--interaction-hover)] hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border"
         >
           <RefreshCw className="h-3.5 w-3.5" />
           {t('panelAppsRefresh')}
@@ -245,7 +218,7 @@ function PanelAppsEmptyGuideStep({
       <button
         type="button"
         onClick={onAction}
-        className="flex w-full gap-2 rounded-md bg-muted/60 px-3 py-2.5 text-left transition-colors hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border"
+        className="flex w-full gap-2 rounded-md bg-muted/60 px-3 py-2.5 text-left transition-colors hover:bg-[var(--interaction-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border"
       >
         {content}
       </button>

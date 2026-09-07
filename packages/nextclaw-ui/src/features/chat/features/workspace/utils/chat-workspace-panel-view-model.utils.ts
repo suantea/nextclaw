@@ -1,4 +1,5 @@
 import type { ResolvedChildSessionTab } from "@/features/chat/features/ncp/hooks/use-ncp-child-session-tabs-view";
+import type { ContextMenuGroup } from "@/shared/components/ui/context-menu/context-menu";
 import { shouldShowUnreadSessionIndicator } from "@/features/chat/stores/chat-session-list.store";
 import type {
   ChatWorkspaceNavigationEntry,
@@ -13,6 +14,7 @@ import {
   type ChatWorkspaceFileViewer,
 } from "@/features/chat/features/workspace/utils/chat-workspace-file-viewer.utils";
 import { areWorkspaceNavigationEntriesEqual } from "@/features/chat/features/workspace/utils/chat-thread-workspace-session.utils";
+import { resolveWorkspaceRelativePath } from "@/shared/lib/session-project";
 
 export type WorkspaceSelection =
   | {
@@ -38,6 +40,9 @@ export type WorkspaceSelection =
     }
   | {
       kind: "cron";
+    }
+  | {
+      kind: "continuous-attention";
     };
 
 export type WorkspaceTabViewModel = {
@@ -47,6 +52,7 @@ export type WorkspaceTabViewModel = {
   tooltip: string;
   active: boolean;
   agentId?: string | null;
+  sessionKey?: string | null;
   fileName?: string | null;
   showUnreadDot?: boolean;
   viewMode?: "preview" | "diff";
@@ -56,8 +62,11 @@ export type WorkspaceTabViewModel = {
     viewer: ChatWorkspaceFileViewer;
     onSelect: () => void;
   } | null;
+  onAddToChat?: () => void;
   onSelect: () => void;
   onClose?: () => void;
+  menuLabel?: string;
+  menuGroups?: readonly ContextMenuGroup[];
 };
 
 export function readWorkspaceFileTitle(file: ChatWorkspaceFileTab): string {
@@ -96,6 +105,10 @@ export function resolveWorkspaceSelection(params: {
 
   if (activePanelKind === "cron") {
     return { kind: "cron" };
+  }
+
+  if (activePanelKind === "continuous-attention") {
+    return { kind: "continuous-attention" };
   }
 
   if (activePanelKind === "side-chat-draft" && activeSideChatDraft) {
@@ -154,12 +167,15 @@ export function resolveWorkspaceSelection(params: {
 }
 
 type WorkspaceTabsViewModelParams = {
+  hasSession: boolean;
   resolvedChildTabs: ResolvedChildSessionTab[];
   activeSideChatDraft: ChatWorkspaceSideChatDraft | null;
   closedWorkspaceTabEntries: readonly ChatWorkspaceNavigationEntry[];
   workspaceFileTabs: readonly ChatWorkspaceFileTab[];
   activeSelection: WorkspaceSelection | null;
   optimisticReadAtBySessionKey: Record<string, string>;
+  sessionProjectRoot?: string | null;
+  onAddFileToChat?: (reference: { label: string; tokenKey: string }) => void;
   onSelectSession: (sessionKey: string) => void;
   onSelectFile: (fileKey: string) => void;
   onOpenFileViewer: (fileKey: string, viewer: ChatWorkspaceFileViewer) => void;
@@ -168,23 +184,28 @@ type WorkspaceTabsViewModelParams = {
   onSelectChildSessions: () => void;
   onSelectProjectFiles: () => void;
   onSelectCronJobs: () => void;
+  onSelectContinuousAttention?: () => void;
 };
 
 function buildWorkspacePageTabs({
   activeSelection,
+  hasSession,
   onSelectChildSessions,
   onSelectCronJobs,
   onSelectOverview,
   onSelectProjectFiles,
+  onSelectContinuousAttention,
 }: Pick<
   WorkspaceTabsViewModelParams,
   | "activeSelection"
+  | "hasSession"
   | "onSelectChildSessions"
   | "onSelectCronJobs"
   | "onSelectOverview"
   | "onSelectProjectFiles"
+  | "onSelectContinuousAttention"
 >): WorkspaceTabViewModel[] {
-  return [
+  const pageTabs: WorkspaceTabViewModel[] = [
     {
       key: "overview",
       kind: "overview",
@@ -210,6 +231,14 @@ function buildWorkspacePageTabs({
       onSelect: onSelectCronJobs,
     },
     {
+      key: "continuous-attention",
+      kind: "continuous-attention",
+      title: t("chatWorkspaceContinuousAttention"),
+      tooltip: t("chatWorkspaceContinuousAttention"),
+      active: activeSelection?.kind === "continuous-attention",
+      onSelect: onSelectContinuousAttention ?? (() => undefined),
+    },
+    {
       key: "project-files",
       kind: "project-files",
       title: t("chatWorkspaceProjectFiles"),
@@ -218,18 +247,24 @@ function buildWorkspacePageTabs({
       onSelect: onSelectProjectFiles,
     },
   ];
+  return hasSession
+    ? pageTabs
+    : pageTabs.filter((tab) => tab.kind === "project-files");
 }
 
 export function buildWorkspaceTabsViewModel(
   params: WorkspaceTabsViewModelParams,
 ): WorkspaceTabViewModel[] {
   const {
+    hasSession,
     activeSideChatDraft,
     closedWorkspaceTabEntries,
     resolvedChildTabs,
     workspaceFileTabs,
     activeSelection,
     optimisticReadAtBySessionKey,
+    sessionProjectRoot,
+    onAddFileToChat,
     onSelectSession,
     onSelectFile,
     onOpenFileViewer,
@@ -238,14 +273,17 @@ export function buildWorkspaceTabsViewModel(
     onSelectChildSessions,
     onSelectProjectFiles,
     onSelectCronJobs,
+    onSelectContinuousAttention = () => undefined,
   } = params;
 
   const workspacePages = buildWorkspacePageTabs({
     activeSelection,
+    hasSession,
     onSelectChildSessions,
     onSelectCronJobs,
     onSelectOverview,
     onSelectProjectFiles,
+    onSelectContinuousAttention,
   });
 
   const sideChatDraftTabs = activeSideChatDraft
@@ -290,6 +328,7 @@ export function buildWorkspaceTabsViewModel(
       title: tab.title,
       tooltip: tab.title,
       agentId: tab.agentId,
+      sessionKey: tab.sessionKey,
       active:
         activeSelection?.kind === "child-session" &&
         activeSelection.tab.sessionKey === tab.sessionKey,
@@ -317,6 +356,10 @@ export function buildWorkspaceTabsViewModel(
       ? resolveAlternateWorkspaceFileViewer(file.path, file.previewViewer)
       : null;
     const fileTitle = readWorkspaceFileTitle(file);
+    const tokenKey = resolveWorkspaceRelativePath({
+      path: file.path,
+      sessionProjectRoot: sessionProjectRoot ?? null,
+    });
     return {
       key: `file:${file.key}`,
       kind: "file" as const,
@@ -336,6 +379,9 @@ export function buildWorkspaceTabsViewModel(
             onSelect: () => onOpenFileViewer(file.key, alternateViewer),
           }
         : null,
+      onAddToChat: tokenKey && onAddFileToChat
+        ? () => onAddFileToChat({ label: fileTitle, tokenKey })
+        : undefined,
       active:
         activeSelection?.kind === "file" && activeSelection.file.key === file.key,
       onSelect: () => onSelectFile(file.key),

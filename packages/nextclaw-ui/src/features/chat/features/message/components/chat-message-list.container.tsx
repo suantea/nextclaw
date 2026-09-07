@@ -6,11 +6,9 @@ import {
   type RefObject,
 } from "react";
 import type { NcpMessage } from "@nextclaw/ncp";
-import { CHAT_PROJECT_TOKEN_KIND } from "@nextclaw/shared";
-import { toast } from "sonner";
 import {
+  ChatTextSelectionAction,
   type ChatInlineDisplayViewModel,
-  type ChatInlineTokenViewModel,
   type ChatMessageViewModel,
   type ChatPanelAppCardViewModel,
   ChatMessageList,
@@ -23,20 +21,31 @@ import {
 import { buildChatMessageProcessSummary } from "@/features/chat/features/message/utils/chat-message-process-summary.utils";
 import { buildChatMessageExecutionPresentation } from "@/features/chat/features/message/utils/chat-message-execution-summary.utils";
 import {
+  buildChatMessageTriggerDetails,
+  mergeChatMessageMoreActions,
+} from "@/features/chat/features/message/utils/chat-message-trigger-details.utils";
+import {
   buildChatMessageAdapterTexts,
   buildChatMessageExecutionLabels,
+  buildChatMessageTriggerLabels,
   buildChatMessageTexts,
 } from "@/features/chat/features/message/utils/chat-message-texts.utils";
 import {
   readInlineTokensFromMetadata,
-  resolveWorkspaceReferencePath,
 } from "@/features/chat/features/input/utils/chat-inline-token.utils";
-import { adaptNcpMessageToUiMessage } from "@/features/chat/features/session/utils/ncp-session-adapter.utils";
-import { type ContextCompactionTimelineView } from "@/features/chat/features/session/utils/ncp-session-context-metadata.utils";
+import {
+  adaptNcpMessagePartsForChat,
+  adaptNcpMessageToUiMessage,
+} from "@/features/chat/features/session/utils/ncp-session-adapter.utils";
 import { AgentIdentityAvatar } from "@/shared/components/common/agent-identity";
 import { ChatInlineFilePreview } from "@/features/chat/features/message/components/chat-inline-file-preview";
 import { ChatInlinePanelAppCard } from "@/features/chat/features/message/components/chat-inline-panel-app-card";
+import {
+  ChatContextCompactionDivider,
+  ChatContextInheritanceDivider,
+} from "@/features/chat/features/message/components/chat-message-timeline-dividers";
 import { useChatQueryStore } from "@/features/chat/stores/ncp-chat-query.store";
+import { useChatSessionListStore } from "@/features/chat/stores/chat-session-list.store";
 import { useChatMessageLayoutStore } from "@/features/chat/stores/chat-message-layout.store";
 import { useNcpChatSelectedSession } from "@/features/chat/features/ncp/hooks/use-ncp-chat-derived-state";
 import { SessionContextIconNode } from "@/features/chat/features/session/components/session-context-icon";
@@ -49,17 +58,35 @@ import { useI18n } from "@/app/components/i18n-provider";
 import { useChatMessageVirtualizer } from "@/features/chat/features/message/hooks/use-chat-message-virtualizer";
 import {
   buildChatMessageTimelineItems,
-  isVisibleChatMessage,
+  CONTEXT_COMPACTION_PART_EXTENSION_TYPE,
+  projectVisibleChatMessages,
+  type ContextCompactionPartData,
   type ChatTimelineItem,
-  type ContextInheritanceTimelineView,
 } from "@/features/chat/features/message/utils/chat-message-timeline.utils";
-import { buildServerPathContentUrl, fetchNcpSessionSkills } from "@/shared/lib/api";
-import { formatDateTime, t } from "@/shared/lib/i18n";
+import { useChatMessageActions } from "@/features/chat/features/message/hooks/use-chat-message-actions";
+import { useChatInlineTokenActions } from "@/features/chat/features/message/hooks/use-chat-inline-token-actions";
+import { buildServerPathContentUrl } from "@/shared/lib/api";
+import { formatDateTime, formatNumber, t } from "@/shared/lib/i18n";
 import { cn } from "@/shared/lib/utils";
+import type { SessionMessageToolPayloadState } from "@/features/chat/features/ncp/hooks/use-ncp-session-message-history";
+import { ChatMessageObservationEvent } from "@/features/chat/features/message/components/chat-message-observation-event";
+import {
+  isObservationEventPartExtensionType,
+  readObservationEventPartData,
+} from "@/features/chat/features/message/utils/chat-message-observation-event.utils";
 
 type ChatMessageListContainerProps = {
+  canContinue?: boolean;
   messages: readonly NcpMessage[];
+  messageDetailStates?: Readonly<Record<string, SessionMessageToolPayloadState>>;
   isSending: boolean;
+  messageActionsDisabled?: boolean;
+  onContinueRun?: () => Promise<void> | void;
+  onEditMessage?: (payload: {
+    readonly message: NcpMessage;
+    readonly messageId: string;
+  }) => Promise<void> | void;
+  onLoadMessageDetails?: (messageId: string) => Promise<void>;
   sessionKey: string | null;
   scrollRef: RefObject<HTMLDivElement | null>;
   className?: string;
@@ -72,23 +99,34 @@ class ChatMessageViewModelAdapter {
       language: Parameters<typeof formatDateTime>[1];
       processSummaryLabel: string | null;
       executionPresentationKey: string | null;
+      triggerDetailsKey: string | null;
       viewModel: ChatMessageViewModel;
     }
   >();
 
   adapt = (params: {
+    continuationRunning: boolean;
     executionLabels: ReturnType<typeof buildChatMessageExecutionLabels>;
+    triggerLabels: ReturnType<typeof buildChatMessageTriggerLabels>;
     language: Parameters<typeof formatDateTime>[1];
     processedLabel: string;
     rawMessages: readonly NcpMessage[];
     texts: ReturnType<typeof buildChatMessageAdapterTexts>;
   }): ChatMessageViewModel[] => {
-    const { executionLabels, language, processedLabel, rawMessages, texts } =
-      params;
-    return rawMessages.filter(isVisibleChatMessage).flatMap((message) => {
+    const {
+      continuationRunning, executionLabels, triggerLabels, language, processedLabel, rawMessages, texts,
+    } = params;
+    return projectVisibleChatMessages(rawMessages, { continuationRunning }).map((message) => {
       const processSummary = buildChatMessageProcessSummary({
         message,
         processedLabel,
+        formatDeferredToolSummary: (toolCallCount, toolNames) => {
+          const countLabel = t("chatProcessSummaryToolCalls", language)
+            .replace("{count}", formatNumber(toolCallCount, language));
+          if (toolNames.length === 0) return countLabel;
+          const separator = language === "zh" ? "、" : ", ";
+          return `${countLabel} · ${toolNames.join(separator)}`;
+        },
       });
       const processSummaryLabel = processSummary?.label ?? null;
       const executionPresentation = buildChatMessageExecutionPresentation({
@@ -96,14 +134,30 @@ class ChatMessageViewModelAdapter {
         labels: executionLabels,
       });
       const executionPresentationKey = executionPresentation?.cacheKey ?? null;
+      const triggerDetails = buildChatMessageTriggerDetails({
+        message,
+        labels: triggerLabels,
+      });
+      const triggerDetailsKey = triggerDetails
+        ? JSON.stringify({
+          runTrigger: message.metadata?.run_trigger,
+          runSpec: message.metadata?.run_spec,
+          aiExecution: message.metadata?.ai_execution,
+        })
+        : null;
+      const moreActions = mergeChatMessageMoreActions(
+        executionPresentation?.moreActions,
+        triggerDetails,
+      );
       const cached = this.cache.get(message);
       if (
         cached &&
         cached.language === language &&
         cached.processSummaryLabel === processSummaryLabel &&
-        cached.executionPresentationKey === executionPresentationKey
+        cached.executionPresentationKey === executionPresentationKey &&
+        cached.triggerDetailsKey === triggerDetailsKey
       ) {
-        return [cached.viewModel];
+        return cached.viewModel;
       }
 
       const uiMessage = adaptNcpMessageToUiMessage(message);
@@ -116,9 +170,9 @@ class ChatMessageViewModelAdapter {
           inlineTokens: readInlineTokensFromMetadata(message.metadata),
           processSummary,
           executionSummaryLabel: executionPresentation?.summaryLabel,
-          moreActions: executionPresentation?.moreActions,
+          moreActions,
         },
-        parts: uiMessage.parts as unknown as ChatMessageSource["parts"],
+        parts: adaptNcpMessagePartsForChat(message.parts) as ChatMessageSource["parts"],
       };
       const viewModel = adaptChatMessage(sourceMessage, {
         formatTimestamp: (value) => formatDateTime(value, language),
@@ -129,9 +183,10 @@ class ChatMessageViewModelAdapter {
         language,
         processSummaryLabel,
         executionPresentationKey,
+        triggerDetailsKey,
         viewModel,
       });
-      return [viewModel];
+      return viewModel;
     });
   };
 }
@@ -161,69 +216,34 @@ const renderChatPanelAppCard = (panelApp: ChatPanelAppCardViewModel) => (
   <ChatInlinePanelAppCard panelApp={panelApp} />
 );
 
-export function ChatContextCompactionDivider({
-  checkpoint,
-}: {
-  checkpoint?: ContextCompactionTimelineView;
-}) {
-  const isCompacting = !checkpoint || checkpoint.status === "compressing";
-  const title = checkpoint
-    ? [
-        `${t("chatContextCompactionCoveredMessages")}: ${checkpoint.coveredSessionMessageCount}`,
-        `${t("chatContextCompactionOriginalTokens")}: ${checkpoint.originalEstimatedTokens}`,
-        `${t("chatContextCompactionProjectedTokens")}: ${checkpoint.projectedEstimatedTokens}`,
-      ].join("\n")
-    : undefined;
-  return (
-    <div
-      className="my-4 flex items-center gap-3 text-[11px] text-muted-foreground"
-      title={title}
-    >
-      <div className="h-px flex-1 bg-border" />
-      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1">
-        {isCompacting ? (
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground" />
-        ) : (
-          <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/45" />
-        )}
-        <span>
-          {isCompacting
-            ? t("chatContextCompactionCompressing")
-            : t("chatContextCompactionCompressed")}
-        </span>
-      </div>
-      <div className="h-px flex-1 bg-border" />
-    </div>
-  );
+const CONVERSATION_EXCERPT_MAX_CHARACTERS = 8_000;
+
+function findSelectableMessageElement(range: Range): HTMLElement | null {
+  const commonAncestor = range.commonAncestorContainer;
+  const element = commonAncestor instanceof Element
+    ? commonAncestor
+    : commonAncestor.parentElement;
+  return element?.closest<HTMLElement>('[data-chat-message-selectable="true"]') ?? null;
 }
 
-function ChatContextInheritanceDivider({
-  inheritance,
-}: {
-  inheritance: ContextInheritanceTimelineView;
-}) {
-  const title = [
-    `${t("chatContextInheritanceSourceSession")}: ${inheritance.sourceSessionId}`,
-    `${t("chatContextInheritanceMessages")}: ${inheritance.inheritedMessageCount}`,
-  ].join("\n");
-  return (
-    <div
-      className="my-4 flex items-center gap-3 text-[11px] text-emerald-700"
-      title={title}
-    >
-      <div className="h-px flex-1 bg-emerald-100" />
-      <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-        <span>{t("chatContextInheritanceInherited")}</span>
-      </div>
-      <div className="h-px flex-1 bg-emerald-100" />
-    </div>
-  );
+export { ChatContextCompactionDivider } from "@/features/chat/features/message/components/chat-message-timeline-dividers";
+
+function isAwaitingAssistantOutputRow(
+  item: ChatTimelineItem,
+  activeRowKey: string | null,
+): boolean {
+  return item.kind === "typing" || item.key === activeRowKey;
 }
 
 export function ChatMessageListContainer({
+  canContinue = false,
   messages: rawMessages,
+  messageDetailStates,
   isSending,
+  messageActionsDisabled = false,
+  onContinueRun,
+  onEditMessage,
+  onLoadMessageDetails,
   scrollRef,
   sessionKey,
   className,
@@ -232,14 +252,18 @@ export function ChatMessageListContainer({
   const { language } = useI18n();
   const messageLayout = useChatMessageLayoutStore((state) => state.layout);
   const selectedSession = useNcpChatSelectedSession(sessionKey);
+  const selectedAgentId = useChatSessionListStore(
+    (state) => state.snapshot.selectedAgentId,
+  );
   const sessionTypesData = useChatQueryStore(
     (state) => state.snapshot.sessionTypesQuery?.data ?? null,
   );
   const activeSessionType = normalizeSessionType(
-    selectedSession?.sessionType ??
-      sessionTypesData?.defaultType ??
-      DEFAULT_SESSION_TYPE,
+    selectedSession?.sessionType ?? sessionTypesData?.defaultType,
   );
+  const showAssistantHeader =
+    activeSessionType !== DEFAULT_SESSION_TYPE ||
+    (selectedSession?.agentId ?? selectedAgentId).trim().toLowerCase() !== "main";
   const sessionTypeOption = buildSessionTypeOptions(
     sessionTypesData?.options ?? [],
   ).find((option) => option.value === activeSessionType);
@@ -295,18 +319,32 @@ export function ChatMessageListContainer({
     () => buildChatMessageExecutionLabels(language),
     [language],
   );
-
-  const messages = useMemo(
+  const triggerLabels = useMemo(
+    () => buildChatMessageTriggerLabels(language),
+    [language],
+  );
+  const adaptedMessages = useMemo(
     () =>
       chatMessageViewModelAdapter.adapt({
+        continuationRunning: isSending,
         executionLabels,
+        triggerLabels,
         language,
         processedLabel: t("chatProcessSummaryProcessed"),
         rawMessages,
         texts,
       }),
-    [executionLabels, language, rawMessages, texts],
+    [executionLabels, isSending, language, rawMessages, texts, triggerLabels],
   );
+  const { handleMessageAction, messages, renderMessageContent } =
+    useChatMessageActions({
+      adaptedMessages,
+      canContinue,
+      disabled: messageActionsDisabled,
+      onContinueRun,
+      onEditMessage,
+      rawMessages,
+    });
 
   const activeAssistantMessage = messages.findLast(
     (message) =>
@@ -317,6 +355,27 @@ export function ChatMessageListContainer({
   const messageTexts = useMemo(
     () => buildChatMessageTexts(language),
     [language],
+  );
+  const isConversationSelectionAllowed = useCallback(
+    ({ range }: { range: Range }) => Boolean(findSelectableMessageElement(range)),
+    [],
+  );
+  const handleConversationSelectionAdd = useCallback(
+    ({ range, text }: { range: Range; text: string }) => {
+      const messageElement = findSelectableMessageElement(range);
+      const messageId = messageElement?.dataset.chatMessageId?.trim();
+      const role = messageElement?.dataset.chatMessageRole;
+      const label = messageElement?.dataset.chatMessageRoleLabel?.trim();
+      if (!messageId || !label || (role !== "assistant" && role !== "user")) return;
+      presenter.chatComposerIntentManager.requestConversationExcerptReference({
+        targetSessionKey: sessionKey,
+        messageId,
+        role,
+        label,
+        excerpt: text,
+      });
+    },
+    [presenter.chatComposerIntentManager, sessionKey],
   );
   const timelineItems = useMemo(
     () => buildChatMessageTimelineItems({ rawMessages, messages }),
@@ -337,105 +396,40 @@ export function ChatMessageListContainer({
     activeRowKey,
     focusedRowKey,
   });
-  const handleInlineTokenClick = useCallback(
-    (token: ChatInlineTokenViewModel) => {
-      if (token.kind === "panel_app" && "key" in token) {
-        void presenter.chatUiManager.showContent({
-          target: { type: "panel_app", payload: { appId: token.key } },
-        });
-        return;
-      }
-      if (
-        "key" in token &&
-        (token.kind === CHAT_PROJECT_TOKEN_KIND ||
-          token.kind === "workspace_file" ||
-          token.kind === "workspace_directory")
-      ) {
-        const path = token.kind === CHAT_PROJECT_TOKEN_KIND
-          ? token.key
-          : resolveWorkspaceReferencePath({
-              projectRoot: selectedSession?.projectRoot,
-              relativePath: token.key,
-            });
-        if (path) {
-          presenter.chatThreadManager.openFilePreview({
-            path,
-            label: token.label,
-            viewMode: "preview",
-          });
-        }
-        return;
-      }
-      if (token.kind !== "skill" || !("ref" in token)) return;
-      const skillPath = token.path?.trim();
-      if (skillPath) {
-        presenter.chatThreadManager.openFilePreview({
-          path: skillPath,
-          label: token.label || token.name,
-          viewMode: "preview",
-          previewViewer: "rendered",
-        });
-        return;
-      }
-      if (!sessionKey) {
-        toast.error(t("chatSkillPreviewUnavailable"));
-        return;
-      }
-      void fetchNcpSessionSkills(sessionKey, {
-        projectRoot: selectedSession?.projectRoot ?? null,
-      }).then(({ records }) => {
-        const exact = records.find((record) => record.ref === token.ref);
-        const named = records.filter((record) => record.name === token.name);
-        const matched = exact ?? (named.length === 1 ? named[0] : null);
-        const legacyPath = matched?.path.trim();
-        if (!matched || !legacyPath) {
-          toast.error(t("chatSkillPreviewUnavailable"));
-          return;
-        }
-        presenter.chatThreadManager.openFilePreview({
-          path: legacyPath,
-          label: token.label || matched.name,
-          viewMode: "preview",
-          previewViewer: "rendered",
-        });
-      }).catch(() => toast.error(t("chatSkillPreviewUnavailable")));
-    },
-    [
-      presenter.chatThreadManager,
-      presenter.chatUiManager,
-      selectedSession?.projectRoot,
-      sessionKey,
-    ],
-  );
-  const handleAttachmentOpen = useCallback(
-    (file: {
-      label: string;
-      mimeType: string;
-      dataUrl?: string;
-      sizeBytes?: number;
-      isImage: boolean;
-    }) => {
-      const contentUrl = file.dataUrl?.trim();
-      if (!contentUrl) {
-        return;
-      }
-      const label = file.label.trim() || "attachment";
-      presenter.chatThreadManager.openFilePreview({
-        path: label,
-        label,
-        viewMode: "preview",
-        contentUrl,
-        mimeType: file.mimeType,
-      });
-    },
-    [presenter.chatThreadManager],
-  );
+  const { handleAttachmentOpen, handleInlineTokenClick } =
+    useChatInlineTokenActions({ selectedSession, sessionKey });
   const handleRowBlur = useCallback((event: FocusEvent<HTMLDivElement>) => {
     if (!event.currentTarget.contains(event.relatedTarget)) {
       setFocusedRowKey(null);
     }
   }, []);
+  const renderCustomPart = useCallback(
+    (part: Extract<ChatMessageViewModel["parts"][number], { type: "custom" }>) => {
+      if (isObservationEventPartExtensionType(part.customType)) {
+        const event = readObservationEventPartData(part.data);
+        return event ? <ChatMessageObservationEvent event={event} /> : undefined;
+      }
+      if (part.customType !== CONTEXT_COMPACTION_PART_EXTENSION_TYPE) {
+        return undefined;
+      }
+      const data = part.data as ContextCompactionPartData;
+      return (
+        <ChatContextCompactionDivider
+          checkpoint={data.checkpoint}
+          inline
+        />
+      );
+    },
+    [],
+  );
   return (
+    <ChatTextSelectionAction
+      actionLabel={messageTexts.addSelectionToChatLabel ?? t("chatWorkspaceAddToChat")}
+      isSelectionAllowed={isConversationSelectionAllowed}
+      maxCharacters={CONVERSATION_EXCERPT_MAX_CHARACTERS}
+      onAddToChat={handleConversationSelectionAdd}
+      selectionTooLongLabel={messageTexts.selectionTooLongLabel ?? t("chatWorkspaceExcerptSelectionTooLong")}
+    >
     <div className={cn("relative", className)} ref={containerRef}>
       {virtualizer.getVirtualItems().map((virtualRow) => {
         const item = virtualRows[virtualRow.index];
@@ -455,21 +449,29 @@ export function ChatMessageListContainer({
               <ChatContextCompactionDivider checkpoint={item.checkpoint} />
             ) : item.kind === "context-inheritance" ? (
               <ChatContextInheritanceDivider inheritance={item.inheritance} />
+            ) : item.kind === "observation-event" ? (
+              <ChatMessageObservationEvent event={item.event} />
             ) : (
               <div className={item.kind === "message" ? "pb-5" : undefined}>
                 <ChatMessageList
                   assistantAvatarIcon={assistantAvatarIcon}
+                  showAssistantHeader={showAssistantHeader}
                   layout={messageLayout}
                   messages={item.kind === "message" ? [item.message] : []}
-                  isSending={item.kind === "typing"}
+                  isSending={isAwaitingAssistantOutputRow(item, activeRowKey)}
                   hasAssistantDraft={hasAssistantDraft}
                   texts={messageTexts}
                   onToolAction={presenter.chatThreadManager.handleToolAction}
                   onFileOpen={presenter.chatThreadManager.openFilePreview}
                   onAttachmentOpen={handleAttachmentOpen}
                   onInlineTokenClick={handleInlineTokenClick}
+                  onMessageAction={handleMessageAction}
+                  resolveMessageToolPayloadState={(messageId) => messageDetailStates?.[messageId]}
+                  onMessageToolPayloadRequest={onLoadMessageDetails}
                   resolveFileContentUrl={resolveFileContentUrl}
+                  renderCustomPart={renderCustomPart}
                   renderInlineDisplay={renderInlineDisplayWithFiles}
+                  renderMessageContent={renderMessageContent}
                   renderToolAgent={renderChatToolAgent}
                   renderPanelAppCard={renderChatPanelAppCard}
                 />
@@ -479,5 +481,6 @@ export function ChatMessageListContainer({
         );
       })}
     </div>
+    </ChatTextSelectionAction>
   );
 }

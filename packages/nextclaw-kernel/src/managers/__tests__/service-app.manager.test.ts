@@ -1,16 +1,27 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigSchema, saveConfig } from "@nextclaw/core";
 import { ConfigManager } from "@kernel/managers/config.manager.js";
 import { ServiceAppManager } from "@kernel/managers/service-app.manager.js";
+import {
+  CapabilityGrantManager,
+  createServiceActionGrantRequest,
+} from "@kernel/features/capability-grants/index.js";
 import type { ServiceAppError } from "@kernel/managers/service-app.manager.js";
 import type {
   ServiceAction,
   ServiceActionCaller,
   ServiceAppRecord,
 } from "@kernel/types/service-app.types.js";
+import { VerificationRecordService } from "@kernel/services/verification-record.service.js";
 
 const tempDirs: string[] = [];
 
@@ -20,13 +31,18 @@ function createTempDir(): string {
   return dir;
 }
 
-function createConfigManager(workspacePath: string): ConfigManager {
+function createCapabilityGrantManager(): CapabilityGrantManager {
+  return new CapabilityGrantManager(join(createTempDir(), "capability-grants.json"));
+}
+
+function createConfigManager(workspacePath: string, model?: string): ConfigManager {
   const configPath = join(createTempDir(), "config.json");
   saveConfig(
     ConfigSchema.parse({
       agents: {
         defaults: {
           workspace: workspacePath,
+          ...(model ? { model } : {}),
         },
       },
     }),
@@ -46,7 +62,7 @@ function createConfigManager(workspacePath: string): ConfigManager {
 
 const mcpFixturePath = resolve(
   import.meta.dirname,
-  "../../../../nextclaw-mcp/tests/fixtures/mock-mcp-server.mjs",
+  "../../../../nextclaw-mcp/tests/fixtures/mock-mcp-server.utils.mjs",
 );
 
 function writeServiceApp(
@@ -75,15 +91,17 @@ function writeServiceApp(
 }
 
 function createRuntime(
-  actions: ServiceAction | ServiceAction[],
+  actions: ServiceAction | ServiceAction[] = [],
   status: Pick<ServiceAppRecord, "lastFailedAt" | "lastReadyAt" | "lastStartedAt" | "status"> = { status: "idle" },
 ) {
   const actionList = Array.isArray(actions) ? actions : [actions];
   return {
+    getLastObservation: vi.fn(() => undefined),
     getStatus: vi.fn(() => status),
     listActions: vi.fn(async () => actionList),
     invokeAction: vi.fn(async () => ({ ok: true })),
     restart: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
     dispose: vi.fn(async () => {}),
   };
 }
@@ -97,7 +115,6 @@ afterEach(() => {
     }
   }
 });
-
 describe("ServiceAppManager runtime env", () => {
   it("runs a node command service app when the parent process PATH is minimal", async () => {
     const originalPath = process.env.PATH;
@@ -114,6 +131,7 @@ describe("ServiceAppManager runtime env", () => {
     });
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
     });
     const caller: ServiceActionCaller = { surface: "panel-app", appId: "todo-panel" };
 
@@ -125,7 +143,7 @@ describe("ServiceAppManager runtime env", () => {
       await expect(manager.invokeServiceAction("notes.echo", {
         caller,
         declaredActions: ["notes.echo"],
-      })).resolves.toEqual({
+      })).resolves.toMatchObject({
         actionId: "notes.echo",
         result: expect.objectContaining({
           content: [expect.objectContaining({ text: "echo:ok" })],
@@ -147,6 +165,126 @@ describe("ServiceAppManager runtime env", () => {
   });
 });
 
+
+describe("ServiceAppManager Agent callers", () => {
+  it("grants, lists, and invokes the same Service Action for a known Agent", async () => {
+    const workspacePath = createTempDir();
+    writeServiceApp(workspacePath);
+    const runtime = createRuntime({
+      id: "notes.read",
+      appId: "notes",
+      name: "read",
+      risk: "read",
+    });
+    const manager = new ServiceAppManager({
+      configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
+      hasAgent: (agentId) => agentId === "main",
+      runtimeService: runtime,
+    });
+    const caller = { surface: "agent", agentId: "main" } as const;
+
+    await expect(manager.listServiceActions({ caller })).resolves.toEqual([
+      expect.objectContaining({ id: "notes.read", grantState: "not-granted" }),
+    ]);
+    await expect(manager.grantServiceAction("notes.read", { caller })).resolves.toMatchObject({
+      actionId: "notes.read",
+      caller,
+    });
+    await expect(manager.listServiceActions({ caller })).resolves.toEqual([
+      expect.objectContaining({ id: "notes.read", grantState: "granted" }),
+    ]);
+    await expect(manager.invokeServiceAction("notes.read", { caller })).resolves.toMatchObject({
+      actionId: "notes.read",
+      result: { ok: true },
+    });
+
+    await expect(manager.grantServiceAction("notes.read", {
+      caller: { surface: "agent", agentId: "unknown" },
+    })).rejects.toMatchObject({ code: "SERVICE_APP_INVALID_CALLER" });
+  });
+});
+
+describe("ServiceAppManager installed invocation evidence", () => {
+  it("records a call through the installed-app owner without treating source apps as installed", async () => {
+    const workspacePath = createTempDir();
+    const runtime = createRuntime({
+      id: "notes.read",
+      appId: "notes",
+      name: "read",
+      risk: "read",
+    });
+    const verificationRecords = new VerificationRecordService({
+      storePath: join(createTempDir(), "verification-records.json"),
+    });
+    const manager = new ServiceAppManager({
+      configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
+      runtimeService: runtime,
+      verificationRecords,
+    });
+
+    await expect(manager.invokeInstalledServiceAction("notes", "read"))
+      .rejects.toMatchObject({ code: "SERVICE_APP_ACTION_NOT_FOUND" });
+  });
+
+  it("returns call facts and persists a redacted PRT-ENTRY-001 record for an installed Service", async () => {
+    const workspacePath = createTempDir();
+    const packageRoot = join(createTempDir(), "service-components", "notes");
+    mkdirSync(packageRoot, { recursive: true });
+    writeFileSync(join(packageRoot, "service-app.json"), JSON.stringify({
+      id: "notes", title: "Notes", protocol: "mcp", command: "node", args: [],
+      actions: { read: { risk: "read" } },
+    }));
+    const dataDirectory = join(createTempDir(), "data");
+    const source = {
+      kind: "service" as const,
+      id: "notes",
+      packageId: "example.notes",
+      packageVersion: "1.0.0",
+      sourcePath: packageRoot,
+      manifestPath: join(packageRoot, "service-app.json"),
+      dataDirectory,
+      instanceId: "default",
+      storage: {
+        layout: "instance-v1" as const, layoutVersion: 1 as const, instanceId: "default",
+        instanceDirectory: dataDirectory, dataDirectory, configDirectory: join(dataDirectory, "config"),
+        stateDirectory: join(dataDirectory, "state"), cacheDirectory: join(dataDirectory, "cache"),
+        temporaryDirectory: join(dataDirectory, "tmp"), logsDirectory: join(dataDirectory, "logs"),
+      },
+      runtimeProfile: "wasi" as const,
+      isolation: "host-mediated" as const,
+      permissions: { storage: true },
+    };
+    const runtime = createRuntime({
+      id: "notes.read", appId: "notes", name: "read", risk: "read",
+    });
+    const verificationRecords = new VerificationRecordService({
+      storePath: join(createTempDir(), "verification-records.json"),
+    });
+    const manager = new ServiceAppManager({
+      configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
+      runtimeService: runtime,
+      listPackageComponentSources: async () => [source],
+      verificationRecords,
+    });
+
+    await expect(manager.invokeInstalledServiceAction("example.notes", "read", { secret: "not-stored" }))
+      .resolves.toMatchObject({
+        actionId: "notes.read",
+        result: { ok: true },
+        invocation: { callId: expect.any(String), traceId: expect.any(String), dataVersion: "instance-v1:1" },
+      });
+    await expect(manager.listVerificationRecords({ appId: "example.notes" })).resolves.toEqual({
+      entries: [expect.objectContaining({
+        acceptanceId: "PRT-ENTRY-001", entrySurface: "installed-app-cli", status: "passed",
+        inputDigest: expect.any(String), outputDigest: expect.any(String),
+      })],
+    });
+  });
+});
+
 describe("ServiceAppManager", () => {
   it("discovers and invokes a real MCP-backed service app after grant", async () => {
     const workspacePath = createTempDir();
@@ -159,6 +297,7 @@ describe("ServiceAppManager", () => {
     });
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
     });
     const caller: ServiceActionCaller = { surface: "panel-app", appId: "todo-panel" };
 
@@ -182,7 +321,7 @@ describe("ServiceAppManager", () => {
       await expect(manager.invokeServiceAction("notes.echo", {
         caller,
         declaredActions: ["notes.echo"],
-      })).resolves.toEqual({
+      })).resolves.toMatchObject({
         actionId: "notes.echo",
         result: expect.objectContaining({
           content: [expect.objectContaining({ text: "echo:ok" })],
@@ -205,6 +344,7 @@ describe("ServiceAppManager", () => {
     const runtime = createRuntime(action);
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
       runtimeService: runtime,
     });
 
@@ -223,6 +363,23 @@ describe("ServiceAppManager", () => {
       protocol: "mcp",
       status: "idle",
     }));
+    expect(existsSync(join(
+      workspacePath,
+      ".nextclaw",
+      "app-instances",
+      "notes",
+      "default",
+    ))).toBe(false);
+
+    await manager.discoverServiceAppActions("notes");
+
+    expect(existsSync(join(
+      workspacePath,
+      ".nextclaw",
+      "app-instances",
+      "notes",
+      "default",
+    ))).toBe(true);
   });
 
   it("skips directories that do not contain a service app manifest yet", async () => {
@@ -238,6 +395,7 @@ describe("ServiceAppManager", () => {
     const runtime = createRuntime(action);
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
       runtimeService: runtime,
     });
 
@@ -260,6 +418,7 @@ describe("ServiceAppManager", () => {
     });
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
       runtimeService: runtime,
     });
 
@@ -287,6 +446,7 @@ describe("ServiceAppManager", () => {
     const runtime = createRuntime(action);
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
       runtimeService: runtime,
     });
     const caller: ServiceActionCaller = { surface: "panel-app", appId: "todo-panel" };
@@ -310,7 +470,7 @@ describe("ServiceAppManager", () => {
       caller,
       risk: "read",
     }));
-    await expect(manager.invokeServiceAction("notes.read", request)).resolves.toEqual({
+    await expect(manager.invokeServiceAction("notes.read", request)).resolves.toMatchObject({
       actionId: "notes.read",
       result: { ok: true },
     });
@@ -321,18 +481,19 @@ describe("ServiceAppManager", () => {
     }));
   });
 
-  it("deletes a service app directory and clears its grants", async () => {
+  it("maps runtime invocation failures to a Service App domain error", async () => {
     const workspacePath = createTempDir();
     writeServiceApp(workspacePath);
-    const appPath = join(workspacePath, "service-apps", "notes");
     const runtime = createRuntime({
       id: "notes.read",
       appId: "notes",
       name: "read",
       risk: "read",
     });
+    runtime.invokeAction.mockRejectedValueOnce(new Error("spawn node ENOENT"));
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
       runtimeService: runtime,
     });
     const caller: ServiceActionCaller = { surface: "panel-app", appId: "todo-panel" };
@@ -341,20 +502,15 @@ describe("ServiceAppManager", () => {
       caller,
       declaredActions: ["notes.read"],
     });
-    await expect(manager.listServiceActionGrants()).resolves.toHaveLength(1);
-
-    await expect(manager.deleteServiceApp("notes")).resolves.toEqual({
-      deleted: true,
-      id: "notes",
-    });
-
-    expect(existsSync(appPath)).toBe(false);
-    expect(runtime.restart).toHaveBeenCalledWith("notes");
-    await expect(manager.listServiceActionGrants()).resolves.toEqual([]);
-    await expect(manager.getServiceApp("notes")).rejects.toMatchObject({
-      code: "SERVICE_APP_NOT_FOUND",
+    await expect(manager.invokeServiceAction("notes.read", {
+      caller,
+      declaredActions: ["notes.read"],
+    })).rejects.toMatchObject({
+      code: "SERVICE_APP_RUNTIME_FAILED",
+      message: expect.stringContaining("spawn node ENOENT"),
     } satisfies Partial<ServiceAppError>);
   });
+
 });
 
 describe("ServiceAppManager batch action grants", () => {
@@ -382,6 +538,7 @@ describe("ServiceAppManager batch action grants", () => {
     ]);
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
       runtimeService: runtime,
     });
     const caller: ServiceActionCaller = { surface: "panel-app", appId: "todo-panel" };
@@ -414,6 +571,7 @@ describe("ServiceAppManager batch action grants", () => {
     });
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
       runtimeService: createRuntime([]),
     });
     const caller: ServiceActionCaller = { surface: "panel-app", appId: "todo-panel" };
@@ -429,6 +587,69 @@ describe("ServiceAppManager batch action grants", () => {
 });
 
 describe("ServiceAppManager action catalog", () => {
+  it("matches persisted grants only while the current Service Action declaration is unchanged", async () => {
+    const workspacePath = createTempDir();
+    writeServiceApp(workspacePath, { actions: { read: { risk: "read" } } });
+    const manager = new ServiceAppManager({
+      configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
+      runtimeService: createRuntime(),
+    });
+    const caller: ServiceActionCaller = { surface: "panel-app", appId: "todo-panel" };
+
+    await expect(manager.matchesCapabilityGrant({
+      ...createServiceActionGrantRequest(caller, {
+        id: "notes.read",
+        appId: "notes",
+        name: "read",
+        risk: "read",
+      }),
+      grantedAt: "2026-08-01T00:00:00.000Z",
+    })).resolves.toBe(true);
+    await expect(manager.matchesCapabilityGrant({
+      ...createServiceActionGrantRequest(caller, {
+        id: "notes.read",
+        appId: "notes",
+        name: "read",
+        risk: "write",
+      }),
+      grantedAt: "2026-08-01T00:00:00.000Z",
+    })).resolves.toBe(false);
+  });
+
+  it("requires a new grant when an update changes an action risk", async () => {
+    const workspacePath = createTempDir();
+    writeServiceApp(workspacePath, { actions: { read: { risk: "read" } } });
+    const manager = new ServiceAppManager({
+      configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
+      runtimeService: createRuntime({
+        id: "notes.read",
+        appId: "notes",
+        name: "read",
+        risk: "read",
+      }),
+    });
+    const caller: ServiceActionCaller = { surface: "panel-app", appId: "todo-panel" };
+    await manager.grantServiceAction("notes.read", {
+      caller,
+      declaredActions: ["notes.read"],
+    });
+
+    writeServiceApp(workspacePath, { actions: { read: { risk: "dangerous" } } });
+
+    await expect(manager.listServiceActions({
+      caller,
+      declaredActions: ["notes.read"],
+    })).resolves.toEqual([
+      expect.objectContaining({
+        id: "notes.read",
+        risk: "dangerous",
+        grantState: "not-granted",
+      }),
+    ]);
+  });
+
   it("marks grant state from the caller and panel declaration", async () => {
     const workspacePath = createTempDir();
     writeServiceApp(workspacePath);
@@ -441,6 +662,7 @@ describe("ServiceAppManager action catalog", () => {
     const runtime = createRuntime(action);
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
       runtimeService: runtime,
     });
     const caller: ServiceActionCaller = { surface: "panel-app", appId: "todo-panel" };
@@ -502,6 +724,7 @@ describe("ServiceAppManager action catalog", () => {
     ]);
     const manager = new ServiceAppManager({
       configManager: createConfigManager(workspacePath),
+      capabilityGrantManager: createCapabilityGrantManager(),
       runtimeService: runtime,
     });
 

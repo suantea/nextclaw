@@ -1,6 +1,6 @@
 import type { NextclawKernel } from "@kernel/app/nextclaw-kernel.js";
 import type { ToolProvider } from "@kernel/types/agent-run.types.js";
-import type { KernelContribution } from "@kernel/types/kernel-contribution.types.js";
+import { Contribution } from "@nextclaw/shared";
 import { AssetToolProvider } from "./providers/asset-tool.provider.js";
 import { CoreToolProvider } from "./providers/core-tool.provider.js";
 import { McpToolProvider } from "./providers/mcp-tool.provider.js";
@@ -10,28 +10,24 @@ import { SessionToolProvider } from "./providers/session-tool.provider.js";
 import { ShowContentToolProvider } from "./providers/show-content-tool.provider.js";
 import { InboxDeliveryToolProvider } from "./providers/inbox-delivery-tool.provider.js";
 import { StructuredResultToolProvider } from "./providers/structured-result-tool.provider.js";
+import { ObservationToolProvider } from "./providers/observation-tool.provider.js";
+import { DesktopToolProvider } from "./providers/desktop-tool.provider.js";
+import { ServiceActionToolProvider } from "./providers/service-action-tool.provider.js";
+import { ServiceAppJobToolProvider } from "./providers/service-app-job-tool.provider.js";
+import { ServiceAppAiCapabilityToolProvider } from "./providers/service-app-ai-capability-tool.provider.js";
+import { AppPackageDependencyToolProvider } from "./providers/app-package-dependency-tool.provider.js";
 import { ToolProviderRunContextService } from "./services/tool-provider-run-context.service.js";
 
 export { ShowContentToolProvider };
 
-export class ToolProviderContribution implements KernelContribution {
-  private readonly cleanups: Array<() => void> = [];
+export class ToolProviderContribution extends Contribution {
+  constructor(private readonly kernel: NextclawKernel) {
+    super();
+  }
 
-  constructor(private readonly kernel: NextclawKernel) {}
-
-  start = (): void => {
-    if (this.cleanups.length > 0) {
-      return;
-    }
-
+  protected setup = (): void => {
     for (const provider of this.createToolProviders()) {
-      this.cleanups.push(this.kernel.toolProviderManager.register(provider));
-    }
-  };
-
-  dispose = (): void => {
-    while (this.cleanups.length > 0) {
-      this.cleanups.pop()?.();
+      this.effect(() => this.kernel.toolProviderManager.register(provider));
     }
   };
 
@@ -45,6 +41,11 @@ export class ToolProviderContribution implements KernelContribution {
       new StructuredResultToolProvider(),
       new ShowContentToolProvider(this.kernel.eventBus),
       new InboxDeliveryToolProvider(this.kernel.inboxDeliveryManager),
+      new ObservationToolProvider(this.kernel.observations),
+      new DesktopToolProvider(
+        runContextService,
+        this.kernel.extensions.getDesktopHost(),
+      ),
       new CoreToolProvider(runContextService, this.kernel.getGatewayController),
       new MessagingToolProvider(
         runContextService,
@@ -52,7 +53,11 @@ export class ToolProviderContribution implements KernelContribution {
         this.kernel.automation,
         this.kernel.extensions,
       ),
-      new ProjectToolProvider(this.kernel.projectManager),
+      new ProjectToolProvider(
+        runContextService,
+        this.kernel.projectManager,
+        this.kernel.projectWorkManager,
+      ),
       new SessionToolProvider(
         runContextService,
         this.kernel.sessionManager,
@@ -60,6 +65,16 @@ export class ToolProviderContribution implements KernelContribution {
         this.kernel.sessionSearch,
       ),
       new AssetToolProvider(this.kernel.assetStore),
+      new ServiceActionToolProvider(
+        runContextService,
+        this.kernel.serviceAppManager,
+      ),
+      new ServiceAppJobToolProvider(
+        runContextService,
+        this.kernel.serviceAppManager,
+      ),
+      new ServiceAppAiCapabilityToolProvider(this.kernel.serviceAppManager),
+      new AppPackageDependencyToolProvider(this.kernel.appPackageManager),
       new McpToolProvider(runContextService, this.kernel.mcpManager),
     ];
   };

@@ -1,4 +1,5 @@
 import {
+  estimateInputTokens,
   CONTEXT_COMPACTION_METADATA_KEY,
   ContextCompactionService,
   ContextWindowBudgetService,
@@ -6,25 +7,37 @@ import {
   buildContextWindowSnapshot,
   readCompressedContextCompactionCheckpoint,
   type ContextCompactionCheckpoint,
+  type ContextCompactionPhase,
   type ContextCompactionPlan,
   type ContextWindowBudgetEvaluation,
   type ContextWindowSnapshot,
 } from "@nextclaw/core";
-import { normalizeAssistantText, type NcpMessage } from "@nextclaw/ncp";
+import { type NcpMessage, type NcpTool } from "@nextclaw/ncp";
+import {
+  ncpMessageToOpenAiMessages,
+  type LocalAssetStore,
+} from "@nextclaw/ncp-agent-runtime";
+import { CHAT_CONTINUATION_TARGET_MESSAGE_METADATA_KEY } from "@nextclaw/shared";
 import type { AgentManager } from "@kernel/managers/agent.manager.js";
 import type { LlmProviderRuntime } from "@kernel/managers/llm-provider.manager.js";
-import { toLegacyMessages } from "@kernel/utils/ncp-message-bridge.utils.js";
 import {
-  buildContextCompactionModelInput,
+  buildContextBlockInputMessages,
+  estimateToolInputTokens,
+} from "@kernel/utils/agent-model-input-budget.utils.js";
+import { ContextCompactionSummaryGenerationService } from "./context-compaction-summary-generation.service.js";
+import {
+  buildContextCompactionModelProjection,
   buildContextCompactionTimelineNcpMessage,
+  CONTEXT_COMPACTION_CONTINUATION_TEXT,
+  CONTEXT_COMPACTION_SYSTEM_PREAMBLE,
   createContextCompactionMessageId,
+  isContextCompactionProjectionMessage,
   isContextCompactionTimelineMessage,
   readLatestContextCompactionCheckpoint,
 } from "@kernel/features/context-compaction/utils/context-compaction.utils.js";
 
 export type ContextCompactionPreflightResult = {
   contextWindow: ContextWindowSnapshot;
-  metadataPatch: Record<string, unknown>;
   sessionMessages: NcpMessage[];
   timelineMessage: NcpMessage | null;
 };
@@ -37,13 +50,22 @@ export type ContextCompactionPreflightBeginResult = {
 
 export type ContextCompactionTrigger = "automatic" | "manual";
 
+type ContinuationMessageBoundary = {
+  messageId: string;
+  coveredPartCount: number;
+};
+
 type ContextCompactionPendingWork = {
   checkpoint: ReturnType<typeof buildCompressingCompactionCheckpoint>;
+  contextBlockMessages: Record<string, unknown>[];
+  continuationMessageBoundary: ContinuationMessageBoundary | null;
   contextTokens: number;
+  phase: ContextCompactionPhase;
   serviceMessageId: string;
   model: string;
   plan: ContextCompactionPlan;
   reservedContextTokens: number;
+  snapshotFixedInputTokens: number;
   sessionId: string;
   sessionMessages: NcpMessage[];
 };
@@ -53,19 +75,29 @@ type ResolvedCompactionProfile = {
   reservedContextTokens: number;
 };
 
-const SUMMARY_MAX_TOKENS = 4000;
-const SUMMARY_SOURCE_MAX_CHARS = 120_000;
-const SUMMARY_SOURCE_HEAD_MESSAGES = 2;
-const SUMMARY_SOURCE_TAIL_MESSAGES = 8;
-const SUMMARY_SOURCE_STRING_HEAD_CHARS = 6_000;
-const SUMMARY_SOURCE_STRING_TAIL_CHARS = 6_000;
+function toCompactionModelMessages(
+  messages: readonly NcpMessage[],
+  assetStore: LocalAssetStore | null,
+): Record<string, unknown>[] {
+  return messages.flatMap((message) =>
+    ncpMessageToOpenAiMessages(message, { assetStore }).map((providerMessage) => ({
+      ...providerMessage,
+      ncp_message_id: message.id,
+      timestamp: message.timestamp,
+    })),
+  );
+}
 
-function buildContextBlockMessage(contextBlocks: readonly string[] = []): Record<string, unknown>[] {
-  const contextContent = contextBlocks
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .join("\n\n");
-  return contextContent ? [{ role: "system", content: contextContent }] : [];
+function estimateCompactionProjectionOverhead(phase: ContextCompactionPhase): number {
+  const summaryPlanOverhead = estimateInputTokens({ role: "user", content: "" });
+  const summaryProjectionOverhead = estimateInputTokens({
+    role: "system",
+    content: `${CONTEXT_COMPACTION_SYSTEM_PREAMBLE}\n\n`,
+  });
+  const continuationTokens = phase === "mid-run"
+    ? estimateInputTokens({ role: "user", content: CONTEXT_COMPACTION_CONTINUATION_TEXT })
+    : 0;
+  return Math.max(0, summaryProjectionOverhead - summaryPlanOverhead) + continuationTokens;
 }
 
 function mergeInputMessages(params: {
@@ -83,76 +115,66 @@ function mergeInputMessages(params: {
   return messages;
 }
 
-function toCompactionSourceMessage(message: Record<string, unknown>): Record<string, unknown> {
-  return {
-    role: message.role,
-    content: message.content,
-    timestamp: message.timestamp,
-    ncp_message_id: message.ncp_message_id,
-  };
-}
-
-function stringifyCompactionSource(messages: readonly Record<string, unknown>[]): string {
-  const sourceMessages = messages.map(toCompactionSourceMessage);
-  const json = JSON.stringify(sourceMessages, null, 2);
-  if (json.length <= SUMMARY_SOURCE_MAX_CHARS) {
-    return json;
-  }
-  const tailStart = Math.max(
-    SUMMARY_SOURCE_HEAD_MESSAGES,
-    sourceMessages.length - SUMMARY_SOURCE_TAIL_MESSAGES,
-  );
-  const compactedMessages = [
-    ...sourceMessages.slice(0, SUMMARY_SOURCE_HEAD_MESSAGES),
-    ...(tailStart > SUMMARY_SOURCE_HEAD_MESSAGES
-      ? [{
-          role: "system",
-          content: `[${tailStart - SUMMARY_SOURCE_HEAD_MESSAGES} middle messages omitted from compaction source]`,
-        }]
-      : []),
-    ...sourceMessages.slice(tailStart),
-  ];
-  const compactedJson = JSON.stringify(
-    compactedMessages,
-    (_key, value) => truncateSummarySourceString(value),
-    2,
-  );
-  if (compactedJson.length <= SUMMARY_SOURCE_MAX_CHARS) {
-    return compactedJson;
-  }
-  const marker = "\n[truncated_compaction_source_middle]\n";
-  const headChars = Math.floor((SUMMARY_SOURCE_MAX_CHARS - marker.length) / 2);
-  const tailChars = SUMMARY_SOURCE_MAX_CHARS - marker.length - headChars;
-  return `${compactedJson.slice(0, headChars).trimEnd()}${marker}${compactedJson.slice(-tailChars).trimStart()}`;
-}
-
-function truncateSummarySourceString(value: unknown): unknown {
-  if (typeof value === "string") {
-    if (value.length <= SUMMARY_SOURCE_STRING_HEAD_CHARS + SUMMARY_SOURCE_STRING_TAIL_CHARS) {
-      return value;
+function readContinuationMessageBoundary(
+  messages: readonly NcpMessage[],
+): ContinuationMessageBoundary | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (
+      message?.role === "assistant" &&
+      (message.status === "pending" || message.status === "streaming")
+    ) {
+      return {
+        messageId: message.id,
+        coveredPartCount: message.parts.length,
+      };
     }
-    return [
-      value.slice(0, SUMMARY_SOURCE_STRING_HEAD_CHARS).trimEnd(),
-      `[${value.length - SUMMARY_SOURCE_STRING_HEAD_CHARS - SUMMARY_SOURCE_STRING_TAIL_CHARS} chars omitted]`,
-      value.slice(-SUMMARY_SOURCE_STRING_TAIL_CHARS).trimStart(),
-    ].join("\n");
   }
-  return value;
+  return null;
 }
 
-function normalizeCompactionSummary(content: string): string {
-  return normalizeAssistantText(content, "think-tags").text.trim();
+function readPreRunContinuationBoundary(
+  messages: readonly NcpMessage[],
+): ContinuationMessageBoundary | null {
+  const continuationPrompt = messages.at(-1);
+  const targetMessageId = continuationPrompt?.metadata?.[
+    CHAT_CONTINUATION_TARGET_MESSAGE_METADATA_KEY
+  ];
+  if (typeof targetMessageId !== "string" || !targetMessageId.trim()) {
+    return null;
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const target = messages[index];
+    if (target?.id === targetMessageId && target.role === "assistant") {
+      return { messageId: target.id, coveredPartCount: target.parts.length };
+    }
+  }
+  return null;
 }
 
 function buildContextWindowSnapshotFromBudget(params: {
   budget: ContextWindowBudgetEvaluation;
   checkpoint: ContextCompactionCheckpoint | null;
+  completeInputBudget: boolean;
+  fixedInputTokens: number;
+  reservedContextTokens: number;
   totalContextTokens: number;
 }): ContextWindowSnapshot {
-  const { budget, checkpoint, totalContextTokens } = params;
+  const {
+    budget,
+    checkpoint,
+    completeInputBudget,
+    fixedInputTokens,
+    reservedContextTokens,
+    totalContextTokens,
+  } = params;
   return buildContextWindowSnapshot({
     usedContextTokens: budget.estimatedTokens,
+    completeInputBudget,
     totalContextTokens,
+    fixedInputTokens,
+    reservedContextTokens,
+    triggerContextTokens: budget.triggerTokens,
     prunedUsedContextTokens: budget.estimatedTokens,
     droppedHistoryCount: budget.droppedHistoryCount,
     truncatedToolResultCount: budget.truncatedToolResultCount,
@@ -166,27 +188,37 @@ function buildContextWindowSnapshotFromBudget(params: {
 export class ContextCompactionPreflightService {
   private readonly compactionService = new ContextCompactionService();
   private readonly contextWindowBudgetService = new ContextWindowBudgetService();
+  private readonly summaryGenerationService: ContextCompactionSummaryGenerationService;
 
   constructor(
     private readonly agentManager: AgentManager,
-    private readonly providerManager?: LlmProviderRuntime,
-  ) {}
+    providerManager?: LlmProviderRuntime,
+    private readonly assetStore: LocalAssetStore | null = null,
+  ) {
+    this.summaryGenerationService = new ContextCompactionSummaryGenerationService(providerManager);
+  }
 
   preview = (params: {
+    completeInputBudget?: boolean;
     contextBlocks?: readonly string[];
+    fixedInputTokens?: number;
     requestMetadata: Record<string, unknown>;
     sessionId: string;
     sessionMessages: readonly NcpMessage[];
     storedAgentId?: string;
     storedMetadata: Record<string, unknown>;
+    tools?: readonly NcpTool[];
   }): ContextWindowSnapshot | null => {
     const {
+      completeInputBudget = false,
       contextBlocks = [],
+      fixedInputTokens,
       requestMetadata,
       sessionId,
       sessionMessages,
       storedAgentId,
       storedMetadata,
+      tools = [],
     } = params;
     const profile = this.resolveCompactionProfile({
       requestMetadata,
@@ -196,23 +228,33 @@ export class ContextCompactionPreflightService {
       storedMetadata[CONTEXT_COMPACTION_METADATA_KEY],
     ) ?? readLatestContextCompactionCheckpoint(sessionMessages);
     const projectedMessages = existingCheckpoint
-      ? buildContextCompactionModelInput({
+      ? buildContextCompactionModelProjection({
           sessionId,
           sessionMessages,
-        })
+        }).messages
       : sessionMessages.filter((message) => !isContextCompactionTimelineMessage(message));
+    const contextBlockMessages = buildContextBlockInputMessages(contextBlocks);
+    const contextBlockInputTokens = estimateInputTokens(contextBlockMessages);
+    const toolInputTokens = estimateToolInputTokens(tools);
+    const snapshotFixedInputTokens = fixedInputTokens
+      ?? contextBlockInputTokens + toolInputTokens;
     const messages = [
-      ...buildContextBlockMessage(contextBlocks),
-      ...toLegacyMessages(projectedMessages) as Record<string, unknown>[],
+      ...(fixedInputTokens === undefined ? contextBlockMessages : []),
+      ...toCompactionModelMessages(projectedMessages, this.assetStore),
     ];
     const budget = this.contextWindowBudgetService.evaluate({
       messages,
       contextTokens: profile.contextTokens,
+      fixedInputTokens: fixedInputTokens
+        ?? toolInputTokens,
       reservedContextTokens: profile.reservedContextTokens,
     });
     return buildContextWindowSnapshotFromBudget({
       budget,
       checkpoint: existingCheckpoint,
+      completeInputBudget,
+      fixedInputTokens: snapshotFixedInputTokens,
+      reservedContextTokens: profile.reservedContextTokens,
       totalContextTokens: profile.contextTokens,
     });
   };
@@ -221,22 +263,26 @@ export class ContextCompactionPreflightService {
     contextBlocks?: readonly string[];
     inputMessages: readonly NcpMessage[];
     model: string;
+    phase?: ContextCompactionPhase;
     requestMetadata: Record<string, unknown>;
     sessionId: string;
     sessionMessages: readonly NcpMessage[];
     storedAgentId?: string;
     storedMetadata: Record<string, unknown>;
+    tools?: readonly NcpTool[];
     trigger?: ContextCompactionTrigger;
   }): ContextCompactionPreflightBeginResult => {
     const {
       contextBlocks = [],
       inputMessages,
       model,
+      phase = "pre-run",
       requestMetadata,
       sessionId,
       sessionMessages,
       storedAgentId,
       storedMetadata,
+      tools = [],
       trigger = "automatic",
     } = params;
     const profile = this.resolveCompactionProfile({
@@ -248,30 +294,49 @@ export class ContextCompactionPreflightService {
       inputMessages,
       sessionMessages,
     });
+    const continuationMessageBoundary = phase === "mid-run"
+      ? readContinuationMessageBoundary(ncpMessages)
+      : readPreRunContinuationBoundary(ncpMessages);
     const existingCheckpoint = readCompressedContextCompactionCheckpoint(
       storedMetadata[CONTEXT_COMPACTION_METADATA_KEY],
     ) ?? readLatestContextCompactionCheckpoint(ncpMessages);
     const projectedMessages = existingCheckpoint
-      ? buildContextCompactionModelInput({
+      ? buildContextCompactionModelProjection({
           sessionId,
           sessionMessages: ncpMessages,
-        })
+        }).messages
       : ncpMessages.filter((message) => !isContextCompactionTimelineMessage(message));
+    const contextBlockMessages = buildContextBlockInputMessages(contextBlocks);
     const messages = [
-      ...buildContextBlockMessage(contextBlocks),
-      ...toLegacyMessages(projectedMessages) as Record<string, unknown>[],
+      ...contextBlockMessages,
+      ...toCompactionModelMessages(projectedMessages, this.assetStore),
     ];
+    const preservableUserMessageIds = ncpMessages.flatMap((message) =>
+      message.role === "user" ? [message.id] : [],
+    );
+    const fixedInputTokens = estimateToolInputTokens(tools);
+    const snapshotFixedInputTokens = estimateInputTokens(contextBlockMessages) + fixedInputTokens;
     const budget = this.contextWindowBudgetService.evaluate({
       messages,
       contextTokens,
+      fixedInputTokens,
       reservedContextTokens,
     });
     const plan = trigger === "automatic" && !budget.shouldCompact
       ? null
       : this.compactionService.prepareForModelInput({
           messages,
+          coverLeadingSystemMessage:
+            contextBlockMessages.length === 0
+            && isContextCompactionProjectionMessage(projectedMessages[0]),
           contextTokens,
           compactionThresholdTokens: trigger === "manual" ? 0 : budget.triggerTokens,
+          fixedInputTokens,
+          preservableUserMessageIds,
+          projectedTokenLimit: Math.max(1, budget.triggerTokens - (
+            estimateCompactionProjectionOverhead(phase)
+          )),
+          retainLatestMessage: phase === "pre-run",
         });
     const coveredSessionMessageCount = plan
       ? (existingCheckpoint?.coveredSessionMessageCount ?? 0) + plan.coveredMessages.length - (existingCheckpoint ? 1 : 0)
@@ -282,6 +347,10 @@ export class ContextCompactionPreflightService {
           ...buildCompressingCompactionCheckpoint(
             storedMetadata[CONTEXT_COMPACTION_METADATA_KEY],
           ),
+          phase,
+          continuationMessageId: continuationMessageBoundary?.messageId,
+          continuationMessageCoveredPartCount:
+            continuationMessageBoundary?.coveredPartCount,
           coveredMessageCount: coveredSessionMessageCount,
           coveredSessionMessageCount,
           originalEstimatedTokens: plan.originalEstimatedTokens,
@@ -292,6 +361,9 @@ export class ContextCompactionPreflightService {
     const contextWindow = buildContextWindowSnapshotFromBudget({
       budget,
       checkpoint,
+      completeInputBudget: true,
+      fixedInputTokens: snapshotFixedInputTokens,
+      reservedContextTokens,
       totalContextTokens: contextTokens,
     });
     return {
@@ -300,11 +372,15 @@ export class ContextCompactionPreflightService {
       pendingCompaction: plan && checkpoint
         ? {
             checkpoint,
+            contextBlockMessages,
+            continuationMessageBoundary,
             contextTokens,
+            phase,
             serviceMessageId,
             model,
             plan,
             reservedContextTokens,
+            snapshotFixedInputTokens,
             sessionId,
             sessionMessages: ncpMessages,
           }
@@ -314,96 +390,85 @@ export class ContextCompactionPreflightService {
 
   finish = async (
     pending: ContextCompactionPendingWork,
+    signal?: AbortSignal,
   ): Promise<ContextCompactionPreflightResult> => {
+    let summaryDiagnostics: ContextCompactionCheckpoint["summaryDiagnostics"];
     const compacted = await this.compactionService.compactPreparedForModelInput({
       contextTokens: pending.contextTokens,
       plan: pending.plan,
-      generateSummary: async ({ messages }) =>
-        await this.generateSummary({
+      generateSummary: async ({
+        maxInputTokens,
+        maxInstallableSummaryTokens,
+        maxTokens,
+        messages,
+        targetSummaryTokens,
+      }) => {
+        const generated = await this.summaryGenerationService.generate({
+          maxInputTokens,
+          maxInstallableSummaryTokens,
+          maxTokens,
           messages,
           model: pending.model,
-        }),
+          signal,
+          targetSummaryTokens,
+        });
+        summaryDiagnostics = generated.diagnostics;
+        return generated.summary;
+      },
     });
     const generatedCheckpoint = compacted.checkpoint;
     if (!generatedCheckpoint) {
       throw new Error("context compaction pending work did not produce a checkpoint");
     }
-    const checkpoint = {
+    const checkpoint: ContextCompactionCheckpoint = {
       ...generatedCheckpoint,
       id: pending.checkpoint.id,
       createdAt: pending.checkpoint.createdAt,
+      phase: pending.phase,
+      continuationMessageId: pending.continuationMessageBoundary?.messageId,
+      continuationMessageCoveredPartCount:
+        pending.continuationMessageBoundary?.coveredPartCount,
       coveredMessageCount: pending.checkpoint.coveredMessageCount,
       coveredSessionMessageCount: pending.checkpoint.coveredSessionMessageCount,
+      summaryDiagnostics: summaryDiagnostics!,
       status: "compressed" as const,
     };
+    const timelineMessage = buildContextCompactionTimelineNcpMessage({
+      messageId: pending.serviceMessageId,
+      sessionId: pending.sessionId,
+      checkpoint,
+    });
+    const projectedMessages = buildContextCompactionModelProjection({
+      sessionId: pending.sessionId,
+      sessionMessages: [...pending.sessionMessages, timelineMessage],
+    }).messages;
     const budget = this.contextWindowBudgetService.evaluate({
-      messages: compacted.messages,
+      messages: [
+        ...pending.contextBlockMessages,
+        ...toCompactionModelMessages(projectedMessages, this.assetStore),
+      ],
       contextTokens: pending.contextTokens,
+      fixedInputTokens: pending.plan.fixedInputTokens,
       reservedContextTokens: pending.reservedContextTokens,
     });
+    if (budget.estimatedTokens > budget.triggerTokens) {
+      throw new Error(
+        `Context compaction checkpoint does not fit the final provider input surface: ${budget.estimatedTokens} estimated tokens exceeds ${budget.triggerTokens}. The previous checkpoint was kept unchanged.`,
+      );
+    }
     const contextWindow = buildContextWindowSnapshotFromBudget({
       budget,
       checkpoint,
+      completeInputBudget: true,
+      fixedInputTokens: pending.snapshotFixedInputTokens,
+      reservedContextTokens: pending.reservedContextTokens,
       totalContextTokens: pending.contextTokens,
     });
     return {
       contextWindow,
-      metadataPatch: {
-        [CONTEXT_COMPACTION_METADATA_KEY]: checkpoint,
-      },
       sessionMessages: pending.sessionMessages,
-      timelineMessage: buildContextCompactionTimelineNcpMessage({
-        messageId: pending.serviceMessageId,
-        sessionId: pending.sessionId,
-        checkpoint,
-      }),
+      timelineMessage,
     };
-  };
-
-  private generateSummary = async (params: {
-    messages: Record<string, unknown>[];
-    model: string;
-  }): Promise<string> => {
-    if (!this.providerManager) {
-      throw new Error("context compaction summary generation requires a provider manager");
-    }
-    const { messages, model } = params;
-    const response = await this.providerManager.chat({
-      model,
-      maxTokens: SUMMARY_MAX_TOKENS,
-      messages: [
-        {
-          role: "system",
-          content: [
-            "You are NextClaw's context compactor for a coding agent session.",
-            "Create a complete compressed working context that will replace all prior conversation messages in a future model request.",
-            "Only the latest current input may remain raw, so preserve the active task, latest user intent, latest assistant response, and recent turns with high fidelity inside the summary.",
-            "Always include a 'Continuation Contract' section that states what the next assistant response should remember and how it should continue the session.",
-            "Do not turn missing user profile, assistant nickname, or onboarding fields into blockers unless onboarding is the active user task in the latest turns.",
-            "If the latest user message is a short greeting, preserve the prior active task and last assistant stance so the next response does not restart as a fresh session.",
-            "Preserve user goals, explicit instructions, decisions, files touched or inspected, code changes, commands run, test results, failures, blockers, current task state, and exact next steps.",
-            "Do not invent facts. If something is uncertain, mark it as uncertain.",
-            "Return Markdown only. Start with '# Compressed Working Context'.",
-          ].join("\n"),
-        },
-        {
-          role: "user",
-          content: [
-            "Compress these runtime messages into a reusable working context.",
-            "Include a 'Recent High-Fidelity Context' section for the latest important user/assistant turns.",
-            "Include a 'Continuation Contract' section after the recent context.",
-            "",
-            "Messages JSON:",
-            stringifyCompactionSource(messages),
-          ].join("\n"),
-        },
-      ],
-    });
-    const summary = response.content ? normalizeCompactionSummary(response.content) : "";
-    if (!summary) {
-      throw new Error("context compaction summary is empty");
-    }
-    return summary;
   };
 
   private resolveCompactionProfile = (params: {

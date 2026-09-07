@@ -18,7 +18,7 @@ function createSummary(
 }
 
 describe("buildChatWelcomeProjectOptions", () => {
-  it("builds recent project options without treating the default workspace as a project", () => {
+  it("keeps the default workspace selectable without treating it as an explicit override", () => {
     const options = buildChatWelcomeProjectOptions({
       defaultProjectRoot: "/Users/demo/.nextclaw/workspace",
       sessionSummaries: [
@@ -42,9 +42,16 @@ describe("buildChatWelcomeProjectOptions", () => {
 
     expect(options).toEqual([
       {
+        projectRoot: "/Users/demo/.nextclaw/workspace",
+        projectName: "workspace",
+        sessionCount: 0,
+        isDefault: true,
+      },
+      {
         projectRoot: "/tmp/project-alpha",
         projectName: "project-alpha",
         sessionCount: 2,
+        isDefault: false,
       },
     ]);
   });
@@ -53,6 +60,7 @@ describe("buildChatWelcomeProjectOptions", () => {
     const options = buildChatWelcomeProjectOptions({
       defaultProjectRoot: "/Users/demo/.nextclaw/workspace",
       projects: [{
+        id: "project-knowledge",
         name: "Knowledge",
         rootPath: "/tmp/knowledge",
         template: "knowledge-base",
@@ -62,10 +70,19 @@ describe("buildChatWelcomeProjectOptions", () => {
       sessionSummaries: [],
     });
 
-    expect(options).toEqual([{
-      projectRoot: "/tmp/knowledge",
-      projectName: "Knowledge",
-      sessionCount: 0,
-    }]);
+    expect(options).toEqual([
+      {
+        projectRoot: "/Users/demo/.nextclaw/workspace",
+        projectName: "workspace",
+        sessionCount: 0,
+        isDefault: true,
+      },
+      {
+        projectRoot: "/tmp/knowledge",
+        projectName: "Knowledge",
+        sessionCount: 0,
+        isDefault: false,
+      },
+    ]);
   });
 });

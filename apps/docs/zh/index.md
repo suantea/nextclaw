@@ -2,9 +2,9 @@
 layout: home
 
 hero:
-  name: NextClaw 文档
-  text: 让 Agent 把任务做成真实结果
-  tagline: NextClaw 可以在你自己的设备上读取资料、使用工具、操作文件并生成可检查的文档、图表、代码和应用。这里从第一个任务开始，讲清每一步怎么用。
+  name: NextClaw
+  text: 你的长期个人智能搭档
+  tagline: 安装后直接使用内置免费试用模型，无需 API Key。NextClaw 可以在你自己的设备上读取资料、使用工具、操作文件，并生成可检查的文档、图表、代码和应用。
   actions:
     - theme: brand
       text: 创建第一个任务
@@ -26,8 +26,8 @@ hero:
 </div>
 
 <figure class="nc-docs-product-shot nc-docs-product-shot--wide">
-  <img src="/product-screenshots/nextclaw-hero-workbench-cn.png" alt="NextClaw 会话与电子钢琴 Panel App 同时打开">
-  <figcaption>对话、执行过程和可交互结果留在同一个任务里。</figcaption>
+  <img src="/product-screenshots/nextclaw-hero-workbench-cn.png" alt="NextClaw 在会话中展示数据可视化并打开项目文档">
+  <figcaption>对话、生成结果和项目文档留在同一个任务里。</figcaption>
 </figure>
 
 ## 从一个真实任务开始
@@ -35,8 +35,8 @@ hero:
 <div class="nc-docs-path-grid">
   <a class="nc-docs-card" href="/zh/guide/install">
     <span class="nc-docs-step">第一步</span>
-    <strong>安装并配置一个模型</strong>
-    <span>桌面版适合直接使用；npm 和 Docker 适合终端、服务器与长期托管。</span>
+    <strong>安装后直接开始第一个任务</strong>
+    <span>内置免费试用无需 API Key；也可以换成自己的云端或本地模型。</span>
   </a>
   <a class="nc-docs-card" href="/zh/guide/create-task">
     <span class="nc-docs-step">第二步</span>
@@ -66,13 +66,22 @@ hero:
   <a class="nc-docs-link" href="/zh/guide/doc-browser"><strong>Doc Browser</strong><span>把网页、文档和多个浏览标签留在全局右侧。</span></a>
 </div>
 
-## 用熟悉的 Agent Runtime 继续项目
+## 让后台 Agent 主动把结果送回来
 
-同一个任务可以选择 Native、Codex、Claude Code、OpenCode 或 Hermes 来执行。会话、项目目录和生成结果仍留在 NextClaw 里。下面这个真实任务使用 Codex 整理项目架构，右侧同步查看 Markdown 文档。
+定时任务、后台 Agent 或长期监测完成后，可以把报告送进 AI 收件箱。你可以稍后阅读、集中管理，也可以带着报告内容直接继续聊。
 
 <figure class="nc-docs-product-shot nc-docs-product-shot--wide">
-  <img src="/product-screenshots/nextclaw-codex-runtime-markdown-preview-cn.png" alt="NextClaw 使用 Codex 推进项目并在右侧预览 Markdown 架构文档">
-  <figcaption>使用 Codex 推进项目，生成的文档可以直接在任务旁查看。</figcaption>
+  <img src="/product-screenshots/nextclaw-island-inbox-workspace-cn.png" alt="NextClaw 岛屿主题展示每日 AI 与科技简报主动送达到 AI 收件箱">
+  <figcaption>主动送达的简报与会话、应用一起留在同一个桌面工作台。</figcaption>
+</figure>
+
+## 用熟悉的 Agent Runtime 继续项目
+
+同一个任务可以选择 Native、Codex、Claude Code、OpenCode 或 Hermes 来执行。会话、项目目录和生成结果仍留在 NextClaw 里，开始任务时可以直接选择需要的 Runtime。
+
+<figure class="nc-docs-product-shot nc-docs-product-shot--wide">
+  <img src="/product-screenshots/nextclaw-agent-runtime-picker-cn.png" alt="NextClaw Runtime 选择器展示 Native、Claude Code、Codex、Hermes 和 OpenCode">
+  <figcaption>开始任务时选择 Runtime，其余工作区和任务上下文保持不变。</figcaption>
 </figure>
 
 [查看 Claude Code、Codex 与 Hermes 集成](/zh/guide/tutorials/claude-codex-hermes)
@@ -137,7 +146,8 @@ hero:
   <a class="nc-docs-link" href="/zh/guide/security-and-permissions"><strong>安全与权限</strong><span>检查目录、密钥、渠道和外部工具的边界。</span></a>
   <a class="nc-docs-link" href="/zh/guide/troubleshooting"><strong>故障排查</strong><span>从运行状态、日志和连接问题开始定位。</span></a>
   <a class="nc-docs-link" href="/zh/guide/configuration"><strong>配置手册</strong><span>查找完整配置项和运行设置。</span></a>
-  <a class="nc-docs-link" href="/zh/guide/commands"><strong>命令索引</strong><span>按命令名快速查找终端用法。</span></a>
+  <a class="nc-docs-link" href="/zh/guide/resource-usage"><strong>运行资源与内存基准</strong><span>查看 VPS 测试配置、空闲内存数据和活跃任务边界。</span></a>
+  <a class="nc-docs-link" href="/zh/guide/commands"><strong>CLI 能力全集</strong><span>按能力域查看 NextClaw 的全部命令行功能。</span></a>
   <a class="nc-docs-link" href="/zh/notes/"><strong>产品更新</strong><span>查看每个版本新增、增强和修复了什么。</span></a>
   <a class="nc-docs-link" href="/zh/project/"><strong>项目与社区</strong><span>查看愿景、路线图、动态和社区入口。</span></a>
 </div>

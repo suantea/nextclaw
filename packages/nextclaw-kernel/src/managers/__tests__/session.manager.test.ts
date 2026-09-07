@@ -7,13 +7,7 @@ import type { AgentSessionRecord } from "@nextclaw/ncp-toolkit";
 import { EventBus, eventKeys } from "@nextclaw/shared";
 import { NcpAgentSessionJournalStore } from "@kernel/stores/ncp-agent-session-journal.store.js";
 import { SessionManager } from "@kernel/managers/session.manager.js";
-import { ProjectManager } from "@kernel/managers/project.manager.js";
-
-vi.mock("@kernel/features/context-compaction/index.js", () => ({
-  ContextWindowPreviewManager: class {
-    preview = () => null;
-  },
-}));
+import { ProjectManager } from "@kernel/features/projects/index.js";
 
 const tempDirs: string[] = [];
 
@@ -34,7 +28,6 @@ function createConfig(workspace = createTempDir()) {
         thinkingDefault: "off",
         models: {},
         contextTokens: 200000,
-        maxToolIterations: 1000,
       },
       list: [],
     },
@@ -106,6 +99,10 @@ async function createFixture(
     await journalStore.importSessionSnapshot(record);
   }
   const manager = new SessionManager({
+    agentContextWindowManager: {
+      forgetSession: () => undefined,
+      previewSession: async () => null,
+    } as never,
     agentManager: {
       resolveAgentProfile: () => ({
         workspace: (config as { agents: { defaults: { workspace: string } } }).agents.defaults.workspace,
@@ -115,7 +112,8 @@ async function createFixture(
     eventBus,
     journalStore,
     projectManager: new ProjectManager({
-      storePath: join(sessionsDir, "projects.json"),
+      databasePath: join(sessionsDir, "projects.db"),
+      legacyStorePath: join(sessionsDir, "projects.json"),
       getDefaultWorkspacePath: () =>
         (config as { agents: { defaults: { workspace: string } } }).agents.defaults.workspace,
     }),
@@ -322,6 +320,70 @@ describe("SessionManager", () => {
 });
 
 describe("SessionManager activity previews", () => {
+  it("appends one canonical run.error on startup for an unfinished run", async () => {
+    const fixture = await createFixture([
+      createRecord({ sessionId: "session-1" }),
+    ]);
+    await fixture.journalStore.appendSessionEvent({
+      sessionId: "session-1",
+      event: {
+        type: NcpEventType.RunStarted,
+        payload: {
+          sessionId: "session-1",
+          messageId: "assistant-interrupted",
+          runId: "run-interrupted",
+          startedAt: "2026-05-21T00:00:00.000Z",
+        },
+      },
+    });
+    await fixture.journalStore.appendSessionEvent({
+      sessionId: "session-1",
+      event: {
+        type: NcpEventType.MessageToolCallStart,
+        payload: {
+          sessionId: "session-1",
+          messageId: "assistant-interrupted",
+          toolCallId: "tool-interrupted",
+          toolName: "command_execution",
+        },
+      },
+    });
+    await fixture.journalStore.appendSessionEvent({
+      sessionId: "session-1",
+      event: {
+        type: NcpEventType.MessageToolCallEnd,
+        payload: {
+          sessionId: "session-1",
+          toolCallId: "tool-interrupted",
+        },
+      },
+    });
+
+    await fixture.manager.start();
+
+    await expect(fixture.journalStore.listUnfinishedRuns()).resolves.toEqual([]);
+    await expect(fixture.manager.getSessionRecord("session-1")).resolves.toMatchObject({
+      messages: [{
+        id: "assistant-interrupted",
+        status: "error",
+        parts: [{
+          type: "tool-invocation",
+          toolCallId: "tool-interrupted",
+          state: "cancelled",
+        }],
+      }],
+      metadata: {
+        last_activity_preview: {
+          state: "failed",
+          statusKind: "run-interrupted",
+        },
+      },
+    });
+    await fixture.manager.start();
+    await expect(fixture.journalStore.listUnfinishedRuns()).resolves.toEqual([]);
+    fixture.manager.dispose();
+  });
+
   it("updates activity preview from appended run events", async () => {
     const fixture = await createFixture([
       createRecord({
@@ -446,7 +508,7 @@ describe("SessionManager activity previews", () => {
         metadata: {
           last_activity_preview: {
             state: "running",
-            statusText: "Tool call completed: read_file",
+            statusText: "read_file",
           },
         },
       });
@@ -560,6 +622,55 @@ describe("SessionManager journal-backed session creation", () => {
     expect(record?.messages.map((message) => message.parts)).not.toContainEqual(
       [{ type: "text", text: "锚点之后不应继承" }],
     );
+  });
+
+  it("rewrites the current session history strictly before the edited message", async () => {
+    const fixture = await createFixture([
+      createRecord({
+        sessionId: "parent-session",
+        agentId: "main",
+        messages: [
+          createMessage({
+            id: "user-before",
+            sessionId: "parent-session",
+            text: "保留的背景",
+          }),
+          createMessage({
+            id: "assistant-before",
+            role: "assistant",
+            sessionId: "parent-session",
+            text: "保留的回答",
+            timestamp: "2026-05-12T00:00:01.000Z",
+          }),
+          createMessage({
+            id: "user-edit-anchor",
+            sessionId: "parent-session",
+            text: "待编辑的原消息",
+            timestamp: "2026-05-12T00:00:02.000Z",
+          }),
+          createMessage({
+            id: "assistant-after",
+            role: "assistant",
+            sessionId: "parent-session",
+            text: "旧分支回答",
+            timestamp: "2026-05-12T00:00:03.000Z",
+          }),
+        ],
+      }),
+    ]);
+
+    const rewound = await fixture.manager.rewindSessionBeforeMessage(
+      "parent-session",
+      "user-edit-anchor",
+    );
+    const persisted = await fixture.journalStore.getSession("parent-session");
+
+    expect(rewound.sessionId).toBe("parent-session");
+    expect(persisted?.messages.map((message) => message.id)).toEqual([
+      "user-before",
+      "assistant-before",
+    ]);
+    expect(persisted?.agentId).toBe("main");
   });
 
   it("rejects context inheritance without a child parent", async () => {

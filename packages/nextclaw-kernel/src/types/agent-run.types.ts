@@ -1,6 +1,9 @@
 import type {
   NcpError,
+  NcpInputDelivery,
   NcpMessage,
+  NcpResolvedInputDelivery,
+  NcpRunTriggerInput,
   NcpTool,
 } from "@nextclaw/ncp";
 
@@ -21,6 +24,9 @@ export type AgentRunRequest = {
   model?: string;
   maxTokens?: number;
   thinkingEffort?: ThinkingEffort | null;
+  delivery?: NcpInputDelivery;
+  idempotencyKey?: string;
+  trigger?: NcpRunTriggerInput;
 };
 
 export type AgentRunAbortRequest = {
@@ -30,11 +36,24 @@ export type AgentRunAbortRequest = {
   reason?: NcpError;
 };
 
+export type AgentRunEditMessageRequest = {
+  correlationId?: string;
+  message: NcpMessage;
+  messageId: string;
+  sessionId: string;
+};
+
+export type AgentRunContinueRequest = {
+  correlationId?: string;
+  sessionId: string;
+};
+
 export type AgentRunAccepted = {
   sessionId: string;
   userMessageId: string;
   runId: string | null;
   correlationId?: string;
+  delivery: NcpResolvedInputDelivery;
 };
 
 export type SessionQueuedInput = {
@@ -44,6 +63,15 @@ export type SessionQueuedInput = {
   message: NcpMessage;
   metadata: Record<string, unknown>;
 };
+
+export type SessionPendingInput = SessionQueuedInput & {
+  placement: "queued" | "steering";
+  intendedRunId: string | null;
+};
+
+export type SessionSteerQueuedInputResult =
+  | { ok: true; input: SessionPendingInput }
+  | { ok: false; reason: "not-found" | "unavailable" };
 
 export type AgentRunSpec = {
   runId: string;

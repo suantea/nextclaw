@@ -1,9 +1,12 @@
 {
   "name": "nextclaw",
-  "version": "0.28.0",
+  "version": "0.48.3",
   "description": "Powerful AI assistant for coordinating agents, skills, CLI tools, automations, and messaging apps.",
   "private": false,
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "bin": {
     "nextclaw": "dist/cli/launcher/index.js"
   },
@@ -43,6 +46,7 @@
     "runtime-update:build": "node scripts/build-npm-runtime-update-channel.mjs",
     "smoke:npm-runtime-update": "node scripts/smoke-npm-runtime-update.mjs",
     "validation:npm-update": "node scripts/smoke-npm-runtime-update.mjs --manual",
+    "validation:portable-runtime-http": "node scripts/verify-portable-runtime-http-smoke.mjs",
     "prepack": "node ../../scripts/release/verify-package-release-artifacts.mjs",
     "start": "node dist/cli/app/index.js",
     "lint": "eslint .",
@@ -51,6 +55,7 @@
     "prepublishOnly": "node ../../scripts/release/ensure-pnpm-publish.mjs"
   },
   "dependencies": {
+    "@nextclaw/app-runtime": "workspace:*",
     "@nextclaw/core": "workspace:*",
     "@nextclaw/kernel": "workspace:*",
     "@nextclaw/mcp": "workspace:*",
@@ -65,6 +70,7 @@
     "@nextclaw/runtime": "workspace:*",
     "@nextclaw/service": "workspace:*",
     "@nextclaw/server": "workspace:*",
+    "@nextclaw/shared": "workspace:*",
     "chokidar": "^3.6.0",
     "commander": "^12.1.0",
     "jszip": "^3.10.1",

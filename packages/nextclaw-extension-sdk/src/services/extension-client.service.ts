@@ -1,17 +1,69 @@
-import { EventBus } from "@nextclaw/shared";
+import { EventBus, getKeyId, ingressKeys } from "@nextclaw/shared";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   ExtensionCapabilities,
   ExtensionCapabilityHandler,
   ExtensionChannels,
+  DesktopHost,
+  ExtensionDiagnostics,
   ExtensionRequest,
   ExtensionRequestHandler,
+  ExtensionObservations,
   ExtensionTransportEnvelope,
   NextClawExtensionOptions,
 } from "../types/extension-sdk.types.js";
 import { ExtensionChannelService } from "./extension-channel.service.js";
 import { ExtensionTransportService } from "./extension-transport.service.js";
+import { ExtensionObservationService } from "./extension-observation.service.js";
+import { ExtensionDesktopHostService } from "./extension-desktop-host.service.js";
 
 const EXTENSION_PARENT_WATCH_INTERVAL_MS = 1000;
+
+class ExtensionDiagnosticClient implements ExtensionDiagnostics {
+  constructor(
+    private readonly transport: ExtensionTransportService,
+    private readonly timeoutMs: number,
+  ) {}
+
+  readonly createTraceId = (stableId?: string): string => {
+    const normalizedStableId = stableId?.trim();
+    if (!normalizedStableId) {
+      return randomUUID();
+    }
+    return createHash("sha256")
+      .update(normalizedStableId)
+      .digest("hex")
+      .slice(0, 24);
+  };
+
+  readonly emit: ExtensionDiagnostics["emit"] = async (input) => {
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.transport.postIngress(
+          getKeyId(ingressKeys.extension.diagnosticEmit),
+          input,
+          { signal: controller.signal },
+        ),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            controller.abort();
+            reject(new Error("Extension diagnostic emission timed out."));
+          }, this.timeoutMs);
+          timeout.unref?.();
+        }),
+      ]);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
+  };
+}
 
 class ExtensionChannelRegistry implements ExtensionChannels {
   private readonly channels = new Map<string, ExtensionChannelService>();
@@ -50,6 +102,7 @@ function readRequest(payload: unknown): ExtensionRequest | null {
   if (
     typeof record.requestId !== "string" ||
     typeof record.extensionId !== "string" ||
+    typeof record.generation !== "string" ||
     typeof record.kind !== "string"
   ) {
     return null;
@@ -57,10 +110,14 @@ function readRequest(payload: unknown): ExtensionRequest | null {
   return {
     requestId: record.requestId,
     extensionId: record.extensionId,
+    generation: record.generation,
     kind: record.kind,
-    payload: record.payload && typeof record.payload === "object" && !Array.isArray(record.payload)
-      ? record.payload as Record<string, unknown>
-      : {},
+    payload:
+      record.payload &&
+      typeof record.payload === "object" &&
+      !Array.isArray(record.payload)
+        ? (record.payload as Record<string, unknown>)
+        : {},
   };
 }
 
@@ -124,11 +181,14 @@ class ExtensionCapabilityRegistry implements ExtensionCapabilities {
 
   readonly provide = (namespace: string, capability: object): (() => void) => {
     const normalizedNamespace = normalizeName(namespace, "namespace");
-    const unsubscribeHandlers = this.readHandlers(capability).map(([name, handler]) =>
-      this.provideHandler(`${normalizedNamespace}.${name}`, handler),
+    const unsubscribeHandlers = this.readHandlers(capability).map(
+      ([name, handler]) =>
+        this.provideHandler(`${normalizedNamespace}.${name}`, handler),
     );
     if (unsubscribeHandlers.length === 0) {
-      throw new Error(`capability '${normalizedNamespace}' has no callable methods.`);
+      throw new Error(
+        `capability '${normalizedNamespace}' has no callable methods.`,
+      );
     }
     return () => {
       for (const unsubscribe of unsubscribeHandlers) {
@@ -137,25 +197,39 @@ class ExtensionCapabilityRegistry implements ExtensionCapabilities {
     };
   };
 
-  readonly provideHandler = (kind: string, handler: ExtensionCapabilityHandler): (() => void) => {
+  readonly provideHandler = (
+    kind: string,
+    handler: ExtensionCapabilityHandler,
+  ): (() => void) => {
     const normalizedKind = normalizeName(kind, "kind");
     return this.params.eventBus.subscribeAll((event) => {
       if (event.type !== "extension.request") {
         return;
       }
       const request = readRequest(event.payload);
-      if (!request || request.extensionId !== this.params.extensionId || request.kind !== normalizedKind) {
+      if (
+        !request ||
+        request.extensionId !== this.params.extensionId ||
+        request.generation !== this.params.transport.generation ||
+        request.kind !== normalizedKind
+      ) {
         return;
       }
-      void handleRequest(this.params.transport, request, async (matchedRequest) =>
-        await handler(matchedRequest.payload ?? {}, matchedRequest),
+      void handleRequest(
+        this.params.transport,
+        request,
+        async (matchedRequest) =>
+          await handler(matchedRequest.payload ?? {}, matchedRequest),
       );
     });
   };
 
-  private readonly readHandlers = (capability: object): Array<[string, ExtensionCapabilityHandler]> =>
+  private readonly readHandlers = (
+    capability: object,
+  ): Array<[string, ExtensionCapabilityHandler]> =>
     Object.entries(capability).filter(
-      (entry): entry is [string, ExtensionCapabilityHandler] => typeof entry[1] === "function",
+      (entry): entry is [string, ExtensionCapabilityHandler] =>
+        typeof entry[1] === "function",
     );
 }
 
@@ -163,14 +237,22 @@ export class NextClawExtension {
   readonly eventBus: EventBus;
   readonly channels: ExtensionChannels;
   readonly capabilities: ExtensionCapabilities;
+  readonly diagnostics: ExtensionDiagnostics;
+  readonly host: { desktop: DesktopHost };
+  readonly observations: ExtensionObservations;
   readonly extensionId: string;
+  readonly generation: string;
   private readonly transport: ExtensionTransportService;
-  private eventStreamSubscription: { close: () => void } | null = null;
+  private eventStreamSubscription: {
+    close: () => void;
+    ready: Promise<void>;
+  } | null = null;
   private parentProcessWatcher: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: NextClawExtensionOptions = {}) {
     this.transport = new ExtensionTransportService(options);
     this.extensionId = this.transport.extensionId;
+    this.generation = this.transport.generation;
     this.eventBus = new EventBus({
       onFirstSubscriber: () => {
         this.eventStreamSubscription ??= this.transport.subscribe((event) => {
@@ -191,6 +273,24 @@ export class NextClawExtension {
       extensionId: this.extensionId,
       transport: this.transport,
     });
+    this.host = {
+      desktop: new ExtensionDesktopHostService({
+        eventBus: this.eventBus,
+        extensionId: this.extensionId,
+        generation: this.generation,
+        transport: this.transport,
+      }),
+    };
+    this.observations = new ExtensionObservationService({
+      eventBus: this.eventBus,
+      extensionId: this.extensionId,
+      generation: this.generation,
+      transport: this.transport,
+    });
+    this.diagnostics = new ExtensionDiagnosticClient(
+      this.transport,
+      Math.max(50, options.diagnosticTimeoutMs ?? 2_000),
+    );
     this.parentProcessWatcher = this.startParentProcessWatcher();
   }
 
@@ -201,6 +301,18 @@ export class NextClawExtension {
     }
     this.eventStreamSubscription?.close();
     this.eventStreamSubscription = null;
+    void this.observations.close();
+  };
+
+  readonly ready = async (): Promise<void> => {
+    const subscription = this.eventStreamSubscription;
+    if (!subscription) {
+      throw new Error(
+        `Extension ${this.extensionId} has no event-stream subscription.`,
+      );
+    }
+    await subscription.ready;
+    await this.transport.reportReady(process.pid);
   };
 
   readonly onRequest = (handler: ExtensionRequestHandler): (() => void) =>
@@ -209,19 +321,27 @@ export class NextClawExtension {
         return;
       }
       const request = readRequest(event.payload);
-      if (!request || request.extensionId !== this.extensionId) {
+      if (
+        !request ||
+        request.extensionId !== this.extensionId ||
+        request.generation !== this.generation
+      ) {
         return;
       }
       void handleRequest(this.transport, request, handler);
     });
 
-  private readonly toEventBusEnvelope = (event: ExtensionTransportEnvelope): ExtensionTransportEnvelope => ({
+  private readonly toEventBusEnvelope = (
+    event: ExtensionTransportEnvelope,
+  ): ExtensionTransportEnvelope => ({
     ...event,
     emittedAt: event.emittedAt ?? new Date().toISOString(),
     source: event.source ?? "event-stream",
   });
 
-  private readonly startParentProcessWatcher = (): ReturnType<typeof setInterval> | null => {
+  private readonly startParentProcessWatcher = (): ReturnType<
+    typeof setInterval
+  > | null => {
     const parentPid = readParentProcessId();
     if (!parentPid) {
       return null;
@@ -236,5 +356,4 @@ export class NextClawExtension {
     (timer as NodeJS.Timeout).unref?.();
     return timer;
   };
-
 }

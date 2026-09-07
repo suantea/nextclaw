@@ -3,8 +3,12 @@ import type {
   NcpMessage,
   NcpMessageAbortPayload,
   NcpMessagePart,
+  NcpRunTriggerInput,
 } from "@nextclaw/ncp";
 import { createTypedKey } from "../types/typed-key.types.js";
+
+export const DIAGNOSTIC_CORRELATION_METADATA_KEY =
+  "nextclaw_diagnostic_correlation_id";
 
 export type ExtensionChannelTextContent = {
   type: "text";
@@ -18,23 +22,32 @@ type ExtensionChannelResourceRef = {
   name?: string;
 };
 
-export type ExtensionChannelImageContent = ExtensionChannelResourceRef & { type: "image" };
+export type ExtensionChannelImageContent = ExtensionChannelResourceRef & {
+  type: "image";
+};
 
-export type ExtensionChannelFileContent = ExtensionChannelResourceRef & { type: "file" };
+export type ExtensionChannelFileContent = ExtensionChannelResourceRef & {
+  type: "file";
+};
 
 export type ExtensionChannelMessageContent =
   | ExtensionChannelTextContent
   | ExtensionChannelImageContent
   | ExtensionChannelFileContent;
 
-export type ExtensionChannelSubmittedAttachment = ExtensionChannelResourceRef & {
-  id?: string;
-  path?: string;
-  size?: number;
-  source?: string;
-  status?: "ready" | "remote-only";
-  errorCode?: "too_large" | "download_failed" | "http_error" | "invalid_payload";
-};
+export type ExtensionChannelSubmittedAttachment =
+  ExtensionChannelResourceRef & {
+    id?: string;
+    path?: string;
+    size?: number;
+    source?: string;
+    status?: "ready" | "remote-only";
+    errorCode?:
+      | "too_large"
+      | "download_failed"
+      | "http_error"
+      | "invalid_payload";
+  };
 
 export type ExtensionChannelConfigGetIngressPayload = {
   channelId: string;
@@ -47,6 +60,33 @@ export type ExtensionChannelMessageSubmitIngressPayload = {
   content: ExtensionChannelMessageContent;
   attachments?: ExtensionChannelSubmittedAttachment[];
   metadata?: Record<string, unknown>;
+};
+
+export type DiagnosticOutcome =
+  | "observed"
+  | "started"
+  | "accepted"
+  | "succeeded"
+  | "rejected"
+  | "cancelled"
+  | "failed"
+  | "unavailable"
+  | "suppressed";
+
+export type DiagnosticFactValue = string | number | boolean | null;
+
+export type ExtensionDiagnosticIngressPayload = {
+  domain: string;
+  event: string;
+  component: string;
+  outcome: DiagnosticOutcome;
+  correlationId?: string;
+  parentCorrelationId?: string;
+  reasonCode?: string;
+  providerCode?: string;
+  durationMs?: number;
+  attempt?: number;
+  facts?: Record<string, DiagnosticFactValue>;
 };
 
 export type ExtensionChannelCommandOptionType = "string" | "boolean" | "number";
@@ -101,18 +141,64 @@ export type ExtensionResponseIngressPayload =
       };
     };
 
+export type ExtensionRuntimeReadyIngressPayload = {
+  generation: string;
+  pid: number;
+};
+
+export type ExtensionDesktopHostInvokeIngressPayload = {
+  method: string;
+  payload?: Record<string, unknown>;
+  caller?: {
+    sessionId?: string;
+    agentRunId?: string;
+  };
+};
+
+export type ExtensionObservationEventIngressPayload = {
+  subscriptionId: string;
+  event: {
+    eventId: string;
+    eventType: string;
+    occurredAt: string;
+    observedAt?: string;
+    cursor?: string;
+    dedupeKey?: string;
+    payload: unknown;
+    sourceRefs?: string[];
+    causationId?: string;
+    correlationId?: string;
+  };
+};
+
 export type AgentRunSessionMessageRequestPayload = {
   message: NcpMessage;
   requestId: string;
   sessionId: string;
+  trigger: NcpRunTriggerInput;
 };
 
-export const CHAT_SESSION_MATERIALIZATION_METADATA_KEY = "session_materialization";
+export const CHAT_SESSION_MATERIALIZATION_METADATA_KEY =
+  "session_materialization";
+export const CHAT_CONTINUATION_TARGET_MESSAGE_METADATA_KEY =
+  "chat_continuation_target_message_id";
 
 export type AgentRunSessionMaterializationMetadata = {
   kind: "child";
   parentSessionId: string;
   inheritContext: true;
+};
+
+export type AgentRunEditMessageIngressPayload = {
+  correlationId?: string;
+  message: NcpMessage;
+  messageId: string;
+  sessionId: string;
+};
+
+export type AgentRunContinueIngressPayload = {
+  correlationId?: string;
+  sessionId: string;
 };
 
 export type AgentRunSendIngressMetadata = Record<string, unknown> & {
@@ -153,21 +239,39 @@ export const ingressKeys = {
       createTypedKey<ExtensionChannelMessageSubmitIngressPayload>(
         "extension.channel.message.submit",
       ),
-    channelCommandList: createTypedKey<ExtensionChannelCommandListIngressPayload>(
-      "extension.channel.command.list",
+    diagnosticEmit: createTypedKey<ExtensionDiagnosticIngressPayload>(
+      "extension.diagnostic.emit",
     ),
+    channelCommandList:
+      createTypedKey<ExtensionChannelCommandListIngressPayload>(
+        "extension.channel.command.list",
+      ),
     channelCommandExecute:
       createTypedKey<ExtensionChannelCommandExecuteIngressPayload>(
         "extension.channel.command.execute",
       ),
-    response: createTypedKey<ExtensionResponseIngressPayload>("extension.response"),
+    runtimeReady: createTypedKey<ExtensionRuntimeReadyIngressPayload>(
+      "extension.runtime.ready",
+    ),
+    response:
+      createTypedKey<ExtensionResponseIngressPayload>("extension.response"),
+    observationEvent: createTypedKey<ExtensionObservationEventIngressPayload>(
+      "extension.observation.event",
+    ),
+    desktopHostInvoke: createTypedKey<ExtensionDesktopHostInvokeIngressPayload>(
+      "extension.host.desktop.invoke",
+    ),
   },
   agentRun: {
     send: createTypedKey<AgentRunSendIngressPayload>("agent-run.send"),
     abort: createTypedKey<NcpMessageAbortPayload>("agent-run.abort"),
-    sessionMessageRequest:
-      createTypedKey<AgentRunSessionMessageRequestPayload>(
-        "agent-run.session-message.request",
-      ),
+    editMessage: createTypedKey<AgentRunEditMessageIngressPayload>(
+      "agent-run.edit-message",
+    ),
+    continue:
+      createTypedKey<AgentRunContinueIngressPayload>("agent-run.continue"),
+    sessionMessageRequest: createTypedKey<AgentRunSessionMessageRequestPayload>(
+      "agent-run.session-message.request",
+    ),
   },
 } as const;

@@ -28,9 +28,13 @@ type ToolbarSelectBuildParams = {
   readonly hasModelOptions: boolean;
   readonly isModelOptionsLoading: boolean;
   readonly modelRecords: ChatModelRecord[];
+  readonly discoveredModelRecords: ChatModelRecord[];
   readonly modelSearchEmptyLabel: string;
   readonly modelSearchPlaceholder: string;
   readonly onFavoriteModelToggle: (value: string, favorite: boolean) => void;
+  readonly onDiscoveredModelSelect: (value: string) => Promise<void> | void;
+  readonly onDiscoveredModelsDismiss: () => void;
+  readonly onModelSelectOpen: () => void;
   readonly onModelChange: (value: string) => void;
   readonly onThinkingChange: (value: ChatThinkingLevel | null) => void;
   readonly recentModelValues: string[];
@@ -42,7 +46,9 @@ type ToolbarSelectBuildParams = {
   readonly unfavoriteModelLabel: string;
 };
 
-export function buildSessionConversationToolbarSelects(params: ToolbarSelectBuildParams) {
+export function buildSessionConversationToolbarSelects(
+  params: ToolbarSelectBuildParams,
+) {
   const {
     allModelsLabel,
     favoriteModelLabel,
@@ -51,9 +57,13 @@ export function buildSessionConversationToolbarSelects(params: ToolbarSelectBuil
     hasModelOptions,
     isModelOptionsLoading,
     modelRecords,
+    discoveredModelRecords,
     modelSearchEmptyLabel,
     modelSearchPlaceholder,
     onFavoriteModelToggle,
+    onDiscoveredModelSelect,
+    onDiscoveredModelsDismiss,
+    onModelSelectOpen,
     onModelChange,
     onThinkingChange,
     recentModelValues,
@@ -67,12 +77,16 @@ export function buildSessionConversationToolbarSelects(params: ToolbarSelectBuil
   return [
     buildModelToolbarSelect({
       modelOptions: modelRecords,
+      discoveredModelOptions: discoveredModelRecords,
       favoriteModelValues,
       recentModelValues,
       selectedModel,
       isModelOptionsLoading,
       hasModelOptions,
       onFavoriteToggle: onFavoriteModelToggle,
+      onDiscoveredModelSelect,
+      onDiscoveredModelsDismiss,
+      onOpen: onModelSelectOpen,
       onValueChange: onModelChange,
       texts: {
         modelSelectPlaceholder: t('chatSelectModel'),
@@ -82,6 +96,15 @@ export function buildSessionConversationToolbarSelects(params: ToolbarSelectBuil
         favoriteModelsLabel,
         favoriteModelLabel,
         unfavoriteModelLabel,
+        manageModelsLabel: t('chatManageModels'),
+        discoveredModelsSummaryLabel: t('chatDiscoveredModelsSummary'),
+        discoveredModelsViewLabel: t('chatDiscoveredModelsView'),
+        discoveredModelsGroupLabel: t('chatDiscoveredModelsGroup'),
+        discoveredModelAddLabel: t('chatDiscoveredModelAdd'),
+        discoveredModelAddedLabel: t('chatDiscoveredModelAddedShort'),
+        discoveredModelsDismissLabel: t('chatDiscoveredModelsDismiss'),
+        discoveredModelsDoneLabel: t('chatDiscoveredModelsDone'),
+        discoveredModelsCloseLabel: t('chatDiscoveredModelsClose'),
         recentModelsLabel,
         allModelsLabel,
       },

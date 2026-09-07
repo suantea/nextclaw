@@ -5,12 +5,17 @@ import { normalizeBaseUrl } from "./utils/url.utils.js";
 import { AgentRunsService } from "./services/agent-runs.service.js";
 import { AgentsService } from "./services/agents.service.js";
 import { AppService } from "./services/app.service.js";
+import { AppPackagesClientService } from "./services/app-packages.service.js";
+import { AppDataClientService } from "./services/app-data.service.js";
 import { AuthService } from "./services/auth.service.js";
 import { ChannelAuthService } from "./services/channel-auth.service.js";
+import { CapabilityAccessService } from "./services/capability-access.service.js";
+import { FeatureControlsService } from "./services/feature-controls.service.js";
 import { ConfigService } from "./services/config.service.js";
 import { MarketplaceService } from "./services/marketplace.service.js";
 import { InboxDeliveriesService } from "./services/inbox-deliveries.service.js";
 import { McpMarketplaceService } from "./services/mcp-marketplace.service.js";
+import { McpService } from "./services/mcp.service.js";
 import { PanelAppsClientService } from "./services/panel-apps.service.js";
 import { ProviderService } from "./services/providers.service.js";
 import { ProjectsService } from "./services/projects.service.js";
@@ -22,19 +27,25 @@ import { RuntimeUpdateService } from "./services/runtime-update.service.js";
 import { ServerPathsService } from "./services/server-paths.service.js";
 import { ServiceAppsClientService } from "./services/service-apps.service.js";
 import { SessionsService } from "./services/sessions.service.js";
+import { SystemObjectReferencesService } from "./services/system-object-references.service.js";
 
 export class NextClawClient {
   readonly baseUrl: string;
   readonly agentRuns: AgentRunsService;
   readonly app: AppService;
+  readonly appPackages: AppPackagesClientService;
+  readonly appData: AppDataClientService;
   readonly agents: AgentsService;
   readonly auth: AuthService;
   readonly channelAuth: ChannelAuthService;
+  readonly capabilityAccess: CapabilityAccessService;
+  readonly featureControls: FeatureControlsService;
   readonly config: ConfigService;
   readonly eventBus: EventBus;
   readonly marketplace: MarketplaceService;
   readonly inboxDeliveries: InboxDeliveriesService;
   readonly mcpMarketplace: McpMarketplaceService;
+  readonly mcp: McpService;
   readonly panelApps: PanelAppsClientService;
   readonly providers: ProviderService;
   readonly projects: ProjectsService;
@@ -45,6 +56,7 @@ export class NextClawClient {
   readonly serverPaths: ServerPathsService;
   readonly serviceApps: ServiceAppsClientService;
   readonly sessions: SessionsService;
+  readonly systemObjectReferences: SystemObjectReferencesService;
 
   constructor(options: NextClawClientOptions) {
     this.baseUrl = normalizeBaseUrl(options.baseUrl);
@@ -73,13 +85,18 @@ export class NextClawClient {
     });
     this.agentRuns = new AgentRunsService(requestService, normalizedOptions);
     this.app = new AppService(requestService);
+    this.appPackages = new AppPackagesClientService(requestService);
+    this.appData = new AppDataClientService(requestService);
     this.agents = new AgentsService(requestService, this.baseUrl);
     this.auth = new AuthService(requestService);
     this.channelAuth = new ChannelAuthService(requestService);
+    this.capabilityAccess = new CapabilityAccessService(requestService);
+    this.featureControls = new FeatureControlsService(requestService);
     this.config = new ConfigService(requestService);
     this.marketplace = new MarketplaceService(requestService);
     this.inboxDeliveries = new InboxDeliveriesService(requestService);
     this.mcpMarketplace = new McpMarketplaceService(requestService);
+    this.mcp = new McpService(requestService);
     this.panelApps = new PanelAppsClientService(requestService);
     this.providers = new ProviderService(requestService);
     this.projects = new ProjectsService(requestService);
@@ -89,5 +106,6 @@ export class NextClawClient {
     this.serverPaths = new ServerPathsService(requestService);
     this.serviceApps = new ServiceAppsClientService(requestService);
     this.sessions = new SessionsService(requestService, this.eventBus);
+    this.systemObjectReferences = new SystemObjectReferencesService(requestService);
   }
 }

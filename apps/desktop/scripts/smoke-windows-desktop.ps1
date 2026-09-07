@@ -4,7 +4,16 @@ param(
   [string]$PortableRoot = "",
   [int]$StartupTimeoutSec = 90,
   [int]$MaxReadySec = 20,
-  [switch]$SeedStaleSameVersionBundle
+  [switch]$SeedStaleSameVersionBundle,
+  [switch]$AllowRendererOnlyTitlebarProbe,
+  [switch]$ReuseSmokeHome,
+  [switch]$SkipExtendedProbes,
+  [switch]$DisableGuardian,
+  [switch]$ApplyAvailableUpdate,
+  [switch]$ExpectUpdatedRuntimeFailure,
+  [int]$RemoteDebuggingPort = 0,
+  [ValidateSet("none", "baseline-pre047", "seed-visible-044", "seed-broken-047", "expect-missing-048", "expect-recovered")]
+  [string]$SessionCatalogUpgradeProbe = "none"
 )
 
 $ErrorActionPreference = "Stop"
@@ -68,6 +77,24 @@ function Get-DesktopRuntimeBaseUrlFromLog {
   return $runtimeBaseUrl
 }
 
+function Get-DesktopRootProcessIdFromLog {
+  $candidatePid = $null
+  foreach ($line in @(Get-CurrentMainLogLines)) {
+    if ($line -match "Desktop main entry loaded\. pid=(\d+)") {
+      $candidatePid = [int]$Matches[1]
+    }
+  }
+  if ($null -eq $candidatePid) {
+    return $null
+  }
+  try {
+    Get-Process -Id $candidatePid -ErrorAction Stop | Out-Null
+    return $candidatePid
+  } catch {
+    return $null
+  }
+}
+
 function Test-DesktopRuntimeWindowLoaded {
   param([string]$RuntimeBaseUrl)
 
@@ -128,6 +155,10 @@ function Write-SmokeDiagnostics {
   if (Test-Path $apiProbeLog) {
     Get-Content -Path $apiProbeLog -Tail 120
   }
+  Write-Host "[desktop-smoke] Service App probes: $script:ServiceAppProbeLog"
+  if (Test-Path $script:ServiceAppProbeLog) {
+    Get-Content -Path $script:ServiceAppProbeLog -Tail 160
+  }
 }
 
 function Invoke-DesktopApiProbe {
@@ -139,6 +170,7 @@ function Invoke-DesktopApiProbe {
 
   $endpoints = @(
     "/api/health",
+    "/api/runtime/bootstrap-status",
     "/api/auth/status",
     "/api/config",
     "/api/ncp/sessions"
@@ -153,6 +185,12 @@ function Invoke-DesktopApiProbe {
       $passed = $true
       if ($endpoint -eq "/api/health") {
         $passed = ($payload.ok -eq $true -and $payload.data.status -eq "ok")
+      } elseif ($endpoint -eq "/api/runtime/bootstrap-status") {
+        $passed = (
+          $payload.ok -eq $true -and
+          $payload.data.phase -ne "error" -and
+          $payload.data.ncpAgent.state -eq "ready"
+        )
       }
       $results.Add([pscustomobject]@{
         endpoint = $endpoint
@@ -174,6 +212,159 @@ function Invoke-DesktopApiProbe {
 
   $results | ConvertTo-Json -Depth 20 | Set-Content -Path $apiProbeLog
   return $allPassed
+}
+
+function Invoke-SessionCatalogUpgradeProbe {
+  param([string]$RuntimeBaseUrl, [string]$Mode)
+
+  if ($Mode -eq "none") {
+    return
+  }
+
+  $sessionId = "windows-session-catalog-upgrade-regression"
+  $prompt = "WINDOWS_SESSION_CATALOG_UPGRADE_REGRESSION"
+  $journalPath = Join-Path $portableRuntimeHome "sessions\.ncp-agent-journal\$sessionId.jsonl"
+
+  if ($Mode -in @("seed-visible-044", "seed-broken-047")) {
+    $timestamp = [DateTime]::UtcNow.ToString("o")
+    $body = @{
+      sessionId = $sessionId
+      correlationId = "windows-upgrade-correlation"
+      metadata = @{
+        agentRuntimeId = "native"
+        session_type = "native"
+        sessionType = "native"
+      }
+      message = @{
+        id = "windows-upgrade-user-message"
+        sessionId = $sessionId
+        role = "user"
+        status = "final"
+        timestamp = $timestamp
+        parts = @(@{ type = "text"; text = $prompt })
+      }
+    }
+    $sendResult = Invoke-RestMethod -Uri "$RuntimeBaseUrl/api/ncp/agent/send" -Method Post -ContentType "application/json" -Body ($body | ConvertTo-Json -Depth 12 -Compress) -TimeoutSec 30
+    if ($sendResult.ok -ne $true) {
+      throw "$Mode send endpoint did not accept the regression message."
+    }
+
+    $journalDeadline = (Get-Date).AddSeconds(30)
+    while (-not (Test-Path $journalPath) -and (Get-Date) -lt $journalDeadline) {
+      Start-Sleep -Milliseconds 250
+    }
+    if (-not (Test-Path $journalPath)) {
+      throw "$Mode did not persist the regression journal: $journalPath"
+    }
+
+    if ($Mode -eq "seed-visible-044") {
+      $visibilityDeadline = (Get-Date).AddSeconds(30)
+      $matchingSessions = @()
+      while ($matchingSessions.Count -ne 1 -and (Get-Date) -lt $visibilityDeadline) {
+        Start-Sleep -Seconds 2
+        $sessions = Invoke-RestMethod -Uri "$RuntimeBaseUrl/api/ncp/sessions?limit=100" -Method Get -TimeoutSec 10
+        $matchingSessions = @($sessions.data.sessions | Where-Object { $_.sessionId -eq $sessionId })
+        if ($matchingSessions.Count -eq 0 -and (Get-Date) -lt $visibilityDeadline) {
+          Invoke-RestMethod -Uri "$RuntimeBaseUrl/api/ncp/agent/send" -Method Post -ContentType "application/json" -Body ($body | ConvertTo-Json -Depth 12 -Compress) -TimeoutSec 30 | Out-Null
+        }
+      }
+      if ($matchingSessions.Count -ne 1 -or [int]$matchingSessions[0].messageCount -lt 1) {
+        throw "Released 0.44 did not expose the seeded session before the direct upgrade."
+      }
+      Write-Host "[desktop-smoke] session catalog probe passed: mode=$Mode catalog=visible journal=present"
+      return
+    }
+
+    $errorDeadline = (Get-Date).AddSeconds(30)
+    $bindingError = $null
+    while ($null -eq $bindingError -and (Get-Date) -lt $errorDeadline) {
+      $bindingError = Get-ChildItem -Path $portableRuntimeHome -Recurse -File -Filter "*.log" -ErrorAction SilentlyContinue |
+        Select-String -Pattern "Unknown named parameter.*deleted_at" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+      if ($null -eq $bindingError) {
+        Start-Sleep -Milliseconds 500
+      }
+    }
+    if ($null -eq $bindingError) {
+      throw "0.47 regression did not emit the expected deleted_at named-parameter failure."
+    }
+    Write-Host "[desktop-smoke] reproduced 0.47 binding failure: $($bindingError.Line.Trim())"
+    Write-Host "[desktop-smoke] session catalog probe passed: mode=$Mode persistence=failed journal=present"
+    return
+  }
+
+  $sessions = Invoke-RestMethod -Uri "$RuntimeBaseUrl/api/ncp/sessions?limit=100" -Method Get -TimeoutSec 10
+  $matchingSessions = @($sessions.data.sessions | Where-Object { $_.sessionId -eq $sessionId })
+  if ($Mode -in @("baseline-pre047", "expect-missing-048")) {
+    if ($matchingSessions.Count -ne 0) {
+      throw "$Mode expected the regression session to be absent from the catalog."
+    }
+    if ($Mode -eq "expect-missing-048" -and -not (Test-Path $journalPath)) {
+      throw "0.48 missing-session reproduction lost the durable journal."
+    }
+    Write-Host "[desktop-smoke] session catalog probe passed: mode=$Mode catalog=missing"
+    return
+  }
+
+  if ($matchingSessions.Count -ne 1 -or [int]$matchingSessions[0].messageCount -lt 1) {
+    throw "candidate did not reconcile the durable Windows session journal."
+  }
+  $messages = Invoke-RestMethod -Uri "$RuntimeBaseUrl/api/ncp/sessions/$sessionId/messages?limit=20" -Method Get -TimeoutSec 10
+  $matchingMessages = @($messages.data.messages | Where-Object {
+    $_.role -eq "user" -and @($_.parts | Where-Object { $_.type -eq "text" -and $_.text -eq $prompt }).Count -gt 0
+  })
+  if ($matchingMessages.Count -ne 1) {
+    throw "candidate restored the catalog row but not the durable regression message."
+  }
+  Write-Host "[desktop-smoke] session catalog probe passed: mode=$Mode catalog=recovered messages=$($messages.data.total)"
+}
+
+function Invoke-DesktopServiceAppProbe {
+  param([string]$RuntimeBaseUrl)
+
+  $results = New-Object System.Collections.Generic.List[object]
+  function Invoke-JsonRequest {
+    param([string]$Name, [string]$Method, [string]$Path, [object]$Body = $null, [hashtable]$Headers = @{})
+    $args = @{ Uri = "$RuntimeBaseUrl$Path"; Method = $Method; TimeoutSec = 20; Headers = $Headers }
+    $webRequest = Get-Command Invoke-WebRequest
+    if ($webRequest.Parameters.ContainsKey("UseBasicParsing")) {
+      $args.UseBasicParsing = $true
+    }
+    if ($webRequest.Parameters.ContainsKey("SkipHttpErrorCheck")) {
+      $args.SkipHttpErrorCheck = $true
+    }
+    if ($null -ne $Body) { $args.ContentType = "application/json"; $args.Body = ($Body | ConvertTo-Json -Depth 12 -Compress) }
+    $response = Invoke-WebRequest @args
+    $payload = if ([string]::IsNullOrWhiteSpace($response.Content)) { $null } else { $response.Content | ConvertFrom-Json }
+    $results.Add([pscustomobject]@{ name = $Name; status = $response.StatusCode; payload = $payload })
+    if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 300 -or $payload.ok -ne $true) {
+      throw "$Name failed: HTTP $($response.StatusCode) $($response.Content)"
+    }
+    return $payload.data
+  }
+
+  try {
+    [void](Invoke-JsonRequest "enable-personal-organizer" "POST" "/api/app-packages/nextclaw.personal-organizer/enable")
+    $favoriteSession = Invoke-JsonRequest "create-favorites-session" "POST" "/api/panel-app-bridge-sessions" @{ panelAppId = "nextclaw-personal-organizer-favorites" }
+    $favoriteHeaders = @{ "x-nextclaw-panel-bridge-session" = $favoriteSession.token }
+    [void](Invoke-JsonRequest "grant-favorite-save" "POST" "/api/service-actions/nextclaw-personal-organizer-data.favorite_save/grant" $null $favoriteHeaders)
+    [void](Invoke-JsonRequest "grant-favorite-list" "POST" "/api/service-actions/nextclaw-personal-organizer-data.favorite_list/grant" $null $favoriteHeaders)
+    [void](Invoke-JsonRequest "favorite-save" "POST" "/api/service-actions/nextclaw-personal-organizer-data.favorite_save/invoke" @{ input = @{ title = "Windows packaged smoke"; url = "https://nextclaw.io" } } $favoriteHeaders)
+    $favorites = Invoke-JsonRequest "favorite-list" "POST" "/api/service-actions/nextclaw-personal-organizer-data.favorite_list/invoke" @{ input = @{} } $favoriteHeaders
+    $favoriteItems = @($favorites.result.structuredContent.items)
+    if ($favoriteItems.Count -ne 1 -or $favoriteItems[0].title -ne "Windows packaged smoke") { throw "favorite result is invalid" }
+    $calendarSession = Invoke-JsonRequest "create-calendar-session" "POST" "/api/panel-app-bridge-sessions" @{ panelAppId = "nextclaw-personal-organizer-calendar" }
+    $calendarHeaders = @{ "x-nextclaw-panel-bridge-session" = $calendarSession.token }
+    [void](Invoke-JsonRequest "grant-event-create" "POST" "/api/service-actions/nextclaw-personal-organizer-data.event_create/grant" $null $calendarHeaders)
+    [void](Invoke-JsonRequest "grant-event-list" "POST" "/api/service-actions/nextclaw-personal-organizer-data.event_list/grant" $null $calendarHeaders)
+    [void](Invoke-JsonRequest "event-create" "POST" "/api/service-actions/nextclaw-personal-organizer-data.event_create/invoke" @{ input = @{ title = "Windows packaged smoke"; start = "2026-08-22T09:00:00.000Z" } } $calendarHeaders)
+    $events = Invoke-JsonRequest "event-list" "POST" "/api/service-actions/nextclaw-personal-organizer-data.event_list/invoke" @{ input = @{ start = "2026-08-22T00:00:00.000Z"; end = "2026-08-23T00:00:00.000Z" } } $calendarHeaders
+    $eventItems = @($events.result.structuredContent.items)
+    if ($eventItems.Count -ne 1 -or $eventItems[0].title -ne "Windows packaged smoke") { throw "calendar result is invalid" }
+    Write-Host "[desktop-smoke] packaged Service App probe passed"
+  } finally {
+    $results | ConvertTo-Json -Depth 20 | Set-Content -Path $script:ServiceAppProbeLog
+  }
 }
 
 function Test-RendererTitlebarDragRegionConfirmed {
@@ -260,6 +451,36 @@ public static class NextClawDesktopSmokeNative {
   [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
   public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+  [DllImport("user32.dll")]
+  public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+  [DllImport("user32.dll")]
+  public static extern bool IsWindowVisible(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+  public static IntPtr FindVisibleTopLevelWindow(int[] processIds) {
+    IntPtr found = IntPtr.Zero;
+    EnumWindows(delegate(IntPtr hWnd, IntPtr lParam) {
+      if (!IsWindowVisible(hWnd)) {
+        return true;
+      }
+      uint processId;
+      GetWindowThreadProcessId(hWnd, out processId);
+      foreach (int candidate in processIds) {
+        if (candidate == processId) {
+          found = hWnd;
+          return false;
+        }
+      }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+
   public static int HitTest(IntPtr hWnd, int x, int y) {
     IntPtr result;
     int lParam = (y << 16) | (x & 0xFFFF);
@@ -319,9 +540,29 @@ function Get-DescendantProcessIds {
 }
 
 function Get-DesktopMainWindowHandle {
-  param([int]$RootPid)
+  param(
+    [int]$RootPid,
+    [string]$DesktopExePath
+  )
 
-  $candidatePids = @($RootPid) + @(Get-DescendantProcessIds -RootPid $RootPid)
+  $candidatePids = New-Object System.Collections.Generic.List[int]
+  foreach ($candidatePid in @($RootPid) + @(Get-DescendantProcessIds -RootPid $RootPid)) {
+    if (-not $candidatePids.Contains([int]$candidatePid)) {
+      $candidatePids.Add([int]$candidatePid)
+    }
+  }
+  if (-not [string]::IsNullOrWhiteSpace($DesktopExePath)) {
+    foreach ($process in @(Get-Process -ErrorAction SilentlyContinue)) {
+      try {
+        if ($process.Path -eq $DesktopExePath -and -not $candidatePids.Contains([int]$process.Id)) {
+          $candidatePids.Add([int]$process.Id)
+        }
+      } catch {
+        continue
+      }
+    }
+  }
+
   foreach ($candidatePid in $candidatePids | Select-Object -Unique) {
     try {
       $process = Get-Process -Id $candidatePid -ErrorAction Stop
@@ -333,7 +574,8 @@ function Get-DesktopMainWindowHandle {
     }
   }
 
-  return [IntPtr]::Zero
+  Initialize-WindowsTitlebarProbe
+  return [NextClawDesktopSmokeNative]::FindVisibleTopLevelWindow($candidatePids.ToArray())
 }
 
 function Add-UniqueWindowHandle {
@@ -390,13 +632,16 @@ function Read-WindowRect {
 }
 
 function Invoke-DesktopTitlebarDragProbe {
-  param([int]$RootPid)
+  param(
+    [int]$RootPid,
+    [string]$DesktopExePath
+  )
 
   Initialize-WindowsTitlebarProbe
   $windowHandle = [IntPtr]::Zero
   $handleDeadline = (Get-Date).AddSeconds(15)
   while ((Get-Date) -lt $handleDeadline) {
-    $windowHandle = Get-DesktopMainWindowHandle -RootPid $RootPid
+    $windowHandle = Get-DesktopMainWindowHandle -RootPid $RootPid -DesktopExePath $DesktopExePath
     if ($windowHandle -ne [IntPtr]::Zero) {
       break
     }
@@ -404,6 +649,10 @@ function Invoke-DesktopTitlebarDragProbe {
   }
 
   if ($windowHandle -eq [IntPtr]::Zero) {
+    if ($AllowRendererOnlyTitlebarProbe.IsPresent -and (Test-RendererTitlebarDragRegionConfirmed)) {
+      Write-Warning "[desktop-smoke] renderer-only titlebar probe accepted because the hosted CI session exposes no visible top-level window handle."
+      return
+    }
     throw "Could not find a desktop window handle for process tree rooted at $RootPid"
   }
 
@@ -593,8 +842,9 @@ $logRoot = Join-Path $tempRoot "nextclaw-desktop-smoke-logs"
 $appStdoutLog = Join-Path $logRoot "app-stdout.log"
 $appStderrLog = Join-Path $logRoot "app-stderr.log"
 $apiProbeLog = Join-Path $logRoot "api-probes.json"
+$script:ServiceAppProbeLog = Join-Path $logRoot "service-app-probes.json"
 $script:MainLog = Join-Path $smokeHome "launcher\\main.log"
-$script:ServiceLog = Join-Path $portableRuntimeHome "service.log"
+$script:ServiceLog = Join-Path $portableRuntimeHome "logs\service.log"
 $script:MainLogStartLine = 1
 
 Write-Host "[desktop-smoke] desktop exe: $resolvedExe"
@@ -608,7 +858,13 @@ Write-Host "[desktop-smoke] startup timeout: ${StartupTimeoutSec}s"
 Write-Host "[desktop-smoke] max GUI ready time: ${MaxReadySec}s"
 Write-Host "[desktop-smoke] seed stale same-version bundle: $($SeedStaleSameVersionBundle.IsPresent)"
 
-Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $smokeHome
+if ($ReuseSmokeHome.IsPresent) {
+  if (-not (Test-Path $smokeHome)) {
+    throw "Cannot reuse missing smoke home: $smokeHome"
+  }
+} else {
+  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $smokeHome
+}
 if ($isPortableSmoke) {
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $resolvedPortableRoot "data")
 }
@@ -616,7 +872,7 @@ Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $logRoot
 if (-not $isPortableSmoke) {
   New-Item -ItemType Directory -Path $smokeHome -Force | Out-Null
 }
-New-Item -ItemType Directory -Path $logRoot | Out-Null
+New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 if ($SeedStaleSameVersionBundle.IsPresent) {
   Seed-StaleSameVersionBundleState -DesktopExePath $resolvedExe -SmokeHome $smokeHome
 }
@@ -628,16 +884,32 @@ if ($isPortableSmoke) {
   $env:NEXTCLAW_HOME = $smokeHome
   $env:NEXTCLAW_DESKTOP_RUNTIME_HOME_OVERRIDE = $smokeHome
   $env:NEXTCLAW_DESKTOP_DATA_DIR_OVERRIDE = $smokeHome
-  $env:NEXTCLAW_DESKTOP_SMOKE_TITLEBAR_HIT_TEST = "1"
+}
+$env:NEXTCLAW_DESKTOP_SMOKE_TITLEBAR_HIT_TEST = "1"
+if ($DisableGuardian.IsPresent) {
+  $env:NEXTCLAW_DESKTOP_DISABLE_GUARDIAN = "1"
+} else {
+  Remove-Item Env:\NEXTCLAW_DESKTOP_DISABLE_GUARDIAN -ErrorAction SilentlyContinue
 }
 
 $appProc = $null
+$desktopRootPid = $null
 try {
   Write-Host "[desktop-smoke] launching desktop app"
   if (Test-Path $script:MainLog) {
     $script:MainLogStartLine = ((Get-Content -Path $script:MainLog | Measure-Object -Line).Lines + 1)
   }
-  $appProc = Start-Process -FilePath $resolvedExe -PassThru -RedirectStandardOutput $appStdoutLog -RedirectStandardError $appStderrLog
+  $startProcessArguments = @{
+    FilePath = $resolvedExe
+    PassThru = $true
+    RedirectStandardOutput = $appStdoutLog
+    RedirectStandardError = $appStderrLog
+  }
+  if ($RemoteDebuggingPort -gt 0) {
+    $startProcessArguments.ArgumentList = @("--remote-debugging-port=$RemoteDebuggingPort")
+  }
+  $appProc = Start-Process @startProcessArguments
+  $desktopRootPid = $appProc.Id
   $deadline = (Get-Date).AddSeconds($StartupTimeoutSec)
   $readyDeadline = (Get-Date).AddSeconds($MaxReadySec)
   $startedAt = Get-Date
@@ -646,7 +918,24 @@ try {
 
   while ((Get-Date) -lt $deadline) {
     if ($appProc.HasExited) {
-      throw "Desktop exited early. ExitCode=$($appProc.ExitCode)"
+      # Start-Process can report HasExited before PowerShell refreshes ExitCode,
+      # especially when the packaged guardian exits immediately after handing
+      # startup to the child process. WaitForExit refreshes the process state so
+      # a successful guardian handoff is not mistaken for a blank/non-zero exit.
+      $appProc.WaitForExit()
+      $appProc.Refresh()
+      $exitCode = $appProc.ExitCode
+      if ($null -ne $exitCode -and [int]$exitCode -ne 0) {
+        throw "Desktop exited early. ExitCode=$exitCode"
+      }
+      $handoffPid = Get-DesktopRootProcessIdFromLog
+      if ($null -eq $exitCode -and $null -eq $handoffPid) {
+        throw "Desktop exited early without a readable exit code or guardian handoff."
+      }
+      if ($null -ne $handoffPid -and $desktopRootPid -ne $handoffPid) {
+        $desktopRootPid = $handoffPid
+        Write-Host "[desktop-smoke] guardian handoff observed: rootPid=$desktopRootPid"
+      }
     }
 
     $blockerLine = Get-DesktopStartupBlocker
@@ -671,7 +960,51 @@ try {
       $elapsedMs = [int]((Get-Date) - $startedAt).TotalMilliseconds
       Write-Host "[desktop-smoke] GUI smoke passed in ${elapsedMs}ms"
       Write-Host "[desktop-smoke] API probes passed: $runtimeBaseUrl"
-      Invoke-DesktopTitlebarDragProbe -RootPid $appProc.Id
+      Invoke-SessionCatalogUpgradeProbe -RuntimeBaseUrl $runtimeBaseUrl -Mode $SessionCatalogUpgradeProbe
+      if ($ApplyAvailableUpdate.IsPresent) {
+        if ($RemoteDebuggingPort -le 0) {
+          throw "ApplyAvailableUpdate requires RemoteDebuggingPort."
+        }
+        $updateLogStartLine = (Get-Content -Path $script:MainLog | Measure-Object -Line).Lines + 1
+        node "apps/desktop/scripts/drive-desktop-update-cdp.mjs" $RemoteDebuggingPort
+        $updateDeadline = (Get-Date).AddSeconds(120)
+        $updatedRuntimeBaseUrl = $null
+        $updatedRuntimeReady = $false
+        $updatedRuntimeFailure = $false
+        while ((Get-Date) -lt $updateDeadline) {
+          $updatedLines = @(Get-Content -Path $script:MainLog | Select-Object -Skip ($updateLogStartLine - 1))
+          if ($updatedLines -match "Runtime source: bundle bundleVersion=0\.48\.0") {
+            $updatedRuntimeBaseUrl = Get-DesktopRuntimeBaseUrlFromLog
+            if ($updatedRuntimeBaseUrl -and (Invoke-DesktopApiProbe -RuntimeBaseUrl $updatedRuntimeBaseUrl)) {
+              $updatedRuntimeReady = $true
+              break
+            }
+          }
+          if ((Test-Path $script:ServiceLog) -and (Select-String -Path $script:ServiceLog -Pattern "Cannot find module 'sql\.js/dist/sql-wasm\.wasm'" -Quiet)) {
+            $updatedRuntimeFailure = $true
+            break
+          }
+          Start-Sleep -Seconds 1
+        }
+        if ($ExpectUpdatedRuntimeFailure.IsPresent) {
+          if (-not $updatedRuntimeBaseUrl -or -not $updatedRuntimeFailure) {
+            throw "Official 0.44 to 0.48 in-app update did not reproduce the missing SQL.js WASM startup failure."
+          }
+          Write-Host "[desktop-smoke] reproduced official in-app update failure: source=0.44.1 target=0.48.0 sql-wasm=missing runtime=not-ready"
+          $desktopRootPid = Get-DesktopRootProcessIdFromLog
+          return
+        }
+        if (-not $updatedRuntimeBaseUrl -or -not $updatedRuntimeReady) {
+          throw "Official in-app update did not restart into runtime bundle 0.48.0."
+        }
+        Write-Host "[desktop-smoke] official in-app update applied: bundleVersion=0.48.0 runtimeBaseUrl=$updatedRuntimeBaseUrl"
+        Invoke-SessionCatalogUpgradeProbe -RuntimeBaseUrl $updatedRuntimeBaseUrl -Mode "expect-missing-048"
+        $desktopRootPid = Get-DesktopRootProcessIdFromLog
+      }
+      if (-not $SkipExtendedProbes.IsPresent) {
+        Invoke-DesktopServiceAppProbe -RuntimeBaseUrl $runtimeBaseUrl
+        Invoke-DesktopTitlebarDragProbe -RootPid $desktopRootPid -DesktopExePath $resolvedExe
+      }
       Write-Host "[desktop-smoke] main log: $script:MainLog"
       if (Test-Path $script:MainLog) {
         Get-Content -Path $script:MainLog -Tail 80
@@ -712,7 +1045,10 @@ try {
   Write-SmokeDiagnostics
   throw
 } finally {
-  if ($appProc -and -not $appProc.HasExited) {
-    Stop-ProcessTree -RootPid $appProc.Id
+  if ($null -ne $desktopRootPid) {
+    $desktopRootProcess = Get-Process -Id $desktopRootPid -ErrorAction SilentlyContinue
+    if ($null -ne $desktopRootProcess) {
+      Stop-ProcessTree -RootPid $desktopRootPid
+    }
   }
 }

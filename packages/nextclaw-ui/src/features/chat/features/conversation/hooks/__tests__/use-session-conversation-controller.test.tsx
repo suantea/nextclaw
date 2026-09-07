@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { UiNcpSessionQueuedInputView } from '@nextclaw/client-sdk';
-import type { NcpAgentSendEnvelope, NcpRunHandle } from '@nextclaw/ncp';
+import { NextClawClientError, type UiNcpSessionQueuedInputView } from '@nextclaw/client-sdk';
+import type { NcpAgentSendEnvelope, NcpMessage, NcpRunHandle } from '@nextclaw/ncp';
 
 import { useSessionConversationController } from '@/features/chat/features/conversation/hooks/use-session-conversation-controller';
 
@@ -54,12 +54,19 @@ function createControllerParams(params: {
 }) {
   const { isRunning, queuedInputs = [], send: requestedSend } = params;
   const send = requestedSend ?? createSendMock();
+  const continueRun = vi.fn(async () => createRunHandle());
+  const editMessage = vi.fn(async () => createRunHandle({ sessionId: 'edited-session' }));
   const removeQueuedInput = vi.fn(async (id: string) =>
     queuedInputs.find((item) => item.id === id) ?? null,
   );
+  const refreshPendingInputs = vi.fn(async () => []);
+  const refreshQueuedInputs = vi.fn(async () => queuedInputs);
+  const steerQueuedInput = vi.fn(async () => null);
   return {
     agent: {
       abort: vi.fn(),
+      continueRun,
+      editMessage,
       isHydrating: false,
       isRunning,
       isSending: false,
@@ -70,13 +77,18 @@ function createControllerParams(params: {
       visibleMessages: [],
     },
     inputQuery: {
+      addDiscoveredModel: vi.fn(async () => null),
       defaultModel: 'test-model',
       defaultProjectRoot: null,
+      dismissDiscoveredModels: vi.fn(),
+      discoveredModelOptions: [],
       fallbackPreferredModel: undefined,
       fallbackPreferredThinking: undefined,
       isProviderStateResolved: true,
       isSkillsLoading: false,
       modelOptions: [],
+      providersView: null,
+      refreshProviderModelCatalog: vi.fn(),
       selectedSession: null,
       selectedSessionKey: 'session-1',
       sessionTypeState: {
@@ -107,17 +119,52 @@ function createControllerParams(params: {
     isRuntimeBlocked: false,
     runQueue: {
       inputs: queuedInputs,
+      refreshPendingInputs,
+      refreshQueuedInputs,
       removeQueuedInput,
+      steerQueuedInput,
     },
     selectedAgentId: 'main',
     sessionKey: 'session-1',
     resetComposer: vi.fn(),
     restoreComposer: vi.fn(),
+    onSessionMaterialized: vi.fn(),
     setSendError: vi.fn(),
   };
 }
 
 describe('useSessionConversationController backend run queue', () => {
+  it('preallocates one stable session identity for the first root message', async () => {
+    const send = vi.fn<TestAgentSend>(async (envelope) => {
+      if (!envelope.sessionId) {
+        throw new Error('Expected a preallocated session id.');
+      }
+      return createRunHandle({
+        sessionId: envelope.sessionId,
+        userMessageId: envelope.message.id,
+      });
+    });
+    const params = createControllerParams({ isRunning: false, send });
+    const draftParams = {
+      ...params,
+      inputQuery: {
+        ...params.inputQuery,
+        selectedSessionKey: null,
+      },
+      sessionKey: null,
+    } as unknown as Parameters<typeof useSessionConversationController>[0];
+    const { result } = renderHook(() => useSessionConversationController(draftParams));
+
+    await act(async () => {
+      await result.current.send();
+    });
+
+    const envelope = send.mock.calls[0]?.[0];
+    expect(envelope?.sessionId).toMatch(/^ncp-/);
+    expect(envelope?.message.sessionId).toBe(envelope?.sessionId);
+    expect(params.onSessionMaterialized).toHaveBeenCalledWith(envelope?.sessionId);
+  });
+
   it('submits immediately while the session is running so the backend can enqueue it', async () => {
     const send = createSendMock(createRunHandle({ runId: null }));
     const params = createControllerParams({ isRunning: true, send });
@@ -129,6 +176,7 @@ describe('useSessionConversationController backend run queue', () => {
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]?.[0]).toMatchObject({
+      delivery: 'queue',
       sessionId: 'session-1',
       message: expect.objectContaining({
         parts: [{ type: 'text', text: 'next task' }],
@@ -137,13 +185,166 @@ describe('useSessionConversationController backend run queue', () => {
     expect(params.resetComposer).toHaveBeenCalledTimes(1);
   });
 
+  it('uses prefer-steer for command/control-enter submission without changing the send button path', async () => {
+    const send = createSendMock(createRunHandle({ delivery: 'steered' }));
+    const params = createControllerParams({ isRunning: true, send });
+    const { result } = renderHook(() => useSessionConversationController(params));
+
+    await act(async () => {
+      await result.current.sendSteering();
+    });
+
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
+      delivery: 'prefer-steer',
+      message: { parts: [{ type: 'text', text: 'next task' }] },
+    });
+    expect(result.current.queuedInputs).toEqual([]);
+    expect(params.runQueue.refreshPendingInputs).toHaveBeenCalledTimes(1);
+    expect(params.runQueue.refreshQueuedInputs).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the queue when direct steering falls back to queued delivery', async () => {
+    const send = createSendMock(createRunHandle({ delivery: 'queued', runId: null }));
+    const params = createControllerParams({ isRunning: true, send });
+    const { result } = renderHook(() => useSessionConversationController(params));
+
+    await act(async () => {
+      await result.current.sendSteering();
+    });
+
+    expect(params.runQueue.refreshPendingInputs).not.toHaveBeenCalled();
+    expect(params.runQueue.refreshQueuedInputs).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a preset message without clearing the existing composer draft', async () => {
+    const send = createSendMock();
+    const params = createControllerParams({ isRunning: false, send });
+    const paramsWithSelectedSkill = {
+      ...params,
+      inputSnapshot: {
+        ...params.inputSnapshot,
+        selectedSkills: ['skill-ref'],
+        skillRecords: [{ ref: 'skill-ref', name: 'Selected skill' }],
+      },
+    } as unknown as Parameters<typeof useSessionConversationController>[0];
+    const { result } = renderHook(() => useSessionConversationController(paramsWithSelectedSkill));
+
+    await act(async () => {
+      await result.current.sendPresetMessage('Update this session title');
+    });
+
+    const envelope = send.mock.calls[0]?.[0];
+    expect(envelope).toMatchObject({
+      sessionId: 'session-1',
+      message: expect.objectContaining({
+        parts: [{ type: 'text', text: 'Update this session title' }],
+      }),
+    });
+    expect(envelope?.metadata).not.toHaveProperty('ui_inline_tokens');
+    expect(params.resetComposer).not.toHaveBeenCalled();
+    expect(params.restoreComposer).not.toHaveBeenCalled();
+  });
+
+  it('keeps the existing composer draft untouched when a preset message fails', async () => {
+    const sendError = new Error('preset submission failed');
+    const send = vi.fn<TestAgentSend>(async () => {
+      throw sendError;
+    });
+    const params = createControllerParams({ isRunning: false, send });
+    const { result } = renderHook(() => useSessionConversationController(params));
+
+    await act(async () => {
+      await expect(result.current.sendPresetMessage('Update title')).rejects.toThrow(sendError);
+    });
+
+    expect(params.resetComposer).not.toHaveBeenCalled();
+    expect(params.restoreComposer).not.toHaveBeenCalled();
+    expect(params.setSendError).toHaveBeenLastCalledWith(sendError.message);
+  });
+
+  it('projects a submitting queue row before the backend acknowledges the message', async () => {
+    let resolveSend!: (handle: NcpRunHandle) => void;
+    const send = vi.fn<TestAgentSend>(() => new Promise((resolve) => {
+      resolveSend = resolve;
+    }));
+    const params = createControllerParams({ isRunning: true, send });
+    const { result } = renderHook(() => useSessionConversationController(params));
+    let submission!: Promise<void>;
+
+    act(() => {
+      submission = result.current.send();
+    });
+
+    expect(params.resetComposer).toHaveBeenCalledTimes(1);
+    expect(result.current.queuedInputs).toEqual([
+      expect.objectContaining({
+        isSubmitting: true,
+        preview: 'next task',
+      }),
+    ]);
+    expect(params.runQueue.refreshQueuedInputs).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSend(createRunHandle({ delivery: 'queued', runId: null }));
+      await submission;
+    });
+
+    expect(params.runQueue.refreshQueuedInputs).toHaveBeenCalledTimes(1);
+    expect(result.current.queuedInputs).toEqual([]);
+  });
+
+  it('removes the submitting queue row and restores the draft when submission fails', async () => {
+    const sendError = new Error('queue submission failed');
+    const send = vi.fn<TestAgentSend>(async () => {
+      throw sendError;
+    });
+    const params = createControllerParams({ isRunning: true, send });
+    const { result } = renderHook(() => useSessionConversationController(params));
+
+    await act(async () => {
+      await expect(result.current.send()).rejects.toThrow(sendError);
+    });
+
+    expect(result.current.queuedInputs).toEqual([]);
+    expect(params.restoreComposer).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'next task',
+    }));
+    expect(params.setSendError).toHaveBeenLastCalledWith(sendError.message);
+    expect(params.runQueue.refreshQueuedInputs).not.toHaveBeenCalled();
+  });
+
+  it('keeps an existing session bound to its agent instead of the global draft selection', async () => {
+    const send = createSendMock();
+    const params = createControllerParams({ isRunning: false, send });
+    const controllerParams = {
+      ...params,
+      inputQuery: {
+        ...params.inputQuery,
+        selectedSession: { agentId: 'researcher' },
+      },
+      selectedAgentId: 'main',
+    } as unknown as Parameters<typeof useSessionConversationController>[0];
+    const { result } = renderHook(() => useSessionConversationController(controllerParams));
+
+    await act(async () => {
+      await result.current.send();
+    });
+
+    expect(send.mock.calls[0]?.[0].message.metadata).toMatchObject({
+      agentId: 'researcher',
+      agent_id: 'researcher',
+    });
+  });
+
   it('projects the backend queue and returns a removed item to the composer for editing', async () => {
     const queuedInput = createQueuedInput();
     const params = createControllerParams({ isRunning: true, queuedInputs: [queuedInput] });
+    params.inputSnapshot.nodes = [];
+    params.inputSnapshot.text = '';
     const { result } = renderHook(() => useSessionConversationController(params));
 
     expect(result.current.queuedInputs).toEqual([
-      { id: queuedInput.id, preview: 'queued task' },
+      expect.objectContaining({ id: queuedInput.id, preview: 'queued task' }),
     ]);
     act(() => {
       result.current.editQueuedInput(queuedInput.id);
@@ -158,6 +359,19 @@ describe('useSessionConversationController backend run queue', () => {
     }));
   });
 
+  it('keeps the queued item unchanged when the composer already contains a draft', () => {
+    const queuedInput = createQueuedInput();
+    const params = createControllerParams({ isRunning: true, queuedInputs: [queuedInput] });
+    const { result } = renderHook(() => useSessionConversationController(params));
+
+    act(() => result.current.editQueuedInput(queuedInput.id));
+
+    expect(result.current.canEditQueuedInput).toBe(false);
+    expect(params.runQueue.removeQueuedInput).not.toHaveBeenCalled();
+    expect(params.restoreComposer).not.toHaveBeenCalled();
+    expect(params.setSendError).toHaveBeenCalledWith(expect.any(String));
+  });
+
   it('deletes through the backend queue owner without restoring the composer', async () => {
     const queuedInput = createQueuedInput();
     const params = createControllerParams({ isRunning: true, queuedInputs: [queuedInput] });
@@ -169,5 +383,108 @@ describe('useSessionConversationController backend run queue', () => {
 
     await waitFor(() => expect(params.runQueue.removeQueuedInput).toHaveBeenCalledWith(queuedInput.id));
     expect(params.restoreComposer).not.toHaveBeenCalled();
+  });
+
+  it('continues a cancelled session from the primary action when the composer is empty', async () => {
+    const params = createControllerParams({ isRunning: false });
+    params.inputSnapshot.nodes = [];
+    params.inputSnapshot.text = '';
+    const controllerParams = {
+      ...params,
+      inputQuery: {
+        ...params.inputQuery,
+        selectedSession: { activityPreview: { state: 'cancelled' } },
+      },
+    } as unknown as Parameters<typeof useSessionConversationController>[0];
+    const { result } = renderHook(() => useSessionConversationController(controllerParams));
+
+    expect(result.current.primaryAction).toBe('continue');
+    expect(result.current.canContinue).toBe(true);
+    await act(async () => {
+      await result.current.send();
+    });
+
+    expect(params.agent.continueRun).toHaveBeenCalledWith({ sessionId: 'session-1' });
+    expect(params.agent.send).not.toHaveBeenCalled();
+    expect(params.resetComposer).not.toHaveBeenCalled();
+  });
+
+  it('keeps continuation available but restores send as primary when the user types', () => {
+    const params = createControllerParams({ isRunning: false });
+    const controllerParams = {
+      ...params,
+      inputQuery: {
+        ...params.inputQuery,
+        selectedSession: { activityPreview: { state: 'failed' } },
+      },
+    } as unknown as Parameters<typeof useSessionConversationController>[0];
+    const { result } = renderHook(() => useSessionConversationController(controllerParams));
+
+    expect(result.current.canContinue).toBe(true);
+    expect(result.current.primaryAction).toBe('send');
+  });
+
+  it('edits inside the current session without materializing or navigating to another session', async () => {
+    const params = createControllerParams({ isRunning: false });
+    const message = {
+      id: 'edited-user-message',
+      sessionId: 'session-1',
+      role: 'user',
+      status: 'final',
+      timestamp: '2026-08-08T10:00:00.000Z',
+      parts: [{ type: 'text', text: 'updated request' }],
+    } satisfies NcpMessage;
+    const { result } = renderHook(() => useSessionConversationController(params));
+
+    await act(async () => {
+      await result.current.editMessage({ messageId: 'user-message-1', message });
+    });
+
+    expect(params.agent.editMessage).toHaveBeenCalledWith({
+      message,
+      messageId: 'user-message-1',
+      sessionId: 'session-1',
+    });
+    expect(params.onSessionMaterialized).not.toHaveBeenCalled();
+  });
+});
+
+describe('useSessionConversationController stale queue reconciliation', () => {
+  it('reconciles repeated stale queued actions without exposing their not-found errors', async () => {
+    const queuedInput = createQueuedInput();
+    const params = createControllerParams({ isRunning: true, queuedInputs: [queuedInput] });
+    params.runQueue.steerQueuedInput.mockRejectedValue(new NextClawClientError({
+      code: 'NOT_FOUND',
+      message: `queued input not found in session session-1: ${queuedInput.id}`,
+      status: 404,
+    }));
+    const { result } = renderHook(() => useSessionConversationController(params));
+
+    act(() => result.current.steerQueuedInput(queuedInput.id));
+    await waitFor(() => expect(params.runQueue.refreshPendingInputs).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.steerQueuedInput(queuedInput.id));
+    await waitFor(() => expect(params.runQueue.refreshPendingInputs).toHaveBeenCalledTimes(2));
+
+    expect(params.setSendError).toHaveBeenLastCalledWith(null);
+    expect(params.setSendError).not.toHaveBeenCalledWith(expect.stringContaining('queued input not found'));
+  });
+
+  it('keeps a real steering failure visible', async () => {
+    const queuedInput = createQueuedInput();
+    const params = createControllerParams({ isRunning: true, queuedInputs: [queuedInput] });
+    params.runQueue.steerQueuedInput.mockRejectedValue(new NextClawClientError({
+      code: 'STEER_UNAVAILABLE',
+      message: 'The active runtime cannot accept this input at the next safe step.',
+      status: 409,
+    }));
+    const { result } = renderHook(() => useSessionConversationController(params));
+
+    act(() => result.current.steerQueuedInput(queuedInput.id));
+
+    await waitFor(() => expect(params.setSendError).toHaveBeenCalledWith(
+      'The active runtime cannot accept this input at the next safe step.',
+    ));
+    expect(params.runQueue.refreshPendingInputs).not.toHaveBeenCalled();
   });
 });

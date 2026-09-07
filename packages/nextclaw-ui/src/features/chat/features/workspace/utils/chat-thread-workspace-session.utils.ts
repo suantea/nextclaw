@@ -8,6 +8,7 @@ import {
   filterNavigationHistoryEntries,
   pushNavigationHistoryEntry,
 } from "@/shared/lib/navigation-history";
+import { reparentWorkspaceFileTab } from "@/features/chat/features/workspace/utils/chat-workspace-file-tab.utils";
 
 export function areWorkspaceNavigationEntriesEqual(
   current: ChatWorkspaceNavigationEntry,
@@ -20,7 +21,8 @@ export function areWorkspaceNavigationEntriesEqual(
     current.kind === 'overview' ||
     current.kind === 'child-sessions' ||
     current.kind === 'project-files' ||
-    current.kind === 'cron'
+    current.kind === 'cron' ||
+    current.kind === 'continuous-attention'
   ) {
     return true;
   }
@@ -29,6 +31,7 @@ export function areWorkspaceNavigationEntriesEqual(
     next.kind !== 'child-sessions' &&
     next.kind !== 'project-files' &&
     next.kind !== 'cron' &&
+    next.kind !== 'continuous-attention' &&
     current.key === next.key
   );
 }
@@ -49,7 +52,8 @@ export function createWorkspaceNavigationEntryFromSnapshot(
     activeWorkspacePanelKind === 'overview' ||
     activeWorkspacePanelKind === 'child-sessions' ||
     activeWorkspacePanelKind === 'project-files' ||
-    activeWorkspacePanelKind === 'cron'
+    activeWorkspacePanelKind === 'cron' ||
+    activeWorkspacePanelKind === 'continuous-attention'
   ) {
     return { kind: activeWorkspacePanelKind };
   }
@@ -71,7 +75,8 @@ export function createWorkspaceSelectionPatch(
   if (
     entry.kind === 'overview' ||
     entry.kind === 'child-sessions' ||
-    entry.kind === 'project-files'
+    entry.kind === 'project-files' ||
+    entry.kind === 'continuous-attention'
   ) {
     return {
       activeWorkspacePanelKind: entry.kind,
@@ -127,7 +132,8 @@ export function closeWorkspaceTabSnapshot(
     entry.kind === 'overview' ||
     entry.kind === 'child-sessions' ||
     entry.kind === 'cron' ||
-    entry.kind === 'project-files'
+    entry.kind === 'project-files' ||
+    entry.kind === 'continuous-attention'
   ) {
     return null;
   }
@@ -204,6 +210,52 @@ export function upsertChildSessionTab(
     agentId: existingTab.agentId?.trim() ? existingTab.agentId : nextTab.agentId,
   };
   return nextTabs;
+}
+
+export function materializeDraftWorkspaceSnapshot(
+  snapshot: ChatThreadSnapshot,
+  sessionKey: string,
+): Partial<ChatThreadSnapshot> | null {
+  const normalizedSessionKey = sessionKey.trim();
+  if (!normalizedSessionKey) {
+    return null;
+  }
+  const materializedFileKeys = new Map<string, string>();
+  const workspaceFileTabs = snapshot.workspaceFileTabs.map((tab) => {
+    if (tab.parentSessionKey !== null) {
+      return tab;
+    }
+    const materializedTab = reparentWorkspaceFileTab(tab, normalizedSessionKey);
+    materializedFileKeys.set(tab.key, materializedTab.key);
+    return materializedTab;
+  });
+  const materializeNavigationEntry = (
+    entry: ChatWorkspaceNavigationEntry,
+  ): ChatWorkspaceNavigationEntry => {
+    if (entry.kind !== 'file') {
+      return entry;
+    }
+    const materializedKey = materializedFileKeys.get(entry.key);
+    return materializedKey ? { ...entry, key: materializedKey } : entry;
+  };
+  return {
+    draftProjectRoot: null,
+    workspaceFileTabs,
+    activeWorkspaceFileKey: snapshot.activeWorkspaceFileKey
+      ? materializedFileKeys.get(snapshot.activeWorkspaceFileKey) ??
+        snapshot.activeWorkspaceFileKey
+      : null,
+    closedWorkspaceTabEntries: snapshot.closedWorkspaceTabEntries.map(
+      materializeNavigationEntry,
+    ),
+    workspaceNavigationHistory: snapshot.workspaceNavigationHistory.map(
+      materializeNavigationEntry,
+    ),
+    workspacePanelParentKey:
+      snapshot.workspacePanelParentKey === null && snapshot.activeWorkspacePanelKind
+        ? normalizedSessionKey
+        : snapshot.workspacePanelParentKey,
+  };
 }
 
 export function materializeSideChatDraftSnapshot(params: {

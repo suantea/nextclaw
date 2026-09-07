@@ -13,18 +13,7 @@ description: 当用户要求扫描、识别、清理、常态化治理 NextClaw 
 
 ## 使用前提
 
-默认联动并遵守：
-
-- `nextclaw-delivery-workflow`
-- `nextclaw-clean-implementation`
-- `nextclaw-validation-workflow`
-- `post-edit-maintainability-guard`
-- `post-edit-maintainability-review`
-- `nextclaw-iteration-log-governance`
-
-如果触达 skill、AGENTS、命令或治理规则本身，同时联动：
-
-- `nextclaw-agent-instructions-governance`
+本 skill 命中后拥有本次死代码扫描、删除与实现结果，不拥有阶段切换；完成当前 slice 后返回生命周期，由 Validation、Review、Delivery 和 Retrospective 各自处理后续合同。长期自治战役、迭代留痕或规则修改只有条件实际成立时才加载对应 owner，不重新加载上游 lifecycle。
 
 ## 核心判断
 
@@ -157,7 +146,7 @@ pnpm -C <package> exec vitest run <relevant-tests...>
 收尾必须跑：
 
 ```bash
-node .agents/skills/post-edit-maintainability-guard/scripts/check-maintainability.mjs --non-feature --paths <touched-files...>
+node .agents/skills/development-review/scripts/check-maintainability.mjs --non-feature --paths <touched-files...>
 pnpm check:governance-backlog-ratchet
 ```
 

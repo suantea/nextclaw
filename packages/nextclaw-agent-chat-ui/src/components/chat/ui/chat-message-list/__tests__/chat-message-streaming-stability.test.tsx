@@ -108,6 +108,60 @@ it("preserves a historical user message DOM node and selection while the assista
   expect(selection.toString()).toBe("Keep this selected");
 });
 
+it("preserves the steering user bubble DOM node when pending becomes durable", () => {
+  const pending: ChatMessageViewModel = {
+    id: "user-steering-1",
+    role: "user",
+    roleLabel: "You",
+    timestampLabel: "10:01",
+    status: "pending",
+    parts: [{ type: "markdown", text: "Change direction" }],
+  };
+  const view = render(renderMessages([pending]));
+  const pendingBubble = document.querySelector(
+    '[data-chat-message-id="user-steering-1"]',
+  );
+  expect(pendingBubble).not.toBeNull();
+
+  view.rerender(renderMessages([{ ...pending, status: "final" }]));
+
+  expect(
+    document.querySelector('[data-chat-message-id="user-steering-1"]'),
+  ).toBe(pendingBubble);
+});
+
+it("projects streaming ink phases without replacing the Markdown surface", () => {
+  const message: ChatMessageViewModel = {
+    id: "assistant-ink",
+    role: "assistant",
+    roleLabel: "Assistant",
+    timestampLabel: "10:01",
+    status: "streaming",
+    parts: [{ type: "markdown", text: "Ink" }],
+  };
+  const view = render(renderMessages([message]));
+  const markdown = document.querySelector(".chat-markdown-assistant");
+
+  expect(markdown?.getAttribute("data-stream-phase")).toBe("0");
+
+  view.rerender(
+    renderMessages([
+      {
+        ...message,
+        parts: [{ type: "markdown", text: "Ink echo" }],
+      },
+    ]),
+  );
+
+  expect(document.querySelector(".chat-markdown-assistant")).toBe(markdown);
+  expect(markdown?.getAttribute("data-stream-phase")).toBe("2");
+
+  view.rerender(renderMessages([{ ...message, status: "final" }]));
+
+  expect(document.querySelector(".chat-markdown-assistant")).toBe(markdown);
+  expect(markdown?.getAttribute("data-stream-phase")).toBeNull();
+});
+
 it("preserves an inline panel app when later process parts arrive", () => {
   const panelApp: ChatPanelAppCardViewModel = {
     appId: "piano",
@@ -188,13 +242,13 @@ it("preserves mixed inline surfaces when an assistant message completes", () => 
   const text = [
     "Keep the reply content.",
     "",
-    '```nextclaw-inline',
+    "```nextclaw-inline",
     '{"target":{"type":"panel_app","payload":{"appId":"weather-card"}},"title":"Weather"}',
-    '```',
+    "```",
     "",
-    '```nextclaw-inline',
+    "```nextclaw-inline",
     '{"target":{"type":"file","payload":{"path":"/Users/demo/result.html","viewer":"rendered"}},"title":"Result"}',
-    '```',
+    "```",
   ].join("\n");
   const message: ChatMessageViewModel = {
     id: "assistant-mixed-inline",
@@ -205,9 +259,14 @@ it("preserves mixed inline surfaces when an assistant message completes", () => 
     parts: [{ type: "markdown", text }],
   };
   const renderInlineDisplay = (display: ChatInlineDisplayViewModel) => (
-    <iframe data-testid={`inline-${display.target.type}`} title={display.title} />
+    <iframe
+      data-testid={`inline-${display.target.type}`}
+      title={display.title}
+    />
   );
-  const view = render(renderMessages([message], undefined, undefined, renderInlineDisplay));
+  const view = render(
+    renderMessages([message], undefined, undefined, renderInlineDisplay),
+  );
   const panelApp = screen.getByTestId("inline-panel_app");
   const html = screen.getByTestId("inline-file");
 

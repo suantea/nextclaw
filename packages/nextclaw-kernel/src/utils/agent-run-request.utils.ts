@@ -5,10 +5,12 @@ import {
   type AgentRunSessionMaterializationMetadata,
 } from "@nextclaw/shared";
 import {
+  NCP_RUN_TRIGGER_METADATA_KEY,
   NcpEventType,
   type NcpEndpointEvent,
   type NcpMessage,
   type NcpRunHandle,
+  type NcpRunTriggerMetadata,
 } from "@nextclaw/ncp";
 import type {
   AgentRunAccepted,
@@ -46,6 +48,8 @@ export function toAgentRunRequest(
     model: metadata.model,
     maxTokens: metadata.maxTokens,
     thinkingEffort: metadata.thinkingEffort,
+    delivery: envelope.delivery,
+    idempotencyKey: readOptionalString(envelope.idempotencyKey),
   };
   if (Array.isArray(envelope.content)) {
     const sessionId = readOptionalString(envelope.sessionId);
@@ -185,6 +189,7 @@ export function toRunHandle(accepted: AgentRunAccepted): NcpRunHandle {
     assistantMessageId: null,
     runId: accepted.runId,
     correlationId: accepted.correlationId,
+    delivery: accepted.delivery,
   };
 }
 
@@ -243,7 +248,7 @@ export function resolveRunSpec(params: {
     spec: {
       runId,
       runtimeId: session.agentRuntimeId,
-      agentId: request.agentId ?? session.agentId ?? defaultAgentId,
+      agentId: session.agentId ?? request.agentId ?? defaultAgentId,
       model,
       requestedModel: request.model ?? null,
       maxTokens: request.maxTokens ?? modelMaxTokens,
@@ -260,8 +265,9 @@ export function attachRunSpecMetadata(params: {
   session: AgentRunSession;
   spec: AgentRunSpec;
   startedAt: string;
+  trigger: NcpRunTriggerMetadata;
 }): NcpMessage {
-  const { message, modelSource, request, session, spec, startedAt } = params;
+  const { message, modelSource, request, session, spec, startedAt, trigger } = params;
   const metadata = structuredClone(message.metadata ?? {});
   const runSpec: AgentRunMessageRunSpecMetadata = {
     version: 1,
@@ -281,6 +287,7 @@ export function attachRunSpecMetadata(params: {
     execution: structuredClone(AGENT_RUN_EXECUTION_METADATA),
   };
   metadata[AGENT_RUN_MESSAGE_RUN_SPEC_METADATA_KEY] = runSpec;
+  metadata[NCP_RUN_TRIGGER_METADATA_KEY] = structuredClone(trigger);
   return {
     ...message,
     metadata,

@@ -1,7 +1,37 @@
 import type { NcpSessionStatus } from '@nextclaw/ncp';
 import type { RuntimeEntryView, NcpSessionSummaryView } from './ncp-session.types';
-export type { ProjectAddExistingRequest, ProjectCreateRequest, ProjectListView, ProjectTemplateView, ProjectView } from '@nextclaw/client-sdk';
-export type { SessionEntryView, RuntimeEntryView, SessionTypeIconView, SessionMessageView, SessionEventView, NcpSessionSummaryView, NcpSessionsListView, NcpMessageView, NcpSessionMessagesView, SessionContextWindowView } from './ncp-session.types';
+export type {
+  ProjectAddExistingRequest,
+  ProjectCreateRequest,
+  ProjectListView,
+  ProjectTemplateView,
+  ProjectView,
+  SystemObjectReferenceDisplayText,
+  SystemObjectReferenceGroupDescriptor,
+  SystemObjectReferenceGroupIcon,
+  SystemObjectReferenceGroupView,
+  SystemObjectReferenceItem,
+  SystemObjectReferenceListView,
+  SystemObjectResolvedReference,
+} from '@nextclaw/client-sdk';
+export type {
+  SessionEntryView,
+  RuntimeEntryView,
+  SessionTypeIconView,
+  SessionMessageView,
+  SessionEventView,
+  NcpSessionSummaryView,
+  NcpSessionsListView,
+  NcpMessageView,
+  NcpSessionMessagesView,
+  NcpSessionTokenUsageView,
+  NcpSessionObservationKind,
+  NcpSessionObservationStatus,
+  NcpSessionObservationView,
+  NcpSessionObservationsView,
+  NcpSessionObservationAction,
+  SessionContextWindowView,
+} from './ncp-session.types';
 
 // API Types - matching backend response format
 export type ApiError = {
@@ -10,18 +40,11 @@ export type ApiError = {
   details?: Record<string, unknown>;
 };
 
-export type ApiResponse<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: ApiError };
+export type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 
 export type AppMetaView = { name: string; productVersion: string };
 
-export type BootstrapPhase =
-  | 'kernel-starting'
-  | 'shell-ready'
-  | 'hydrating-capabilities'
-  | 'ready'
-  | 'error';
+export type BootstrapPhase = 'kernel-starting' | 'shell-ready' | 'hydrating-capabilities' | 'ready' | 'error';
 
 export type BootstrapStageState = 'pending' | 'running' | 'ready' | 'error';
 
@@ -56,10 +79,14 @@ export type BootstrapStatusView = {
   lastError?: string;
 };
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "adaptive" | "xhigh";
-export type AgentModelsView = Record<string, {
-  params: Record<string, unknown>;
-} & Record<string, unknown>>;
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'adaptive' | 'xhigh';
+
+export type AgentModelsView = Record<
+  string,
+  {
+    params: Record<string, unknown>;
+  } & Record<string, unknown>
+>;
 
 export type ProviderInstanceView = {
   providerId: string;
@@ -68,16 +95,20 @@ export type ProviderInstanceView = {
   isCustom: boolean;
   enabled: boolean;
   displayName?: string;
+  apiKeyRequired?: boolean;
   apiKeySet: boolean;
   apiKeyMasked?: string;
   apiBase?: string | null;
   extraHeaders?: Record<string, string> | null;
-  wireApi?: "auto" | "chat" | "responses" | null;
+  wireApi?: 'auto' | 'chat' | 'responses' | null;
   models?: string[];
-  modelConfig?: Record<string, {
-    thinking?: { supported: ThinkingLevel[]; default?: ThinkingLevel | null };
-    vision?: boolean;
-  }>;
+  modelConfig?: Record<
+    string,
+    {
+      thinking?: { supported: ThinkingLevel[]; default?: ThinkingLevel | null };
+      vision?: boolean;
+    }
+  >;
 };
 
 export type ProviderConfigView = ProviderInstanceView;
@@ -89,23 +120,34 @@ export type ProviderConfigUpdate = {
   apiKey?: string | null;
   apiBase?: string | null;
   extraHeaders?: Record<string, string> | null;
-  wireApi?: "auto" | "chat" | "responses" | null;
+  wireApi?: 'auto' | 'chat' | 'responses' | null;
   models?: string[] | null;
-  modelConfig?: Record<string, {
-    thinking?: { supported?: ThinkingLevel[]; default?: ThinkingLevel | null };
-    vision?: boolean;
-  }> | null;
+  modelConfig?: Record<
+    string,
+    {
+      thinking?: {
+        supported?: ThinkingLevel[];
+        default?: ThinkingLevel | null;
+      };
+      vision?: boolean;
+    }
+  > | null;
 };
 
 export type ProviderConnectionTestRequest = ProviderConfigUpdate & {
   model?: string | null;
 };
 
+export type ProviderModelDiscoveryRequest = Pick<ProviderConfigUpdate, 'apiKey' | 'apiBase' | 'extraHeaders'>;
+
 export type ProviderCreateRequest = ProviderConfigUpdate & {
   providerId?: string | null;
 };
 
-export type ProviderCreateResult = { providerId: string; provider: ProviderInstanceView };
+export type ProviderCreateResult = {
+  providerId: string;
+  provider: ProviderInstanceView;
+};
 export type ProviderDeleteResult = { deleted: boolean; providerId: string };
 export type ProvidersView = { providers: Record<string, ProviderInstanceView> };
 
@@ -134,9 +176,36 @@ export type ProviderConnectionTestResult = {
   hint?: string;
 };
 
-export type SearchProviderName = "bocha" | "tavily" | "brave";
-export type BochaFreshnessValue = "noLimit" | "oneDay" | "oneWeek" | "oneMonth" | "oneYear" | string;
-export type TavilySearchDepthValue = "basic" | "advanced";
+export type ProviderModelDiscoveryResult = {
+  provider: string;
+  models: string[];
+  source: 'provider' | 'catalog';
+  fetchedAt: string;
+};
+
+export type ProviderModelCatalogView = {
+  refreshIntervalMs: number;
+  refreshing: boolean;
+  lastRefreshStartedAt: string | null;
+  lastRefreshCompletedAt: string | null;
+  providers: Record<
+    string,
+    {
+      providerId: string;
+      models: string[];
+      source: 'provider' | 'catalog' | null;
+      fetchedAt: string | null;
+      lastError: {
+        message: string;
+        occurredAt: string;
+      } | null;
+    }
+  >;
+};
+
+export type SearchProviderName = 'bocha' | 'tavily' | 'brave' | 'exa';
+export type BochaFreshnessValue = 'noLimit' | 'oneDay' | 'oneWeek' | 'oneMonth' | 'oneYear' | string;
+export type TavilySearchDepthValue = 'basic' | 'advanced';
 
 export type SearchProviderConfigView = {
   enabled: boolean;
@@ -160,6 +229,7 @@ export type SearchConfigView = {
     bocha: SearchProviderConfigView;
     tavily: SearchProviderConfigView;
     brave: SearchProviderConfigView;
+    exa: SearchProviderConfigView;
   };
 };
 
@@ -187,12 +257,16 @@ export type SearchConfigUpdate = {
       apiKey?: string | null;
       baseUrl?: string | null;
     };
+    exa?: {
+      apiKey?: string | null;
+      baseUrl?: string | null;
+    };
   };
 };
 
 export type ProviderAuthStartResult = {
   provider: string;
-  kind: "device_code";
+  kind: 'device_code';
   methodId?: string;
   sessionId: string;
   verificationUri: string;
@@ -207,21 +281,31 @@ export type ProviderAuthPollRequest = { sessionId: string };
 
 export type ProviderAuthPollResult = {
   provider: string;
-  status: "pending" | "authorized" | "denied" | "expired" | "error";
+  status: 'pending' | 'authorized' | 'denied' | 'expired' | 'error';
   message?: string;
   nextPollMs?: number;
 };
 
-export type ProviderAuthImportResult = { provider: string; status: "imported"; source: "cli"; expiresAt?: string };
+export type ProviderAuthImportResult = {
+  provider: string;
+  status: 'imported';
+  source: 'cli';
+  expiresAt?: string;
+};
 
 export type {
   AuthEnabledUpdateRequest,
   AuthLoginRequest,
   AuthPasswordUpdateRequest,
   AuthSetupRequest,
-  AuthStatusView
+  AuthStatusView,
 } from './auth.types';
-export type { ChannelAuthPollRequest, ChannelAuthPollResult, ChannelAuthStartRequest, ChannelAuthStartResult } from './channel-auth.types';
+export type {
+  ChannelAuthPollRequest,
+  ChannelAuthPollResult,
+  ChannelAuthStartRequest,
+  ChannelAuthStartResult,
+} from './channel-auth.types';
 
 export type {
   RemoteAccessView,
@@ -234,7 +318,7 @@ export type {
   RemoteServiceActionResult,
   RemoteServiceView,
   RemoteSettingsUpdateRequest,
-  RemoteSettingsView
+  RemoteSettingsView,
 } from './remote.types';
 export type {
   RuntimeActionCapability,
@@ -244,7 +328,7 @@ export type {
   RuntimeControlView,
   RuntimeLifecycleState,
   RuntimeServiceState,
-  RuntimeControlActionResult
+  RuntimeControlActionResult,
 } from './runtime-control.types';
 
 export type AgentProfileView = {
@@ -264,7 +348,6 @@ export type AgentProfileView = {
   models?: AgentModelsView;
   contextTokens?: number;
   reservedContextTokens?: number;
-  maxToolIterations?: number;
   builtIn?: boolean;
 };
 
@@ -296,7 +379,7 @@ export type AgentDeleteResult = {
 };
 
 export type BindingPeerView = {
-  kind: "direct" | "group" | "channel";
+  kind: 'direct' | 'group' | 'channel';
   id: string;
 };
 
@@ -310,7 +393,7 @@ export type AgentBindingView = {
 };
 
 export type SessionConfigView = {
-  dmScope?: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
+  dmScope?: 'main' | 'per-peer' | 'per-channel-peer' | 'per-account-channel-peer';
 };
 
 export type SessionSkillEntryView = {
@@ -356,51 +439,31 @@ export type SessionPatchUpdate = {
   clearHistory?: boolean;
 };
 
-export type ServerPathEntryView = { name: string; path: string; kind: "directory" | "file"; hidden: boolean };
-
-export type ServerPathBreadcrumbView = { label: string; path: string };
-
-export type ServerPathLocationView = {
-  kind: "desktop" | "documents" | "downloads" | "icloud-drive" | "applications" | "volumes";
-  path: string;
-};
-
-export type ServerPathBrowseView = {
-  currentPath: string;
-  parentPath: string | null;
-  homePath: string;
-  breadcrumbs: ServerPathBreadcrumbView[];
-  entries: ServerPathEntryView[];
-  locations: ServerPathLocationView[];
-};
-
-export type ServerPathSearchEntryView = {
-  name: string;
-  path: string;
-  relativePath: string;
-  parentRelativePath: string;
-  kind: "directory" | "file";
-  hidden: boolean;
-};
-
-export type ServerPathSearchView = {
-  basePath: string;
-  query: string;
-  entries: ServerPathSearchEntryView[];
-  truncated: boolean;
-};
-
-export type ServerPathDirectoryCreateRequest = { parentPath: string; name: string };
-
-export type ServerPathDirectoryCreateView = { path: string };
-
-export type ServerPathReadView = { requestedPath: string; resolvedPath: string; kind: "text" | "markdown" | "binary"; sizeBytes: number; startLine?: number; truncated: boolean; text?: string; languageHint?: string | null };
+export type {
+  ServerPathBreadcrumbView,
+  ServerPathBrowseView,
+  ServerPathDirectoryCreateRequest,
+  ServerPathDirectoryCreateView,
+  ServerPathEntryDeleteView,
+  ServerPathEntryRenameRequest,
+  ServerPathEntryRenameView,
+  ServerPathEntryView,
+  ServerPathFileCreateRequest,
+  ServerPathFileCreateView,
+  ServerPathFilesUploadView,
+  ServerPathLocationView,
+  ServerPathReadView,
+  ServerPathSearchEntryView,
+  ServerPathSearchView,
+  ServerPathWatchRequest,
+  ServerPathWatchView,
+} from './server-path/server-path.types';
 
 export type PanelAppEntryView = {
   id: string;
   appId: string;
   fileName: string;
-  kind: "single-file" | "folder";
+  kind: 'single-file' | 'folder';
   title: string;
   description?: string;
   icon?: string;
@@ -409,20 +472,27 @@ export type PanelAppEntryView = {
   updatedAt: string;
   sizeBytes: number;
   favorite: boolean;
+  mainSidebar: boolean;
+  mainSidebarOrder?: number;
   clientDeclared: boolean;
   clientGranted: boolean;
   lastOpenedAt?: string;
   openCount: number;
+  sourceKind?: 'workspace' | 'package';
+  packageId?: string;
+  packageVersion?: string;
 };
 
 export type PanelAppListView = {
   workspacePath: string;
   panelsPath: string;
   entries: PanelAppEntryView[];
+  unavailablePackages?: Array<{ appId: string; message: string }>;
 };
 
 export type PanelAppPreferencesUpdateView = {
   favorite?: boolean;
+  mainSidebar?: boolean;
 };
 
 export type {
@@ -432,12 +502,12 @@ export type {
 } from './chat-session-type.types';
 
 export type CronScheduleView =
-  | { kind: "at"; atMs?: number | null }
-  | { kind: "every"; everyMs?: number | null }
-  | { kind: "cron"; expr?: string | null; tz?: string | null };
+  | { kind: 'at'; atMs?: number | null }
+  | { kind: 'every'; everyMs?: number | null }
+  | { kind: 'cron'; expr?: string | null; tz?: string | null };
 
 export type CronPayloadView = {
-  kind?: "system_event" | "agent_turn";
+  kind?: 'system_event' | 'agent_turn';
   message: string;
   agentId?: string | null;
   sessionId?: string | null;
@@ -446,7 +516,7 @@ export type CronPayloadView = {
 export type CronJobStateView = {
   nextRunAt?: string | null;
   lastRunAt?: string | null;
-  lastStatus?: "ok" | "error" | "skipped" | null;
+  lastStatus?: 'ok' | 'error' | 'skipped' | null;
   lastError?: string | null;
 };
 
@@ -462,7 +532,7 @@ export type CronJobView = {
   deleteAfterRun: boolean;
 };
 
-export type CronListStatus = "all" | "enabled" | "disabled" | "attention";
+export type CronListStatus = 'all' | 'enabled' | 'disabled' | 'attention';
 
 export type CronListQuery = {
   all?: boolean;
@@ -514,7 +584,7 @@ export type RuntimeConfigUpdate = {
   session?: SessionConfigView;
 };
 
-export type SecretSourceView = "env" | "file" | "exec";
+export type SecretSourceView = 'env' | 'file' | 'exec';
 
 export type SecretRefView = {
   source: SecretSourceView;
@@ -523,18 +593,18 @@ export type SecretRefView = {
 };
 
 export type SecretProviderEnvView = {
-  source: "env";
+  source: 'env';
   prefix?: string;
 };
 
 export type SecretProviderFileView = {
-  source: "file";
+  source: 'file';
   path: string;
-  format?: "json";
+  format?: 'json';
 };
 
 export type SecretProviderExecView = {
-  source: "exec";
+  source: 'exec';
   command: string;
   args?: string[];
   cwd?: string;
@@ -565,12 +635,33 @@ export type SecretsConfigUpdate = {
   refs?: Record<string, SecretRefView> | null;
 };
 
+export type ProductAnalyticsAudience = 'external' | 'internal' | 'qa';
+
+export type ProductAnalyticsView = {
+  schemaVersion: 2;
+  enabled: boolean;
+  audience: ProductAnalyticsAudience;
+};
+
+export type ProductAnalyticsConfigUpdate = {
+  enabled?: boolean;
+  audience?: ProductAnalyticsAudience;
+};
+
+export type ProductAnalyticsStatusView = {
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  pendingReceiptCount: number;
+};
+
 export type ChannelConfigUpdate = Record<string, unknown>;
 
 export type ConfigView = {
   companion?: {
     enabled?: boolean;
   };
+  productAnalytics: ProductAnalyticsView;
   agents: {
     defaults: {
       model: string;
@@ -581,7 +672,6 @@ export type ConfigView = {
       models?: AgentModelsView;
       contextTokens?: number;
       reservedContextTokens?: number;
-      maxToolIterations?: number;
     };
     runtimes?: {
       entries?: Record<string, RuntimeEntryView>;
@@ -615,12 +705,13 @@ export type ProviderTemplateView = {
   id: string;
   providerType: string;
   displayName?: string;
-  apiProtocol?: "openai-compatible" | "anthropic-messages";
+  apiProtocol?: 'openai-compatible' | 'anthropic-messages';
   modelPrefix?: string;
   keywords: string[];
   envKey: string;
   isGateway?: boolean;
   isLocal?: boolean;
+  apiKeyRequired?: boolean;
   defaultApiBase?: string;
   logo?: string;
   apiBaseHelp?: {
@@ -628,7 +719,7 @@ export type ProviderTemplateView = {
     zh?: string;
   };
   auth?: {
-    kind: "device_code";
+    kind: 'device_code';
     displayName?: string;
     note?: {
       en?: string;
@@ -649,13 +740,17 @@ export type ProviderTemplateView = {
     supportsCliImport?: boolean;
   };
   defaultModels?: string[];
-  modelConfig?: Record<string, {
-    thinking?: { supported: ThinkingLevel[]; default?: ThinkingLevel | null };
-    vision?: boolean;
-  }>;
+  supportsModelDiscovery?: boolean;
+  modelConfig?: Record<
+    string,
+    {
+      thinking?: { supported: ThinkingLevel[]; default?: ThinkingLevel | null };
+      vision?: boolean;
+    }
+  >;
   supportsWireApi?: boolean;
-  wireApiOptions?: Array<"auto" | "chat" | "responses">;
-  defaultWireApi?: "auto" | "chat" | "responses";
+  wireApiOptions?: Array<'auto' | 'chat' | 'responses'>;
+  defaultWireApi?: 'auto' | 'chat' | 'responses';
 };
 
 export type ProviderTemplatesView = {
@@ -763,10 +858,24 @@ export type ConfigActionExecuteResult = {
 // WebSocket events
 export type WsEvent =
   | { type: 'config.updated'; payload: { path: string } }
-  | { type: 'channel.config.apply-status'; payload: { channel: string; status: 'started' | 'succeeded' | 'failed'; message?: string } }
+  | { type: 'server-path.changed'; payload: { directoryPath: string } }
+  | {
+      type: 'channel.config.apply-status';
+      payload: {
+        channel: string;
+        status: 'started' | 'succeeded' | 'failed';
+        message?: string;
+      };
+    }
   | { type: 'session.updated'; payload: { sessionKey: string } }
-  | { type: 'session.run-status'; payload: { sessionKey: string; status: 'running' | 'idle' } }
-  | { type: 'session.summary.upsert'; payload: { summary: NcpSessionSummaryView } }
+  | {
+      type: 'session.run-status';
+      payload: { sessionKey: string; status: 'running' | 'idle' };
+    }
+  | {
+      type: 'session.summary.upsert';
+      payload: { summary: NcpSessionSummaryView };
+    }
   | { type: 'session.summary.delete'; payload: { sessionKey: string } }
   | { type: 'config.reload.started'; payload?: Record<string, unknown> }
   | { type: 'config.reload.finished'; payload?: Record<string, unknown> }

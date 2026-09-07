@@ -30,7 +30,12 @@ import { NextclawDistributionService } from "@nextclaw-service/services/runtime/
 import { ServiceBootstrapStatusStore } from "@nextclaw-service/services/gateway/service-bootstrap-status.service.js";
 import { GatewayRuntimeSupportService, ServiceFileWatcherRegistry, markLocalUiRuntimeIfStarted, watchServiceConfigFile } from "@nextclaw-service/services/gateway/service-startup-support.service.js";
 import { ServiceMarketplaceInstaller } from "@nextclaw-service/services/marketplace/service-marketplace-installer.service.js";
-import { NpmRuntimeUpdateHost } from "@nextclaw-service/services/runtime/npm-runtime-update-host.service.js";
+import { ProductActivityReporter } from "@nextclaw-service/services/product-activity/product-activity-reporter.service.js";
+import { MacosDesktopHostService } from "@nextclaw-service/services/desktop/macos-desktop-host.service.js";
+import {
+  NpmRuntimeUpdateHost,
+  resolveNpmRuntimeUpdateApplyRestartMode,
+} from "@nextclaw-service/services/runtime/npm-runtime-update-host.service.js";
 import { createRuntimeControlHost } from "@nextclaw-service/services/ui/runtime-control-host.service.js";
 import { localUiRuntimeStore } from "@nextclaw-service/stores/local-ui-runtime.store.js";
 import { managedServiceStateStore } from "@nextclaw-service/stores/managed-service-state.store.js";
@@ -45,19 +50,21 @@ const {
   getWorkspacePath,
 } = NextclawCore;
 
-function resolveApplyRestartMode(uiPort: number): "managed-service-restart" | "manual-process-restart" {
-  const serviceState = managedServiceStateStore.read();
-  if (serviceState?.pid === process.pid) {
-    return "managed-service-restart";
+function resolveApplyRestartMode(uiPort: number) {
+  const distribution = NextclawDistributionService.get();
+  const resolution = resolveNpmRuntimeUpdateApplyRestartMode({
+    currentPid: process.pid,
+    env: process.env,
+    launchedByLauncher: distribution.launchedByLauncher,
+    serviceState: managedServiceStateStore.read(),
+    uiPort,
+  });
+  if (resolution.source === "legacy-systemd-invocation") {
+    console.warn(
+      "Detected a legacy systemd service without NEXTCLAW_PROCESS_SUPERVISOR; runtime updates will use supervisor-owned relaunch.",
+    );
   }
-  if (
-    process.env.NEXTCLAW_RUNTIME_BUNDLE_CHILD === "1" &&
-    typeof serviceState?.uiPort === "number" &&
-    serviceState.uiPort === uiPort
-  ) {
-    return "managed-service-restart";
-  }
-  return "manual-process-restart";
+  return resolution.mode;
 }
 
 type Config = NextclawCore.Config;
@@ -79,6 +86,7 @@ export type GatewayRuntimeDeps = {
 
 export class ServiceGatewayManager {
   readonly kernel: NextclawKernel;
+  readonly desktopHost = new MacosDesktopHostService();
   readonly appEventBus: EventBus;
   readonly messageBus: MessageBus;
   readonly sessionManager: SessionManager;
@@ -91,6 +99,7 @@ export class ServiceGatewayManager {
   readonly productVersion: string;
   readonly providerManager: LlmProviderManager;
   readonly gatewayController: GatewayControllerImpl;
+  readonly productActivityReporter: ProductActivityReporter;
 
   readonly configManager: ConfigManager;
   readonly uiConfig: Config["ui"];
@@ -110,11 +119,25 @@ export class ServiceGatewayManager {
     private readonly options: GatewayRuntimeOptions,
   ) {
     const configPath = getConfigPath();
+    const homeDir = getDataDir();
+    this.productActivityReporter = new ProductActivityReporter({
+      homeDir,
+      productVersion: this.distribution.version,
+      environment: this.distribution.productEnvironment,
+      releaseChannel: this.distribution.releaseChannel,
+      loadConfig: () => NextclawCore.loadConfig(configPath),
+    });
     this.kernel = measureStartupSync(
       "service.gateway.kernel",
       () => new NextclawKernel({
-        homeDir: getDataDir(),
+        homeDir,
         configPath,
+        builtInAppsDirectory: this.distribution.builtInAppsDirectory,
+        portableServiceRunnerPath: this.distribution.portableServiceRunnerPath,
+        productVersion: this.distribution.version,
+        runtimeVersion: this.distribution.version,
+        productActivitySink: this.productActivityReporter,
+        desktopHost: this.desktopHost,
       }),
     );
     this.configManager = this.kernel.configManager;
@@ -253,6 +276,7 @@ export class ServiceGatewayManager {
     ...(this.runtimeUpdate ? { runtimeUpdate: this.runtimeUpdate } : {}),
     bootstrapStatus: this.bootstrapStatus,
     extensions: this.extensions,
+    productActivity: this.productActivityReporter,
   });
 
   private runRuntimeLoop = async (): Promise<void> => {
@@ -308,6 +332,7 @@ export class ServiceGatewayManager {
     this.runtimeUpdate?.dispose();
     await this.fileWatchers.clear();
     await this.kernel.extensions.stop();
+    await this.desktopHost.dispose();
     await this.remoteManager.stop();
   };
 
@@ -321,13 +346,11 @@ export class ServiceGatewayManager {
       "service.gateway.gateway_controller",
       () => new GatewayControllerImpl({
         configManager: this.configManager,
-        channels: this.kernel.channels,
-        cron: this.automation,
         sessionManager: this.sessionManager,
         requestRestart: async (options) => {
           await this.deps.requestRestart({
-            reason: options?.reason ?? "gateway tool restart",
-            manualMessage: "Restart the gateway to apply changes.",
+            reason: options?.reason ?? "gateway update relaunch",
+            manualMessage: "Run nextclaw restart in an external terminal.",
             strategy: "background-service-or-exit",
             delayMs: options?.delayMs,
             silentOnServiceRestart: true,
@@ -361,7 +384,7 @@ export class ServiceGatewayManager {
       onRestartRequired: (paths) => {
         void this.deps.requestRestart({
           changedPaths: paths,
-          manualMessage: `已保存以下改动，等待你手动重启后生效：${paths.join(", ")}`,
+          manualMessage: `已保存以下改动，请在外部终端运行 nextclaw restart 后生效：${paths.join(", ")}`,
           mode: "notify",
           reason: `config reload requires restart: ${paths.join(", ")}`,
           strategy: "background-service-or-manual",

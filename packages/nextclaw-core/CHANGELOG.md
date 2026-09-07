@@ -1,5 +1,261 @@
 # nextclaw-core
 
+## 0.17.18
+
+### Patch Changes
+
+- b51f599: 修复正常 AI 回复在说明 `<noreply/>` 静默标记时被整条隐藏的问题。现在只有完整可见正文严格匹配该标记时才会静默，消息列表、回复策略与继续运行锚点使用一致语义。
+- db88c76: 完全移除旧项目 Marker 与项目观测机制。Projects 不再读取 `.nextclaw/project.yaml`、扫描项目文件或全部历史会话，也不再提供 observation API 与 `nextclaw projects observe`；历史配置不会再产生 Marker 或未知字段诊断。
+
+  项目材料改为零配置的单一来源：产物只展示 Project Work 工作项显式关联的文件，支持去重、分页与搜索；Skills 固定读取 `.agents/skills`；工作约定固定读取项目根目录 `AGENTS.md`。
+
+  同时简化项目工作项列表与看板的状态分组，移除外层卡片边框和底色，只保留工作项自身的边界与轻量分组标题。
+
+- Updated dependencies [b51f599]
+  - @nextclaw/shared@0.5.1
+
+## 0.17.17
+
+### Patch Changes
+
+- Auto-generated full public release batch.
+
+  Packages:
+  - @nextclaw/core
+
+## 0.17.16
+
+### Patch Changes
+
+- 862dbf2: Auto-generated full public release batch.
+
+  Packages:
+  - @nextclaw/core
+  - @nextclaw/ncp-agent-runtime
+
+- 3c17608: NextClaw's built-in App creator can now build schema v2 Portable Rust/WASI Apps, keep native-process Services for host-dependent tools, validate complete package roots, and explain that Rust is required for authoring rather than for installing a finished App.
+- Updated dependencies [3cd57bf]
+  - @nextclaw/shared@0.5.0
+
+## 0.17.16-beta.1
+
+### Patch Changes
+
+- 3c17608: NextClaw's built-in App creator can now build schema v2 Portable Rust/WASI Apps, keep native-process Services for host-dependent tools, validate complete package roots, and explain that Rust is required for authoring rather than for installing a finished App.
+- Updated dependencies [3cd57bf]
+  - @nextclaw/shared@0.5.0-beta.0
+
+## 0.17.16-beta.0
+
+### Patch Changes
+
+- Auto-generated full public release batch.
+
+  Packages:
+  - @nextclaw/core
+  - @nextclaw/ncp-agent-runtime
+
+## 0.17.15
+
+### Patch Changes
+
+- Auto-generated full public release batch.
+
+  Packages:
+  - @nextclaw/core
+
+## 0.17.14
+
+### Patch Changes
+
+- 9377757: 修复子 Agent 的运行、等待和通知语义：`sessions_spawn` 现在默认立即启动且不阻塞父 Agent，`notify` 只控制完成通知，`wait` 独立控制同步等待；仅创建空会话改为显式 `start=false`。异步任务结束后，原工具结果会可靠更新并在冷重启后保持终态。
+
+## 0.17.13
+
+### Patch Changes
+
+- 51fac6a: 修复旧实例在第 20 次工具调用后突然中止 Agent 任务的问题：废弃并移除可配置的工具调用上限，旧配置文件中的相关值不再参与运行；NextClaw native runtime 统一使用固定的 1000 次工具调用安全预算，设置页、Agent 详情和 API 也不再暴露该配置。
+
+## 0.17.12
+
+### Patch Changes
+
+- Updated dependencies [60febb5]
+  - @nextclaw/shared@0.4.30
+
+## 0.17.11
+
+### Patch Changes
+
+- Auto-generated full public release batch.
+
+  Packages:
+  - @nextclaw/core
+
+- Updated dependencies [882b6e0]
+  - @nextclaw/shared@0.4.29
+
+## 0.17.10
+
+### Patch Changes
+
+- 2d292fa: 修复会话搜索索引重复全目录扫描和并发写入造成的全局卡顿；会话列表改为 SQLite 页码分页、后端搜索排序与滚动前预取，在大量会话与重工具调用历史并存时仍能快速出现，并可继续访问全部会话、历史和工具详情。
+- c0523dc: 修复定时任务在执行期间修改其它任务配置时可能被热重载重复触发的问题；同一个任务现在只会运行一次，未单独指定模型时仍继承目标会话绑定的模型。
+- 7d2b9f8: 修复长时间运行的 Agent 任务可能异常消耗额度的问题：共享同一数据目录的进程不再重复执行同一会话或定时任务，工具调用次数现在严格遵守 Agent 配置上限，上下文压缩也按真实模型输入估算而不再重复计算工具结果。
+
+## 0.17.9
+
+### Patch Changes
+
+- 667c4fd: 产品活跃统计改为默认开启的匿名汇总：每个客户端仅为当日、当周和当月生成相互独立的一次性收据，不再上传或保存稳定安装标识、账号、令牌、IP、User-Agent、消息内容或工具参数；隐私设置新增本机投递状态，管理后台同步展示当前自然日、自然周、自然月活跃与成功使用趋势。
+
+## 0.17.8
+
+### Patch Changes
+
+- 50f064c: 为所有模型运行记录可查询的触发证据，包括发起者、来源渠道、触发与运行模型、关联会话、消息、请求和工具调用；消息的“更多操作”现在统一提供这些详情。后台完成通知只由人类直接发起的运行触发，代理委派、定时任务、观察和系统运行保持静默。
+- Updated dependencies [50f064c]
+  - @nextclaw/shared@0.4.28
+
+## 0.17.7
+
+### Patch Changes
+
+- 5b07b81: Add automatic Windows Desktop host-exit diagnostics, including local crash evidence, restart recovery records, and AI-readable incident reporting.
+- 5f68b2f: Recover context compaction from truncated or structurally incomplete summaries with a priority-prefix protocol, bounded shrinking retries, and a deterministic recent-context fallback. Derive the provider output budget from the install target and honor DeepSeek's explicit thinking-disable control during compaction.
+
+  <!-- release-note-blog: docs/blog-drafts/2026-08-22-context-compaction-without-dead-ends.blog-draft.md -->
+
+- 41cb756: 降低空用户会话的固有上下文占用：技能目录改为保留完整描述的紧凑分组格式，工具目录不再与工具 schema 重复，回复格式合同去除重复表述，从而减少过早触发上下文压缩的概率。
+- 037d93e: 新增内置的持续关注 Skill，让 Agent 能根据用户意图区分一次性读取、会话级 Context 绑定和 Events 订阅，并管理关注关系的生命周期与外部事件安全处理。
+- eabdf41: 修复 Desktop 正式包的 SQLite 原生依赖与启动就绪判断：按 Electron ABI 打包 `better-sqlite3`，并在 NCP agent 真正 ready 后才认为桌面运行时启动成功。
+- Updated dependencies [70dd515]
+  - @nextclaw/shared@0.4.27
+
+## 0.17.7-beta.0
+
+### Patch Changes
+
+- 5b07b81: Add automatic Windows Desktop host-exit diagnostics, including local crash evidence, restart recovery records, and AI-readable incident reporting.
+- 5f68b2f: Recover context compaction from truncated or structurally incomplete summaries with a priority-prefix protocol, bounded shrinking retries, and a deterministic recent-context fallback. Derive the provider output budget from the install target and honor DeepSeek's explicit thinking-disable control during compaction.
+
+  <!-- release-note-blog: docs/blog-drafts/2026-08-22-context-compaction-without-dead-ends.blog-draft.md -->
+
+- 41cb756: 降低空用户会话的固有上下文占用：技能目录改为保留完整描述的紧凑分组格式，工具目录不再与工具 schema 重复，回复格式合同去除重复表述，从而减少过早触发上下文压缩的概率。
+- 037d93e: 新增内置的持续关注 Skill，让 Agent 能根据用户意图区分一次性读取、会话级 Context 绑定和 Events 订阅，并管理关注关系的生命周期与外部事件安全处理。
+- Updated dependencies [70dd515]
+  - @nextclaw/shared@0.4.27-beta.0
+
+## 0.17.6
+
+### Patch Changes
+
+- 6587602: 新增默认关闭的产品活跃统计与隐私设置：未登录安装使用随机匿名标识，登录后按账号归并，并可将团队和 QA 测试流量从外部 DAU、WAU、MAU 中分开。
+- 0f0753a: 修复桌面端 Service App 启动：声明 `node` 或 `node.exe` 的应用现在统一使用 NextClaw 宿主内置 Node，不再要求 Windows、macOS 或 Linux 额外安装系统 Node；运行失败也会返回结构化错误。
+  - @nextclaw/shared@0.4.26
+
+## 0.17.5
+
+### Patch Changes
+
+- c10dcaa: 新增统一的结构化运行诊断事件、安全错误分类和日志查询命令，覆盖 Service、扩展、配置、渠道、Agent、全部 kernel 工具、外部 transport 与定时任务关键链路；取消、网络与未知异常都有独立可查询终态。内置 AI 现在可以按时间窗和关联 ID 从日志证据排查运行故障。QQ 渠道首先接入完整投递链路，并默认不记录消息正文、工具参数/结果、完整 URL、用户身份或凭据。
+- Updated dependencies [c10dcaa]
+  - @nextclaw/shared@0.4.25
+
+## 0.17.4
+
+### Patch Changes
+
+- ef5d9ae: Convert function tools to the Responses API schema before sending model requests.
+- 1df4217: Support one or multiple native platform artifacts per Mini App version, select the compatible artifact during install, expose platform-aware NextClaw app publishing commands, and label supported platforms in the App Marketplace.
+
+## 0.17.3
+
+### Patch Changes
+
+- 80f7660: Fix OpenAI Responses history encoding and keep explicit thinking-off selections stable across session preference hydration and persistence.
+
+## 0.17.2
+
+### Patch Changes
+
+- 56ab5c2: 完善社区 App 的运行与公开上架合同：schema v2 Service App 必须如实声明为宿主原生进程并进入高权限人工审核，审核通过后可以公开上架；本地与市场服务端都会拒绝用 `wasi` 标签伪装沙箱。管理后台同步提供“通过并公开”和“通过但不公开”，并展示后端统一判定的运行方式、组件、权限与公开资格。
+
+## 0.17.1
+
+### Patch Changes
+
+- aa08a3f: 命令工具卡新增实时执行计时：命令真正开始后持续显示已运行时长，并在成功、失败或取消后冻结并保留耗时；刷新会话后仍可从标准 NCP 执行时间恢复。内置命令运行时与 Codex command execution 统一使用同一条计时协议，不再把排队或参数生成时间算作命令执行耗时。
+- 004d51f: 增强会话工作台：概览底部新增当前会话的 Token 用量，支持按模型查看输入、输出、缓存输入、总量与缓存命中率；子会话管理页新增“新建子会话”入口，并复用侧边对话的上下文继承链路。
+  - @nextclaw/shared@0.4.24
+
+## 0.17.0
+
+### Minor Changes
+
+- ca2c98d: 把 App 数据生命周期补齐为可管理的产品能力：App 更新继续复用原实例，卸载与 Workspace Service 删除默认保留个人数据，也可以在确认后同时永久删除 data、config、state、cache、tmp 和 logs。
+
+  Apps 页面会显示六类数据占用、受管路径和已保留数据，并支持稍后清理；CLI 新增 `nextclaw app data list/delete`，开发态可用 `nextclaw app dev --reset-data --confirm <app-id>` 精确重置当前实例。HTTP、Client SDK、双语文档与内建自管理 Skill 同步使用同一套安全确认和 active/retained 规则。
+
+## 0.16.0
+
+### Minor Changes
+
+- 237a931: 新增 NextClaw 原生 Mini App 发布链路：AI 和用户可以用 `nextclaw app validate-publish / publish` 校验并提交 Panel App、Service App 或组合应用；个人应用进入审核队列后再公开。Marketplace 会在写入前校验完整制品，并保护已经发布的个人版本不被待审核更新覆盖。
+
+## 0.15.24
+
+### Patch Changes
+
+- Updated dependencies [9b22a7d]
+  - @nextclaw/shared@0.4.23
+
+## 0.15.23
+
+### Patch Changes
+
+- Updated dependencies [7179c7a]
+  - @nextclaw/shared@0.4.22
+
+## 0.15.22
+
+### Patch Changes
+
+- c783019: Native 会话现在会并行执行同一轮中的只读文件、图片、网页和记忆查询，同时让写入、命令和未明确声明安全的工具继续独占执行；多个查询可以更快返回，工具结果仍按原调用位置回填，后续模型回复不会因完成顺序不同而错位。
+- 7786bdf: 移除无法可靠完成会话恢复的 agent `gateway.restart` 能力；需要重启时，现在统一提示用户在外部终端运行顶层 `nextclaw restart`，并明确 `nextclaw gateway` 仅用于启动前台 gateway、不提供生命周期子命令。
+  - @nextclaw/shared@0.4.21
+
+## 0.15.21
+
+### Patch Changes
+
+- Updated dependencies [4ab158d]
+- Updated dependencies [c54a1d9]
+  - @nextclaw/shared@0.4.20
+
+## 0.15.20
+
+### Patch Changes
+
+- c3eb33c: 修复聊天失败时同一供应商错误在对话区和输入框重复显示、视觉提示过强且原始响应被截断的问题；错误现在只在对话区以低干扰样式显示一次，正文保留供应商返回的完整内容，并在内容较长时通过限高滚动查看。
+- e309470: 搜索设置新增 Exa 提供商：可配置 API Key 与自定义 Base URL，并使用统一的全局结果数量上限执行语义搜索和网页正文提取。感谢 [@suantea](https://github.com/suantea) 通过 [#23](https://github.com/Peiiii/nextclaw/pull/23) 贡献这项能力。
+- 31d5655: 让 AI 在整理新闻、报告、推荐或文章后说“发给我”时，优先投递到 NextClaw 收件箱；只有明确指定微信、飞书等外部渠道时才使用跨渠道消息。
+- 8e53d92: Native 会话会在同一次长任务的工具调用轮次之间自动压缩上下文；压缩输入、输出和最终 checkpoint 使用包含工具 schema 与输出预留的同一动态预算，压缩后除完整摘要外还会按 token 预算保留最近的真实用户原文。上下文指示器会按完整输入显示系统与工具、会话内容、自动压缩线和输出预留。Agent 配置会按当前指令与全量工具动态拒绝不可用的小窗口；send、继续运行和编辑重跑共享同一运行状态入口，进程中断统一恢复为可继续的中性终态。运行中压缩与 continuation 前压缩会稳定显示在对应助手过程位置，刷新后不再堆到消息末尾。
+- 071c144: 增加提供商模型目录获取与后台自动刷新：Kimi 现在也能在提供商设置中获取当前模型列表，并参与每 12 小时的目录刷新；未填写 API Key 或上游拒绝鉴权时会直接给出可操作的本地化提示，不再展示原始英文 401，后台目录失败也不再被其他 Provider 的刷新状态拖成持续加载。其他尚未确认支持模型目录的提供商继续支持手工配置。候选只保留文本输出的聊天 LLM，图像、视频、语音、Embedding、Rerank 与 Moderation 模型不会进入聊天配置。聊天模型选择器只在展开后提示上次已见基线之后真正新增的模型，并支持“本批不再提醒”；首次大目录不会制造数百条提醒。具体提供商页会自动提示对应差集，超过 50 个候选时隐藏“全部添加”、支持搜索并只渲染前 50 个匹配项；已配置模型也可进入批量删除模式后全选或删除所选。显式获取、自动刷新和批量操作都只修改当前草稿或目录快照，不会绕过用户保存。
+- Updated dependencies [8049f49]
+- Updated dependencies [bf3ff68]
+- Updated dependencies [08325d3]
+  - @nextclaw/shared@0.4.19
+
+## 0.15.19
+
+### Patch Changes
+
+- dbececb: 修复并发消息完成时聊天记录偶发重叠的问题，并隐藏静默回复遗留的异常文本。
+- 43b0e1d: 让全新安装的 NextClaw 默认接入 OpenCode Zen 当前可调用的七个免费试用模型，无需填写 API Key 即可在模型选择器中直接选择并开始聊天；已有其他提供商配置保持不变，已失效的 Ling 免费模型会从 OpenCode 配置中移除，并明确提示公共网关的限额、模型变化与数据隐私边界。
+- Updated dependencies [dbececb]
+  - @nextclaw/shared@0.4.18
+
 ## 0.15.18
 
 ### Patch Changes

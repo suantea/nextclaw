@@ -3,9 +3,11 @@ import { ChatThreadManager } from '@/features/chat/managers/chat-thread.manager'
 import { useChatSessionListStore } from '@/features/chat/stores/chat-session-list.store';
 import { useChatThreadStore } from '@/features/chat/stores/chat-thread.store';
 
-function createUiManager(): ConstructorParameters<typeof ChatThreadManager>[0] {
+function createUiManager(overrides: Record<string, unknown> = {}): ConstructorParameters<typeof ChatThreadManager>[0] {
   return {
     goToSession: vi.fn(),
+    isAtChatRoot: vi.fn(() => true),
+    ...overrides,
   } as unknown as ConstructorParameters<typeof ChatThreadManager>[0];
 }
 
@@ -24,6 +26,8 @@ describe('ChatThreadManager workspace pages', () => {
         activeWorkspacePanelKind: null,
         activeChildSessionKey: null,
         activeWorkspaceFileKey: null,
+        draftProjectRoot: null,
+        workspaceFileTabs: [],
         closedWorkspaceTabEntries: [],
         workspaceNavigationHistory: [],
         workspaceNavigationHistoryIndex: 0,
@@ -73,6 +77,94 @@ describe('ChatThreadManager workspace pages', () => {
       workspacePanelParentKey: null,
       activeWorkspacePanelKind: null,
     });
+  });
+
+  it('opens project files for a draft without exposing session-only pages', () => {
+    const manager = new ChatThreadManager(
+      createUiManager(),
+      {} as ConstructorParameters<typeof ChatThreadManager>[1],
+    );
+
+    manager.toggleWorkspacePanel(null);
+
+    expect(useChatThreadStore.getState().snapshot).toMatchObject({
+      workspacePanelParentKey: null,
+      activeWorkspacePanelKind: 'project-files',
+      workspaceNavigationHistory: [{ kind: 'project-files' }],
+    });
+  });
+
+  it('materializes the draft selection, workspace, and route as one owner action', () => {
+    useChatThreadStore.setState({
+      snapshot: {
+        ...useChatThreadStore.getState().snapshot,
+        draftProjectRoot: '/tmp/project-alpha',
+        workspacePanelParentKey: null,
+        activeWorkspacePanelKind: 'file',
+        activeWorkspaceFileKey: 'draft::preview::README.md',
+        workspaceFileTabs: [
+          {
+            key: 'draft::preview::README.md',
+            parentSessionKey: null,
+            path: 'README.md',
+            viewMode: 'preview',
+          },
+        ],
+        workspaceNavigationHistory: [
+          { kind: 'project-files' },
+          { kind: 'file', key: 'draft::preview::README.md' },
+        ],
+        workspaceNavigationHistoryIndex: 1,
+      },
+    });
+    const uiManager = createUiManager();
+    const syncRouteSessionSelection = vi.fn((sessionKey: string) => {
+      useChatSessionListStore.getState().setSnapshot({ selectedSessionKey: sessionKey });
+      useChatThreadStore.getState().setSnapshot({ draftProjectRoot: null });
+    });
+    const manager = new ChatThreadManager(uiManager, {
+      syncRouteSessionSelection,
+    } as unknown as ConstructorParameters<typeof ChatThreadManager>[1]);
+
+    manager.materializeRootDraftSession('materialized-session');
+
+    expect(syncRouteSessionSelection).toHaveBeenCalledWith('materialized-session');
+    expect(useChatThreadStore.getState().snapshot).toMatchObject({
+      draftProjectRoot: null,
+      workspacePanelParentKey: 'materialized-session',
+      activeWorkspacePanelKind: 'file',
+      activeWorkspaceFileKey:
+        'materialized-session::preview::README.md',
+      workspaceFileTabs: [
+        expect.objectContaining({
+          key: 'materialized-session::preview::README.md',
+          parentSessionKey: 'materialized-session',
+        }),
+      ],
+      workspaceNavigationHistory: [
+        { kind: 'project-files' },
+        {
+          kind: 'file',
+          key: 'materialized-session::preview::README.md',
+        },
+      ],
+    });
+    expect(uiManager.goToSession).toHaveBeenCalledWith('materialized-session', {
+      replace: true,
+    });
+  });
+
+  it('ignores draft materialization after leaving the root route', () => {
+    const uiManager = createUiManager({ isAtChatRoot: vi.fn(() => false) });
+    const syncRouteSessionSelection = vi.fn();
+    const manager = new ChatThreadManager(uiManager, {
+      syncRouteSessionSelection,
+    } as unknown as ConstructorParameters<typeof ChatThreadManager>[1]);
+
+    manager.materializeRootDraftSession('materialized-session');
+
+    expect(syncRouteSessionSelection).not.toHaveBeenCalled();
+    expect(uiManager.goToSession).not.toHaveBeenCalled();
   });
 
   it('does not close fixed workspace pages', () => {

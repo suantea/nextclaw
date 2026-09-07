@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { Braces, FolderOpen, MoreVertical, PanelRightClose, PanelRightOpen, Trash2 } from 'lucide-react';
+import { Braces, FolderOpen, PanelRightClose, PanelRightOpen, Trash2 } from 'lucide-react';
 import { IconActionButton } from '@/shared/components/ui/actions/icon-action-button';
-import { Popover, PopoverTrigger } from '@/shared/components/ui/popover';
-import { ChatPopoverContent } from '@/features/chat/components/chat-popover-content';
 import { useChatSessionProject } from '@/features/chat/features/session/hooks/use-chat-session-project';
 import { ChatSessionHeaderMenuItem } from './chat-session-header-menu-item';
+import { ChatSessionMoreActionsMenu } from './chat-session-more-actions-menu';
 import { ChatSessionMetadataDialog } from './chat-session-metadata-dialog';
 import { ChatSessionProjectDialog } from './chat-session-project-dialog';
 import { t } from '@/shared/lib/i18n';
@@ -12,7 +11,7 @@ import { t } from '@/shared/lib/i18n';
 const SESSION_HEADER_ACTION_GROUP_CLASS = 'flex shrink-0 items-center gap-1.5';
 
 type ChatSessionHeaderActionsProps = {
-  sessionKey: string;
+  sessionKey: string | null;
   canDeleteSession: boolean;
   isDeletePending: boolean;
   currentPath?: string | null;
@@ -35,13 +34,15 @@ export function ChatSessionHeaderActions({
   onDeleteSession,
 }: ChatSessionHeaderActionsProps) {
   const updateSessionProject = useChatSessionProject();
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isMetadataDialogOpen, setIsMetadataDialogOpen] = useState(false);
   const [isProjectPending, setIsProjectPending] = useState(false);
   const isBusy = isDeletePending || isProjectPending;
 
   const runProjectUpdate = async (nextProjectRoot: string | null) => {
+    if (!sessionKey) {
+      return;
+    }
     const persistToServer = canDeleteSession;
     setIsProjectPending(true);
     try {
@@ -51,7 +52,6 @@ export function ChatSessionHeaderActions({
         persistToServer,
       });
       setIsDialogOpen(false);
-      setIsMenuOpen(false);
     } finally {
       setIsProjectPending(false);
     }
@@ -59,48 +59,32 @@ export function ChatSessionHeaderActions({
 
   return (
     <div className={SESSION_HEADER_ACTION_GROUP_CLASS}>
-      <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-        <PopoverTrigger asChild>
-          <IconActionButton
-            icon={<MoreVertical className="h-4 w-4" />}
-            label={t('chatSessionMoreActions')}
-            tooltip={false}
+      {sessionKey ? (
+        <ChatSessionMoreActionsMenu
+          sessionKey={sessionKey}
+          disabled={isBusy}
+        >
+          <ChatSessionHeaderMenuItem
+            icon={FolderOpen}
+            label={t('chatSessionSetProject')}
+            onClick={() => setIsDialogOpen(true)}
             disabled={isBusy}
           />
-        </PopoverTrigger>
-        <ChatPopoverContent align="end" className="w-56 p-2">
-          <div className="space-y-1">
-            <ChatSessionHeaderMenuItem
-              icon={FolderOpen}
-              label={t('chatSessionSetProject')}
-              onClick={() => {
-                setIsMenuOpen(false);
-                setIsDialogOpen(true);
-              }}
-              disabled={isBusy}
-            />
-            <ChatSessionHeaderMenuItem
-              icon={Braces}
-              label={t('chatSessionViewMetadata')}
-              onClick={() => {
-                setIsMenuOpen(false);
-                setIsMetadataDialogOpen(true);
-              }}
-              disabled={isBusy}
-            />
-            <ChatSessionHeaderMenuItem
-              icon={Trash2}
-              label={t('chatDeleteSession')}
-              onClick={() => {
-                setIsMenuOpen(false);
-                onDeleteSession();
-              }}
-              disabled={!canDeleteSession || isBusy}
-              destructive
-            />
-          </div>
-        </ChatPopoverContent>
-      </Popover>
+          <ChatSessionHeaderMenuItem
+            icon={Braces}
+            label={t('chatSessionViewMetadata')}
+            onClick={() => setIsMetadataDialogOpen(true)}
+            disabled={isBusy}
+          />
+          <ChatSessionHeaderMenuItem
+            icon={Trash2}
+            label={t('chatDeleteSession')}
+            onClick={onDeleteSession}
+            disabled={!canDeleteSession || isBusy}
+            destructive
+          />
+        </ChatSessionMoreActionsMenu>
+      ) : null}
       <IconActionButton
         icon={
           isWorkspaceOpen ? (
@@ -119,19 +103,23 @@ export function ChatSessionHeaderActions({
         disabled={isBusy}
       />
 
-      <ChatSessionProjectDialog
-        open={isDialogOpen}
-        currentProjectRoot={currentPath}
-        defaultWorkspacePath={defaultWorkspacePath}
-        isSaving={isProjectPending}
-        onOpenChange={setIsDialogOpen}
-        onSave={runProjectUpdate}
-      />
-      <ChatSessionMetadataDialog
-        open={isMetadataDialogOpen}
-        metadata={metadata}
-        onOpenChange={setIsMetadataDialogOpen}
-      />
+      {sessionKey ? (
+        <>
+          <ChatSessionProjectDialog
+            open={isDialogOpen}
+            currentProjectRoot={currentPath}
+            defaultWorkspacePath={defaultWorkspacePath}
+            isSaving={isProjectPending}
+            onOpenChange={setIsDialogOpen}
+            onSave={runProjectUpdate}
+          />
+          <ChatSessionMetadataDialog
+            open={isMetadataDialogOpen}
+            metadata={metadata}
+            onOpenChange={setIsMetadataDialogOpen}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

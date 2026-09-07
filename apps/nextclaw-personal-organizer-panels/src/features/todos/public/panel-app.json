@@ -1,0 +1,18 @@
+{
+  "id": "nextclaw-personal-organizer-todos",
+  "title": "待办",
+  "titleI18n": { "zh-CN": "待办", "en-US": "Todos" },
+  "description": "把今天和接下来要做的事放在眼前。",
+  "descriptionI18n": {
+    "zh-CN": "把今天和接下来要做的事放在眼前。",
+    "en-US": "Keep today and your next actions in view."
+  },
+  "icon": "assets/icon.svg",
+  "entry": "index.html",
+  "actions": [
+    "nextclaw-personal-organizer-data.todo_list",
+    "nextclaw-personal-organizer-data.todo_create",
+    "nextclaw-personal-organizer-data.todo_update",
+    "nextclaw-personal-organizer-data.todo_delete"
+  ]
+}

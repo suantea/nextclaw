@@ -8,6 +8,7 @@ import {
 } from "@/features/chat/features/session/utils/chat-session-display.utils";
 import { resolveSessionContextView } from "@/features/chat/features/session/utils/session-context.utils";
 import type { ChatSessionTypeOption } from "@/features/chat/features/session-type/utils/chat-session-type.utils";
+import { t } from "@/shared/lib/i18n";
 
 export function ChatSidebarSessionEntry(props: {
   item: NcpSessionListItemView;
@@ -18,6 +19,7 @@ export function ChatSidebarSessionEntry(props: {
     { displayName?: string | null; avatarUrl?: string | null }
   >;
   childSessionsByParentKey: Map<string, NcpSessionListItemView[]>;
+  cronJobCount: number;
   editingSessionKey: string | null;
   draftLabel: string;
   savingSessionKey: string | null;
@@ -25,15 +27,12 @@ export function ChatSidebarSessionEntry(props: {
   isPinned: boolean;
   sessionTitle: (session: SessionEntryView) => string;
   onSelectSession: (sessionKey: string) => void;
-  onOpenChildSessions: (
-    parentSessionKey: string,
-    activeChildSessionKey: string | null,
-  ) => void;
   onStartEditingSessionLabel: (session: SessionEntryView) => void;
   onDraftLabelChange: (value: string) => void;
   onSaveSessionLabel: (session: SessionEntryView) => void;
   onCancelEditingSessionLabel: () => void;
   onTogglePinned: () => void;
+  onDeleteSession: (sessionKey: string) => void;
 }) {
   const {
     item,
@@ -41,6 +40,7 @@ export function ChatSidebarSessionEntry(props: {
     optimisticReadAtBySessionKey,
     agentsById,
     childSessionsByParentKey,
+    cronJobCount,
     editingSessionKey,
     draftLabel,
     savingSessionKey,
@@ -48,12 +48,12 @@ export function ChatSidebarSessionEntry(props: {
     isPinned,
     sessionTitle,
     onSelectSession,
-    onOpenChildSessions,
     onStartEditingSessionLabel,
     onDraftLabelChange,
     onSaveSessionLabel,
     onCancelEditingSessionLabel,
     onTogglePinned,
+    onDeleteSession,
   } = props;
   const { session, runStatus } = item;
   const active = selectedSessionKey === session.key;
@@ -98,18 +98,22 @@ export function ChatSidebarSessionEntry(props: {
           : null
       }
       childSessionCount={childSessions.length}
+      cronJobCount={cronJobCount}
+      projectName={
+        session.projectName?.trim() ||
+        session.projectRoot?.trim().split(/[\\/]/).filter(Boolean).at(-1) ||
+        t("chatSidebarContextNoProject")
+      }
       isEditing={editingSessionKey === session.key}
       draftLabel={draftLabel}
       isSaving={savingSessionKey === session.key}
       onSelect={() => onSelectSession(session.key)}
-      onOpenChildSessions={() =>
-        onOpenChildSessions(session.key, childSessions[0]?.session.key ?? null)
-      }
       onStartEditing={() => onStartEditingSessionLabel(session)}
       onDraftLabelChange={onDraftLabelChange}
       onSave={() => onSaveSessionLabel(session)}
       onCancel={onCancelEditingSessionLabel}
       onTogglePinned={onTogglePinned}
+      onDelete={() => onDeleteSession(session.key)}
     />
   );
 }

@@ -45,8 +45,13 @@ describe("ServiceRestartManager self relaunch", () => {
     });
     NextclawDistributionService.configure({
       version: "0.23.0",
+      productEnvironment: "development",
+      releaseChannel: "development",
       appEntrypoint: "/pkg/runtime/dist/cli/app/index.js",
+      launcherVersion: "0.23.0",
       launcherEntrypoint: "/pkg/runtime/dist/cli/launcher/index.js",
+      launchedByLauncher: false,
+      templatesDir: "/pkg/runtime/templates",
       uiDistDir: "/pkg/runtime/ui-dist",
       runtimeUpdatePublicKeyPath: "/pkg/runtime/resources/update-bundle-public.pem"
     });
@@ -77,7 +82,7 @@ describe("ServiceRestartManager self relaunch", () => {
     process.argv[1] = "/pkg/runtime-bundles/versions/0.22.4/runtime/dist/cli/app/index.js";
     await restartManager.requestRestart({
       reason: "runtime update apply",
-      manualMessage: "Restart the gateway to apply changes.",
+      manualMessage: "Run nextclaw restart in an external terminal to apply changes.",
       strategy: "background-service-or-exit",
       delayMs: 100_000
     });
@@ -97,7 +102,7 @@ describe("ServiceRestartManager self relaunch", () => {
     process.argv[1] = "/repo/packages/nextclaw/src/cli/app/index.ts";
     await restartManager.requestRestart({
       reason: "runtime update apply",
-      manualMessage: "Restart the gateway to apply changes.",
+      manualMessage: "Run nextclaw restart in an external terminal to apply changes.",
       strategy: "background-service-or-exit",
       delayMs: 100_000
     });
@@ -109,6 +114,22 @@ describe("ServiceRestartManager self relaunch", () => {
     expect(helperScript).toContain('"start","--ui-port","19199"');
   });
 
+  it("lets a supervisor own relaunch and exits with the requested code", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+
+    await restartManager.requestRestart({
+      reason: "runtime update apply",
+      manualMessage: "Restart the supervised process.",
+      strategy: "exit-process",
+      exitCode: 75,
+      delayMs: 500,
+    });
+
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(exitSpy).toHaveBeenCalledWith(75);
+  });
+
   it("records a pending restart without polluting machine-readable output", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
@@ -116,14 +137,14 @@ describe("ServiceRestartManager self relaunch", () => {
       changedPaths: ["agents.runtimes"],
       mode: "notify",
       reason: "agent runtime config changed",
-      manualMessage: "Restart the gateway to apply changes.",
+      manualMessage: "Run nextclaw restart in an external terminal to apply changes.",
       silentNotification: true,
     });
 
     expect(warnSpy).not.toHaveBeenCalled();
     expect(pendingRestartStore.read()).toMatchObject({
       changedPaths: ["agents.runtimes"],
-      message: "Restart the gateway to apply changes.",
+      message: "Run nextclaw restart in an external terminal to apply changes.",
       reasons: ["agent runtime config changed"],
     });
   });

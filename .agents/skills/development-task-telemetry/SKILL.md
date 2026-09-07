@@ -1,0 +1,74 @@
+---
+name: development-task-telemetry
+description: Use when a development task needs visible phase tracing, task-level or phase-level Token measurement, model/effort comparison, or a deterministic usage report or local dashboard from Codex rollout logs.
+---
+
+# Development Task Telemetry
+
+## 定位
+
+作为开发生命周期的可选只读 observer，声明可移植的任务/阶段边界。只观察 lifecycle 已决定的状态，不改变阶段、返工、完成门或模型路由，不自报 Token 数值。
+
+## 激活
+
+- 根任务加载本 Skill 后，以 `task=start` 激活；子 Agent 只有拿到父任务传入的 task-id 和当前 phase 后才能用 `task=join` 激活。
+- marker 必须附着在原本就要发送的进度或最终消息第一物理行，位于 `[我严格遵守规则]`、`[深思模式]` 等前缀之后；除用户显式要求收尾汇报外，禁止为 marker 新增消息、模型调用或工具调用。
+- 只在真实 task / phase 转换时输出；同一阶段的普通进度不重复输出。
+- 加载失败时说明 `telemetry unavailable` 并继续开发，不得阻塞任务。
+- 触达 marker、解析或默认收尾汇报时，必须运行定向测试，并以真实 rollout 和同一 task-id 复验报告；静态规则检查不能替代。
+
+## 固定合同
+
+根任务开始：
+
+```text
+[nextclaw.dev/v1 task=start id=<task-id> name="<task-name>" type=<task-type> phase=<phase>]
+```
+
+子 Agent 加入：
+
+```text
+[nextclaw.dev/v1 task=join id=<task-id> phase=<phase>]
+```
+
+当前线程切换阶段：
+
+```text
+[nextclaw.dev/v1 phase=<phase>]
+```
+
+子 Agent 离开：
+
+```text
+[nextclaw.dev/v1 task=leave id=<task-id> status=<status>]
+```
+
+根任务结束：
+
+```text
+[nextclaw.dev/v1 task=end id=<task-id> status=<status>]
+```
+
+字段顺序和拼写固定。`task-type` 只允许 `feature`、`bugfix`、`small-change`，原样记录 lifecycle 已冻结的类型，不自行推断或修正；`phase` 只允许 `task-understanding`、`design`、`implementation`、`validation`、`review`、`delivery`、`retrospective`；`status` 只允许 `completed`、`blocked`、`cancelled`、`failed`。
+
+根任务生成一次 `dt-` 加 8 位小写十六进制 task-id，并在 reopen 时复用。`task-name` 使用能让人直接识别目标的简短名称，建议 8–30 个字符，最多 64 个字符，不含 `"`、`]` 或换行；reopen 时保持原名称和类型。子 Agent 原样复用父任务 ID，禁止自行生成或重新分类。解析器继续兼容缺少 `name` 或 `type` 的历史 `task=start` marker，但新 marker 必须同时提供名称和类型；历史缺失值保持未知，不从自然语言猜测。
+
+每条 assistant 消息首行最多一个 marker。不要在首行示例、引用、用户内容、工具输出或总结中伪造 marker。
+
+## AI 查询与汇报
+
+用户说“查看统计”“这个任务用了多少 Token”或给出 task/thread/session ID 时，AI 是查询入口：自己定位并运行脚本，禁止把命令交给用户执行。定位顺序是显式 task-id、当前上下文最近的 marker、用户给出的 thread/session ID；仍有多个候选时先列出简短候选，不猜测归属。
+
+```text
+node .agents/skills/development-task-telemetry/scripts/report-task-phase-usage.mjs --sessions-root ~/.codex/sessions [--thread <thread-id>] [--task <task-id>] [--format json]
+```
+
+AI 默认文本回答，需要比较或计算时用 JSON。按需报告给任务类型、总 Token、阶段占比、模型/effort、调用与工具轮次、耗时、覆盖率和警告；无 marker 时只报告可观察总量并说明不能可靠分阶段。
+
+启用 observer 的根开发任务默认收尾汇报：把 `task=end` 附在完成进度首行，待该 frame 落盘后按 task-id 运行脚本，最终答复末尾附 `Token：约 <total>（输入 <input> / 输出 <output>，覆盖率 <coverage>）`；只追加最关键警告。统计截止 `task=end`，后续 observer 开销不递归计入任务。
+
+用户可关闭本任务汇报。数据不可用时说明原因，不重试或阻塞交付；跨线程只由根 AI 汇总一次。
+
+## 本地大盘
+
+用户说“打开开发任务统计大盘”时，AI 自己运行 `pnpm development-task-telemetry:dashboard` 并返回本地地址，禁止只把命令交给用户。服务只绑定 `127.0.0.1`，默认打开浏览器、按当前 Git workspace 与其 worktree 过滤 rollout，并每 15 秒自动刷新；重复启动复用同一 workspace 已运行的大盘。无浏览器环境才使用 `--no-open`。

@@ -90,6 +90,66 @@ it("preserves the prepared execution summary on the message view model", () => {
   });
 });
 
+it("maps context compaction extensions into stable process parts", () => {
+  const adapted = adapt([{
+    id: "assistant-compaction",
+    role: "assistant",
+    parts: [{
+      type: "extension",
+      extensionType: "nextclaw.context-compaction",
+      data: {
+        id: "context-compaction-message-1",
+        checkpoint: { id: "checkpoint-1", status: "compressed" },
+      },
+    }],
+  }]);
+
+  expect(adapted[0]?.parts).toEqual([{
+    type: "custom",
+    id: "context-compaction-message-1",
+    customType: "nextclaw.context-compaction",
+    data: {
+      id: "context-compaction-message-1",
+      checkpoint: { id: "checkpoint-1", status: "compressed" },
+    },
+    process: true,
+  }]);
+});
+
+it("maps observation event extensions into visible custom parts", () => {
+  const adapted = adapt([{
+    id: "observation-event-message-1",
+    role: "system",
+    parts: [{
+      type: "extension",
+      extensionType: "observation.event",
+      data: {
+        deliveryId: "delivery-1",
+        extensionId: "calendar-extension",
+        eventId: "event-1",
+        eventType: "calendar.event.created",
+        occurredAt: "2026-08-23T10:00:00.000Z",
+        payload: { title: "Planning" },
+      },
+    }],
+  }]);
+
+  expect(adapted[0]?.role).toBe("system");
+  expect(adapted[0]?.parts).toEqual([{
+    type: "custom",
+    id: "delivery-1",
+    customType: "observation.event",
+    data: {
+      deliveryId: "delivery-1",
+      extensionId: "calendar-extension",
+      eventId: "event-1",
+      eventType: "calendar.event.created",
+      occurredAt: "2026-08-23T10:00:00.000Z",
+      payload: { title: "Planning" },
+    },
+  }]);
+});
+
 it("maps tool lifecycle statuses into visible card state feedback", () => {
   const adapted = adapt([
     {
@@ -182,10 +242,11 @@ it("preserves full generic tool args for the expanded body while keeping the hea
 
 it("keeps structured terminal results as structured data instead of raw json output", () => {
   const terminalResult = {
-    status: "completed",
-    command: "python3 -m http.server 8765",
-    aggregated_output: "",
-    exit_code: 0,
+    ok: true,
+    command: "nextclaw --version",
+    exitCode: 0,
+    stdout: "0.48.3\n",
+    stderr: "",
   };
 
   const adapted = adapt([
@@ -199,7 +260,7 @@ it("keeps structured terminal results as structured data instead of raw json out
             status: ToolInvocationStatus.RESULT,
             toolCallId: "call-terminal-result",
             toolName: "command_execution",
-            args: '{"command":"python3 -m http.server 8765"}',
+            args: '{"command":"nextclaw --version"}',
             result: terminalResult,
           },
         },
@@ -211,7 +272,7 @@ it("keeps structured terminal results as structured data instead of raw json out
     type: "tool-card",
     card: {
       toolName: "command_execution",
-      summary: "command: python3 -m http.server 8765",
+      summary: "command: nextclaw --version",
       output: undefined,
       outputData: terminalResult,
       statusTone: "success",
@@ -243,6 +304,7 @@ it("renders child-session request cards for sessions_spawn when the new child st
               task: "Verify 1+1=2",
               status: "completed",
               notify: "final_reply",
+              wait: "none",
               spawnedByRequestId: "request-1",
               finalResponseText: "Verified 1+1=2.",
               parentSessionId: "parent-session-1",
@@ -277,6 +339,8 @@ it("renders child-session request cards for sessions_spawn when the new child st
         "Status: completed",
         "",
         "Notify: final_reply",
+        "",
+        "Wait: none",
         "",
         "Lifecycle: persistent",
         "",
@@ -331,6 +395,7 @@ it("renders regular session request tool cards with session navigation instead o
               task: "Summarize the latest findings",
               status: "completed",
               notify: "none",
+              wait: "none",
               finalResponseText: "Here is the summary.",
             },
           },
@@ -363,6 +428,8 @@ it("renders regular session request tool cards with session navigation instead o
         "Status: completed",
         "",
         "Notify: none",
+        "",
+        "Wait: none",
         "",
         "Lifecycle: persistent",
         "",

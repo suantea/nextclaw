@@ -1,7 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistStorage, StorageValue } from "zustand/middleware";
 import { ChatConversationWorkspaceSection } from "@/features/chat/components/conversation/chat-conversation-workspace-section";
+import { ChatSessionListManager } from "@/features/chat/managers/chat-session-list.manager";
+import { ChatThreadManager } from "@/features/chat/managers/chat-thread.manager";
+import { useChatSessionListStore } from "@/features/chat/stores/chat-session-list.store";
 import { useChatQueryStore } from "@/features/chat/stores/ncp-chat-query.store";
 import { useChatThreadStore } from "@/features/chat/stores/chat-thread.store";
 import type { NcpSessionSummaryView } from "@/shared/lib/api";
@@ -90,8 +93,7 @@ describe("ChatConversationWorkspaceSection", () => {
         activeChildSessionKey: null,
         workspaceNavigationHistory: [],
         workspaceNavigationHistoryIndex: 0,
-        sessionProjectRoot: null,
-        sessionWorkingDir: null,
+        draftProjectRoot: null,
         workspacePanelWidth: 620,
       },
     });
@@ -155,5 +157,98 @@ describe("ChatConversationWorkspaceSection", () => {
     );
 
     expect(screen.getByTestId("workspace-panel")).toBeTruthy();
+  });
+
+  it("uses the selected draft project before the first message creates a session", () => {
+    useChatThreadStore.getState().setSnapshot({
+      draftProjectRoot: "/Users/peiwang/Projects/draft-project",
+      workspacePanelParentKey: null,
+      activeWorkspacePanelKind: "project-files",
+      workspaceFileTabs: [],
+      activeWorkspaceFileKey: null,
+    });
+
+    render(
+      <ChatConversationWorkspaceSection
+        layoutMode="desktop"
+        sessionKey={null}
+      />,
+    );
+
+    expect(mocks.panelProps).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionProjectRoot: "/Users/peiwang/Projects/draft-project",
+        sessionWorkingDir: "/Users/peiwang/Projects/draft-project",
+      }),
+    );
+  });
+
+  it("uses an explicit project root for a project-owned file preview", () => {
+    useChatThreadStore.getState().setSnapshot({
+      workspacePanelParentKey: null,
+      activeWorkspacePanelKind: "file",
+      workspaceFileTabs: [{
+        key: "project-skill",
+        parentSessionKey: null,
+        path: "/Users/peiwang/Projects/nextbot/.agents/skills/project/SKILL.md",
+        viewMode: "preview",
+      }],
+      activeWorkspaceFileKey: "project-skill",
+    });
+
+    render(
+      <ChatConversationWorkspaceSection
+        layoutMode="desktop"
+        sessionKey={null}
+        projectRoot="/Users/peiwang/Projects/nextbot"
+      />,
+    );
+
+    expect(mocks.panelProps).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionProjectRoot: "/Users/peiwang/Projects/nextbot",
+        sessionWorkingDir: "/Users/peiwang/Projects/nextbot",
+      }),
+    );
+  });
+
+  it("keeps the workspace panel mounted while a root draft materializes", () => {
+    useChatSessionListStore.getState().setSnapshot({ selectedSessionKey: null });
+    useChatThreadStore.getState().setSnapshot({
+      draftProjectRoot: "/Users/peiwang/Projects/nextbot",
+      workspacePanelParentKey: null,
+      activeWorkspacePanelKind: "project-files",
+      workspaceFileTabs: [],
+      activeWorkspaceFileKey: null,
+    });
+    const uiManager = {
+      goToSession: vi.fn(),
+      isAtChatRoot: vi.fn(() => true),
+    } as unknown as ConstructorParameters<typeof ChatThreadManager>[0];
+    const manager = new ChatThreadManager(
+      uiManager,
+      new ChatSessionListManager(uiManager),
+    );
+    function WorkspaceHarness() {
+      const sessionKey = useChatSessionListStore(
+        (state) => state.snapshot.selectedSessionKey,
+      );
+      return (
+        <ChatConversationWorkspaceSection
+          layoutMode="desktop"
+          sessionKey={sessionKey}
+        />
+      );
+    }
+
+    render(<WorkspaceHarness />);
+    const draftPanel = screen.getByTestId("workspace-panel");
+
+    act(() => manager.materializeRootDraftSession("session-1"));
+
+    expect(screen.getByTestId("workspace-panel")).toBe(draftPanel);
+    expect(uiManager.goToSession).toHaveBeenCalledWith("session-1", {
+      replace: true,
+    });
   });
 });

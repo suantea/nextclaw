@@ -153,6 +153,7 @@ describe("fixed workspace tabs", () => {
     };
     const onCloseTab = vi.fn();
     const tabs = buildWorkspaceTabsViewModel({
+      hasSession: true,
       resolvedChildTabs: [childTab],
       activeSideChatDraft: draft,
       closedWorkspaceTabEntries: [],
@@ -194,6 +195,7 @@ describe("fixed workspace tabs", () => {
 
   it("keeps fixed workspace tabs even when legacy closed entries exist", () => {
     const tabs = buildWorkspaceTabsViewModel({
+      hasSession: true,
       resolvedChildTabs: [createChildTab()],
       activeSideChatDraft: null,
       closedWorkspaceTabEntries: [
@@ -219,6 +221,7 @@ describe("fixed workspace tabs", () => {
       "overview",
       "child-sessions",
       "cron:session",
+      "continuous-attention",
       "project-files",
     ]);
   });
@@ -227,6 +230,7 @@ describe("fixed workspace tabs", () => {
     setLanguage("zh");
 
     const tabs = buildWorkspaceTabsViewModel({
+      hasSession: true,
       resolvedChildTabs: [],
       activeSideChatDraft: null,
       closedWorkspaceTabEntries: [],
@@ -246,10 +250,10 @@ describe("fixed workspace tabs", () => {
     expect(
       tabs
         .filter((tab) =>
-          ["child-sessions", "cron", "project-files"].includes(tab.kind),
+          ["child-sessions", "cron", "continuous-attention", "project-files"].includes(tab.kind),
         )
         .map((tab) => tab.title),
-    ).toEqual(["子会话", "定时任务", "项目文件"]);
+    ).toEqual(["子会话", "定时任务", "持续关注", "项目文件"]);
   });
 });
 
@@ -264,6 +268,7 @@ describe("buildWorkspaceTabsViewModel", () => {
     const onSelectSession = vi.fn();
 
     const tabs = buildWorkspaceTabsViewModel({
+      hasSession: true,
       resolvedChildTabs: [childTab],
       activeSideChatDraft: null,
       closedWorkspaceTabEntries: [],
@@ -280,7 +285,7 @@ describe("buildWorkspaceTabsViewModel", () => {
       onSelectCronJobs: vi.fn(),
     });
 
-    expect(tabs[4]).toMatchObject({
+    expect(tabs[5]).toMatchObject({
       key: "child:child-1",
       kind: "child-session",
       title: "Child session",
@@ -288,7 +293,7 @@ describe("buildWorkspaceTabsViewModel", () => {
       showUnreadDot: true,
     });
 
-    tabs[4]?.onSelect();
+    tabs[5]?.onSelect();
     expect(onSelectSession).toHaveBeenCalledWith("child-1");
   });
 
@@ -300,6 +305,7 @@ describe("buildWorkspaceTabsViewModel", () => {
     const childTab = createChildTab();
 
     const tabs = buildWorkspaceTabsViewModel({
+      hasSession: true,
       resolvedChildTabs: [childTab],
       activeSideChatDraft: draft,
       closedWorkspaceTabEntries: [],
@@ -323,11 +329,12 @@ describe("buildWorkspaceTabsViewModel", () => {
       "overview",
       "child-sessions",
       "cron:session",
+      "continuous-attention",
       "project-files",
       "side-chat-draft:draft-1",
       "child:child-1",
     ]);
-    expect(tabs[4]).toMatchObject({
+    expect(tabs[5]).toMatchObject({
       kind: "side-chat-draft",
       active: true,
     });
@@ -353,6 +360,7 @@ describe("buildWorkspaceTabsViewModel", () => {
 
     const onOpenFileViewer = vi.fn();
     const tabs = buildWorkspaceTabsViewModel({
+      hasSession: true,
       resolvedChildTabs: [],
       activeSideChatDraft: null,
       closedWorkspaceTabEntries: [],
@@ -372,7 +380,7 @@ describe("buildWorkspaceTabsViewModel", () => {
       onSelectCronJobs: vi.fn(),
     });
 
-    expect(tabs.slice(4)).toEqual([
+    expect(tabs.slice(5)).toEqual([
       expect.objectContaining({
         key: "file:parent::preview::demo.html",
         active: true,
@@ -395,10 +403,84 @@ describe("buildWorkspaceTabsViewModel", () => {
         }),
       }),
     ]);
-    tabs[4]?.alternateViewerAction?.onSelect();
+    tabs[5]?.alternateViewerAction?.onSelect();
     expect(onOpenFileViewer).toHaveBeenCalledWith(
       "parent::preview::demo.html",
       "rendered",
     );
+  });
+
+  it("adds project files to chat with a normalized relative reference", () => {
+    const onAddFileToChat = vi.fn();
+    const projectFile = {
+      key: "project-file",
+      parentSessionKey: "parent-1",
+      path: "/workspace/docs/guide.md",
+      viewMode: "preview" as const,
+    };
+    const externalFile = {
+      key: "external-file",
+      parentSessionKey: "parent-1",
+      path: "/tmp/notes.md",
+      viewMode: "preview" as const,
+    };
+
+    const tabs = buildWorkspaceTabsViewModel({
+      hasSession: true,
+      resolvedChildTabs: [],
+      activeSideChatDraft: null,
+      closedWorkspaceTabEntries: [],
+      workspaceFileTabs: [projectFile, externalFile],
+      activeSelection: { kind: "file", file: projectFile },
+      optimisticReadAtBySessionKey: {},
+      sessionProjectRoot: "/workspace",
+      onAddFileToChat,
+      onSelectSession: vi.fn(),
+      onSelectFile: vi.fn(),
+      onOpenFileViewer: vi.fn(),
+      onCloseTab: vi.fn(),
+      onSelectOverview: vi.fn(),
+      onSelectChildSessions: vi.fn(),
+      onSelectProjectFiles: vi.fn(),
+      onSelectCronJobs: vi.fn(),
+    });
+
+    tabs.find((tab) => tab.key === "file:project-file")?.onAddToChat?.();
+
+    expect(onAddFileToChat).toHaveBeenCalledWith({
+      label: "guide.md",
+      tokenKey: "docs/guide.md",
+    });
+    expect(
+      tabs.find((tab) => tab.key === "file:external-file")?.onAddToChat,
+    ).toBeUndefined();
+  });
+
+  it("shows only project files before a draft session is materialized", () => {
+    const tabs = buildWorkspaceTabsViewModel({
+      hasSession: false,
+      resolvedChildTabs: [],
+      activeSideChatDraft: null,
+      closedWorkspaceTabEntries: [],
+      workspaceFileTabs: [],
+      activeSelection: { kind: "project-files" },
+      optimisticReadAtBySessionKey: {},
+      onSelectSession: vi.fn(),
+      onSelectFile: vi.fn(),
+      onOpenFileViewer: vi.fn(),
+      onCloseTab: vi.fn(),
+      onSelectOverview: vi.fn(),
+      onSelectChildSessions: vi.fn(),
+      onSelectProjectFiles: vi.fn(),
+      onSelectCronJobs: vi.fn(),
+    });
+
+    expect(tabs).toEqual([
+      expect.objectContaining({
+        key: "project-files",
+        kind: "project-files",
+        active: true,
+      }),
+    ]);
   });
 });

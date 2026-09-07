@@ -1,0 +1,46 @@
+[package]
+name = "nextclaw-wasmtime-runner"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+members = [
+  "guests/state-lab",
+  "guests/capability-lab",
+  "guests/sqlite-lab",
+  "guests/resident-lab",
+  "guests/provider-lab",
+  "guests/composition-lab",
+]
+
+[dependencies]
+anyhow = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+spin-app = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-core = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-factor-wasi = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-factor-key-value = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-factor-outbound-http = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-factor-outbound-networking = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+ip_network = "0.4.1"
+spin-factor-sqlite = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-factor-variables = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-variables-static = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-factors = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-factors-executor = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-key-value-spin = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-sqlite-inproc = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util"] }
+url = "2.5"
+wasmtime = { version = "44.0", features = ["component-model-async"] }
+
+[dev-dependencies]
+tempfile = "3.15"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Spin telemetry still pulls native-tls on Linux. Vendoring OpenSSL keeps the
+# musl release cross-build self-contained instead of depending on a host sysroot.
+openssl = { version = "0.10", features = ["vendored"] }

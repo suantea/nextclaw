@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EventBus,
   Ingress,
+  eventKeys,
   ingressKeys,
   type AgentRunSendIngressPayload,
 } from "@nextclaw/shared";
@@ -30,40 +31,72 @@ describe("AgentRunRequestManager message run spec metadata", () => {
   it("records the resolved run spec on the queued user message", async () => {
     const ingress = new Ingress();
     const queuedMessages: NcpMessage[] = [];
+    const completedMessages: NcpMessage[] = [];
     const runtimeSpecs: AgentRunSpec[] = [];
+    const surfaceAgentIds: Array<string | undefined> = [];
     const sessionRun = new SessionRun({ sessionId: "session-1", messages: [] });
-    sessionRun.inbox.enqueue = (message: NcpMessage) => {
-      queuedMessages.push(structuredClone(message));
-    };
+    const eventBus = new EventBus();
+    eventBus.on(eventKeys.ncpEvent, (event) => {
+      if (event.type === NcpEventType.MessageCompleted) {
+        completedMessages.push(structuredClone(event.payload.message));
+      }
+    });
     const manager = new AgentRunRequestManager(
       {
         getOrCreate: () => ({
-          run: async function* (spec: AgentRunSpec): AsyncGenerator<NcpEndpointEvent> {
+          run: async function* (spec: AgentRunSpec, options): AsyncGenerator<NcpEndpointEvent> {
+            queuedMessages.push(...options.initialMessages.map((message: NcpMessage) => structuredClone(message)));
             runtimeSpecs.push(structuredClone(spec));
-            yield {
+            const runStarted = {
               type: NcpEventType.RunStarted,
               payload: {
                 sessionId: "session-1",
                 messageId: "assistant-message-1",
                 runId: spec.runId,
               },
+            } as const;
+            await options.sessionRun.applyEvents([runStarted]);
+            yield runStarted;
+            const assistantMessage: NcpMessage = {
+              id: "assistant-message-1",
+              sessionId: "session-1",
+              role: "assistant",
+              status: "final",
+              timestamp: "2026-08-25T00:01:00.000Z",
+              parts: [{ type: "text", text: "done" }],
             };
+            const completedEvent = {
+              type: NcpEventType.MessageCompleted,
+              payload: {
+                sessionId: "session-1",
+                message: assistantMessage,
+              },
+            } as const;
+            await options.sessionRun.applyEvents([completedEvent]);
+            yield completedEvent;
           },
         }),
       } as never,
-      { getDefaultAgentId: () => "main" } as never,
+      {
+        getDefaultAgentId: () => "main",
+      } as never,
       {
         getDefaultModel: () => "custom-3/mimo-v2.5-pro",
         getModelMaxTokens: () => 8192,
         loadConfig: () => ({}),
       } as never,
-      { buildContext: async () => [] } as never,
-      new EventBus(),
+      {
+        resolveRunSurface: async (request: { agentId?: string }) => {
+          surfaceAgentIds.push(request.agentId);
+          return { contextBlocks: [], tools: [] };
+        },
+      } as never,
+      eventBus,
       ingress,
       {
         getOrCreateAgentRunSession: async () => ({
           sessionId: "session-1",
-          agentId: undefined,
+          agentId: "researcher",
           agentRuntimeId: "native",
           metadata: {},
           model: undefined,
@@ -76,7 +109,6 @@ describe("AgentRunRequestManager message run spec metadata", () => {
         getSessionRun: () => null,
         getOrCreateSessionRun: async () => sessionRun,
       } as never,
-      { buildTools: async () => [] } as never,
     );
     manager.start();
 
@@ -86,11 +118,14 @@ describe("AgentRunRequestManager message run spec metadata", () => {
         content: [{ type: "text", text: "翻译这一段" }],
         correlationId: "corr-1",
         metadata: {
+          agentId: "main",
+          agent_id: "main",
           kind: "novel-reader-translation",
         },
       },
     }, { source: "test" });
     await waitForCondition(() => runtimeSpecs.length > 0);
+    await waitForCondition(() => completedMessages.length > 0);
 
     const queuedMessage = queuedMessages[0];
     const runSpec = queuedMessage?.metadata?.[
@@ -108,7 +143,7 @@ describe("AgentRunRequestManager message run spec metadata", () => {
       runId: runtimeSpecs[0]?.runId,
       sessionId: "session-1",
       agentRuntimeId: "native",
-      agentId: "main",
+      agentId: "researcher",
       model: "custom-3/mimo-v2.5-pro",
       modelSource: "default",
       requestedModel: null,
@@ -142,16 +177,27 @@ describe("AgentRunRequestManager message run spec metadata", () => {
         },
       },
     });
+    expect(queuedMessage?.metadata?.run_trigger).toMatchObject({
+      version: 1,
+      actor: "human",
+      source: "test",
+      sourceMessageId: queuedMessage?.id,
+      targetRunId: runtimeSpecs[0]?.runId,
+    });
+    expect(completedMessages[0]?.metadata?.run_trigger).toEqual(
+      queuedMessage?.metadata?.run_trigger,
+    );
     expect(runtimeSpecs[0]).toMatchObject({
       runId: runtimeSpecs[0]?.runId,
       runtimeId: "native",
-      agentId: "main",
+      agentId: "researcher",
       model: "custom-3/mimo-v2.5-pro",
       requestedModel: null,
       maxTokens: 8192,
       thinkingEffort: null,
       correlationId: "corr-1",
     });
+    expect(surfaceAgentIds).toEqual(["researcher"]);
     manager.dispose();
   });
 

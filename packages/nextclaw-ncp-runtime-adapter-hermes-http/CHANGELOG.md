@@ -1,5 +1,95 @@
 # @nextclaw/nextclaw-ncp-runtime-adapter-hermes-http
 
+## 0.3.24
+
+### Patch Changes
+
+- Updated dependencies [862dbf2]
+  - @nextclaw/ncp-agent-runtime@0.4.22
+
+## 0.3.24-beta.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/ncp-agent-runtime@0.4.22-beta.0
+
+## 0.3.23
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/ncp@0.10.0
+  - @nextclaw/ncp-agent-runtime@0.4.21
+  - @nextclaw/ncp-http-agent-client@0.4.22
+
+## 0.3.22
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0
+  - @nextclaw/ncp-agent-runtime@0.4.20
+  - @nextclaw/ncp-http-agent-client@0.4.21
+
+## 0.3.22-beta.0
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0-beta.0
+  - @nextclaw/ncp-agent-runtime@0.4.20-beta.0
+  - @nextclaw/ncp-http-agent-client@0.4.21-beta.0
+
+## 0.3.21
+
+### Patch Changes
+
+- Updated dependencies [7cc703c]
+  - @nextclaw/ncp@0.8.1
+  - @nextclaw/ncp-agent-runtime@0.4.19
+  - @nextclaw/ncp-http-agent-client@0.4.20
+
+## 0.3.20
+
+### Patch Changes
+
+- Updated dependencies [65dc8fb]
+  - @nextclaw/ncp-http-agent-client@0.4.19
+
+## 0.3.19
+
+### Patch Changes
+
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+  - @nextclaw/ncp@0.8.0
+  - @nextclaw/ncp-agent-runtime@0.4.18
+  - @nextclaw/ncp-http-agent-client@0.4.18
+
+## 0.3.18
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+  - @nextclaw/ncp@0.7.17
+  - @nextclaw/ncp-agent-runtime@0.4.17
+  - @nextclaw/ncp-http-agent-client@0.4.17
+
+## 0.3.17
+
+### Patch Changes
+
+- Updated dependencies [8e53d92]
+  - @nextclaw/ncp@0.7.16
+  - @nextclaw/ncp-agent-runtime@0.4.16
+  - @nextclaw/ncp-http-agent-client@0.4.16
+
 ## 0.3.16
 
 ### Patch Changes

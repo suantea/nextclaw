@@ -1,5 +1,275 @@
 # @nextclaw/companion
 
+## 0.2.57
+
+### Patch Changes
+
+- Updated dependencies [db88c76]
+  - @nextclaw/client-sdk@0.12.0
+
+## 0.2.56
+
+### Patch Changes
+
+- Updated dependencies [25a59ef]
+- Updated dependencies [7b960b9]
+  - @nextclaw/client-sdk@0.11.2
+
+## 0.2.55
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.11.1
+
+## 0.2.54
+
+### Patch Changes
+
+- Updated dependencies [3cd57bf]
+- Updated dependencies [86d3479]
+- Updated dependencies [50f2129]
+  - @nextclaw/client-sdk@0.11.0
+
+## 0.2.54-beta.1
+
+### Patch Changes
+
+- Updated dependencies [3cd57bf]
+- Updated dependencies [50f2129]
+  - @nextclaw/client-sdk@0.11.0-beta.1
+
+## 0.2.54-beta.0
+
+### Patch Changes
+
+- Updated dependencies [86d3479]
+  - @nextclaw/client-sdk@0.11.0-beta.0
+
+## 0.2.53
+
+### Patch Changes
+
+- Updated dependencies [f38b756]
+  - @nextclaw/client-sdk@0.10.0
+
+## 0.2.52
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.9.5
+
+## 0.2.51
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.9.4
+
+## 0.2.50
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.9.3
+
+## 0.2.49
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.9.2
+
+## 0.2.48
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.9.1
+
+## 0.2.47
+
+### Patch Changes
+
+- Updated dependencies [4066c41]
+  - @nextclaw/client-sdk@0.9.0
+
+## 0.2.46
+
+### Patch Changes
+
+- Updated dependencies [f80df69]
+- Updated dependencies [4a6fc30]
+  - @nextclaw/client-sdk@0.8.0
+
+## 0.2.45
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/client-sdk@0.7.7
+
+## 0.2.44
+
+### Patch Changes
+
+- Updated dependencies [667c4fd]
+  - @nextclaw/client-sdk@0.7.6
+
+## 0.2.43
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.7.5
+
+## 0.2.42
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.7.4
+
+## 0.2.42-beta.0
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.7.4-beta.0
+
+## 0.2.41
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.7.3
+
+## 0.2.40
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.7.2
+
+## 0.2.39
+
+### Patch Changes
+
+- Updated dependencies [3e6da7e]
+- Updated dependencies [6587602]
+- Updated dependencies [7cc703c]
+  - @nextclaw/client-sdk@0.7.1
+
+## 0.2.38
+
+### Patch Changes
+
+- Updated dependencies [c19ae8f]
+- Updated dependencies [e8d725a]
+  - @nextclaw/client-sdk@0.7.0
+
+## 0.2.37
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.6.7
+
+## 0.2.36
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.6.6
+
+## 0.2.35
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.6.5
+
+## 0.2.34
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.6.4
+
+## 0.2.33
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.6.3
+
+## 0.2.32
+
+### Patch Changes
+
+- Updated dependencies [004d51f]
+  - @nextclaw/client-sdk@0.6.2
+
+## 0.2.31
+
+### Patch Changes
+
+- Updated dependencies [27d7293]
+  - @nextclaw/client-sdk@0.6.1
+
+## 0.2.30
+
+### Patch Changes
+
+- Updated dependencies [ca2c98d]
+  - @nextclaw/client-sdk@0.6.0
+
+## 0.2.29
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.5.29
+
+## 0.2.28
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.5.28
+
+## 0.2.27
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.5.27
+
+## 0.2.26
+
+### Patch Changes
+
+- Updated dependencies [9b22a7d]
+- Updated dependencies [efb52a7]
+  - @nextclaw/client-sdk@0.5.26
+
+## 0.2.25
+
+### Patch Changes
+
+- Updated dependencies [7179c7a]
+- Updated dependencies [6b3127f]
+  - @nextclaw/client-sdk@0.5.25
+
+## 0.2.24
+
+### Patch Changes
+
+- Updated dependencies [ffb365c]
+  - @nextclaw/client-sdk@0.5.24
+
+## 0.2.23
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.5.23
+
+## 0.2.22
+
+### Patch Changes
+
+- Updated dependencies [8049f49]
+- Updated dependencies [071c144]
+  - @nextclaw/client-sdk@0.5.22
+
+## 0.2.21
+
+### Patch Changes
+
+- @nextclaw/client-sdk@0.5.21
+
 ## 0.2.20
 
 ### Patch Changes

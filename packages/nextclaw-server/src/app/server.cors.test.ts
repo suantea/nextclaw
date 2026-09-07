@@ -139,6 +139,46 @@ function createTestGateway(params: {
   };
 }
 
+function writeUiStaticCacheFixture(staticDir: string): void {
+  const assetsDir = join(staticDir, "assets");
+  const themeDir = join(staticDir, "themes", "island");
+  mkdirSync(assetsDir, { recursive: true });
+  mkdirSync(themeDir, { recursive: true });
+  writeFileSync(join(staticDir, "index.html"), "<!doctype html><script type=\"module\" src=\"/assets/app-CONTENT1.js\"></script>");
+  writeFileSync(join(assetsDir, "app-CONTENT1.js"), "export const immutable = true;");
+  writeFileSync(join(assetsDir, "styles-CONTENT2.css"), "body { color: black; }");
+  writeFileSync(join(assetsDir, "app.js"), "export const ok = true;");
+  writeFileSync(join(themeDir, "island-atmosphere-CONTENT3.webp"), "hashed image");
+  writeFileSync(join(themeDir, "island-atmosphere.webp"), "unhashed image");
+}
+
+async function expectCacheControl(
+  baseUrl: string,
+  pathname: string,
+  expected: string,
+): Promise<Response> {
+  const response = await fetch(`${baseUrl}${pathname}`);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe(expected);
+  return response;
+}
+
+async function startPanelStandaloneFixture(port: number) {
+  const rootDir = mkdtempSync(join(tmpdir(), "nextclaw-server-panel-standalone-"));
+  const staticDir = join(rootDir, "ui-dist");
+  mkdirSync(staticDir, { recursive: true });
+  writeFileSync(join(staticDir, "index.html"), "<!doctype html><main>workspace shell</main>");
+  writeFileSync(
+    join(staticDir, "panel-standalone.html"),
+    "<!doctype html><main>panel standalone host</main>",
+  );
+  return await startUiServer(createTestGateway({
+    configPath: join(rootDir, "config.json"),
+    port,
+    uiStaticDir: staticDir,
+  }));
+}
+
 describe("ui server api cors", () => {
   const handles: Array<{ close: () => Promise<void> }> = [];
 
@@ -293,14 +333,11 @@ describe("ui server api cors", () => {
     expect(await pageResponse.text()).toContain("ui shell");
   });
 
-  it("serves packaged ui assets without cache and recovers missing stale chunks", async () => {
+  it("caches hashed ui assets while keeping pages and stale chunk recovery uncached", async () => {
     const port = await reservePort();
     const rootDir = mkdtempSync(join(tmpdir(), "nextclaw-server-ui-assets-"));
     const staticDir = join(rootDir, "ui-dist");
-    const assetsDir = join(staticDir, "assets");
-    mkdirSync(assetsDir, { recursive: true });
-    writeFileSync(join(staticDir, "index.html"), "<!doctype html><script type=\"module\" src=\"/assets/app.js\"></script>");
-    writeFileSync(join(assetsDir, "app.js"), "export const ok = true;");
+    writeUiStaticCacheFixture(staticDir);
     const configPath = join(rootDir, "config.json");
     const handle = await startUiServer(createTestGateway({
       configPath,
@@ -312,9 +349,16 @@ describe("ui server api cors", () => {
     const baseUrl = `http://127.0.0.1:${port}`;
     await waitForServer(baseUrl);
 
-    const assetResponse = await fetch(`${baseUrl}/assets/app.js`);
-    expect(assetResponse.status).toBe(200);
-    expect(assetResponse.headers.get("cache-control")).toBe("no-store");
+    const immutable = "public, max-age=31536000, immutable";
+    await expectCacheControl(baseUrl, "/assets/app-CONTENT1.js", immutable);
+    await expectCacheControl(baseUrl, "/assets/styles-CONTENT2.css", immutable);
+    await expectCacheControl(
+      baseUrl,
+      "/themes/island/island-atmosphere-CONTENT3.webp",
+      immutable,
+    );
+    await expectCacheControl(baseUrl, "/assets/app.js", "no-store");
+    await expectCacheControl(baseUrl, "/themes/island/island-atmosphere.webp", "no-store");
 
     const staleChunkResponse = await fetch(`${baseUrl}/assets/old-chunk.js`);
     expect(staleChunkResponse.status).toBe(200);
@@ -374,5 +418,22 @@ describe("ui server api cors", () => {
         port,
       }))
     ).rejects.toThrow(/EADDRINUSE|address already in use/i);
+  });
+});
+
+describe("panel standalone static host", () => {
+  it("serves the dedicated panel app host for standalone routes", async () => {
+    const port = await reservePort();
+    const handle = await startPanelStandaloneFixture(port);
+    try {
+      const baseUrl = `http://127.0.0.1:${port}`;
+      await waitForServer(baseUrl);
+      const response = await fetch(`${baseUrl}/apps/panel/publisher.todo/standalone`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.text()).toContain("panel standalone host");
+    } finally {
+      await handle.close();
+    }
   });
 });

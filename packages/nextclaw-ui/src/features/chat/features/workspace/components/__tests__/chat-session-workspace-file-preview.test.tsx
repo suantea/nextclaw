@@ -1,4 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ChatFileOpenActionViewModel,
@@ -38,6 +40,7 @@ vi.mock("@/shared/hooks/use-server-path-browse", () => ({
 }));
 
 vi.mock("@nextclaw/agent-chat-ui", () => ({
+  ChatTextSelectionAction: ({ children }: { children: ReactNode }) => children,
   ChatMessageMarkdown: ({ text }: { text: string }) => (
     <div data-testid="markdown-preview">{text}</div>
   ),
@@ -54,6 +57,16 @@ vi.mock("@nextclaw/agent-chat-ui", () => ({
       data-layout={layout ?? "compact"}
     />
   ),
+}));
+
+vi.mock("@/features/chat/components/providers/chat-presenter.provider", () => ({
+  usePresenter: () => ({
+    chatThreadManager: { removeWorkspacePath: vi.fn(), renameWorkspacePath: vi.fn() },
+    chatComposerIntentManager: {
+      requestDirectoryReference: vi.fn(),
+      requestFileReference: vi.fn(),
+    },
+  }),
 }));
 
 vi.mock("docx-preview", () => ({
@@ -111,16 +124,21 @@ function renderWorkspaceFilePreview({
   sessionWorkingDir = "/tmp",
   showBreadcrumbs,
 }: RenderWorkspaceFilePreviewOptions = {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   const view = render(
-    <ChatSessionWorkspaceFilePreview
-      file={buildWorkspaceFile(file ?? {})}
-      sessionProjectRoot={sessionProjectRoot}
-      sessionWorkingDir={sessionWorkingDir}
-      refreshVersion={refreshVersion}
-      showBreadcrumbs={showBreadcrumbs}
-      onHtmlContentHeightChange={onHtmlContentHeightChange}
-      onFileOpen={onFileOpen}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <ChatSessionWorkspaceFilePreview
+        file={buildWorkspaceFile(file ?? {})}
+        sessionProjectRoot={sessionProjectRoot}
+        sessionWorkingDir={sessionWorkingDir}
+        refreshVersion={refreshVersion}
+        showBreadcrumbs={showBreadcrumbs}
+        onHtmlContentHeightChange={onHtmlContentHeightChange}
+        onFileOpen={onFileOpen}
+      />
+    </QueryClientProvider>,
   );
   return { ...view, onFileOpen };
 }
@@ -568,6 +586,7 @@ describe("ChatSessionWorkspaceFilePreview text rendering", () => {
 
     expect(screen.queryByTestId("markdown-preview")).toBeNull();
     expect(screen.getByTestId("file-code-surface")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: t("chatWorkspaceMarkdownOutline") })).toBeNull();
   });
 
   it("keeps HTML files in the source preview when preview viewer is automatic", () => {
@@ -787,7 +806,7 @@ describe("ChatSessionWorkspaceFilePreview breadcrumbs", () => {
       screen.getByTestId("workspace-file-breadcrumb-scroll").className,
     ).toContain("py-1.5");
     expect(
-      screen.getByTestId("workspace-file-breadcrumbs").className,
+      screen.getByTestId("workspace-file-breadcrumb-scroll").className,
     ).toContain("workspace-horizontal-scrollbar");
   });
 

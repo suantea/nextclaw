@@ -1,5 +1,74 @@
 # @nextclaw/ncp-toolkit
 
+## 0.6.23
+
+### Patch Changes
+
+- 50f064c: 为所有模型运行记录可查询的触发证据，包括发起者、来源渠道、触发与运行模型、关联会话、消息、请求和工具调用；消息的“更多操作”现在统一提供这些详情。后台完成通知只由人类直接发起的运行触发，代理委派、定时任务、观察和系统运行保持静默。
+- 9ee3a68: 修复运行中插到下一步时消息短暂错序的问题。当前步骤的 AI 输出现在会稳定显示在插话消息之前，流式过程中、步骤完成后和刷新重载后的顺序保持一致。
+- Updated dependencies [50f064c]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/ncp@0.10.0
+
+## 0.6.22
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0
+
+## 0.6.22-beta.0
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0-beta.0
+
+## 0.6.21
+
+### Patch Changes
+
+- 7cc703c: 新增会话插话能力：AI 运行中普通发送继续自动排队，使用 Command/Ctrl + Enter 可在下一安全步骤插入完整消息；排队内容也可直接转为插话，并以独立用户消息和后续 AI 消息呈现在会话中。排队区域会保留并展示图片缩略图和文件摘要，编辑时仍可完整恢复富内容。
+- Updated dependencies [7cc703c]
+  - @nextclaw/ncp@0.8.1
+
+## 0.6.20
+
+### Patch Changes
+
+- aa08a3f: 命令工具卡新增实时执行计时：命令真正开始后持续显示已运行时长，并在成功、失败或取消后冻结并保留耗时；刷新会话后仍可从标准 NCP 执行时间恢复。内置命令运行时与 Codex command execution 统一使用同一条计时协议，不再把排队或参数生成时间算作命令执行耗时。
+- e2a7c8e: 提升 Web Chat 在普通网络抖动后的恢复稳定性：SSE 半开或长时间无数据时会主动判定失活并重连，连接恢复后重新补齐会话历史，同时保留更晚到达的实时完成事件，无需刷新页面即可继续看到最终回复。
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+  - @nextclaw/ncp@0.8.0
+
+## 0.6.19
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+  - @nextclaw/ncp@0.7.17
+
+## 0.6.18
+
+### Patch Changes
+
+- ae21568: 修复运行中断或服务重启后，较早的助手回复偶尔排到后来用户消息之后的问题；聊天记录会按实际时间线稳定显示，并自动重建已有的错误消息索引。
+- 98c5b7f: 精简默认聊天消息的重复身份信息：Main Agent 使用 Native runtime 时，助手回复不再重复展示头像和名称；新会话发送后，首条用户消息与“Agent 正在思考...”会立即稳定显示，并在正式会话生成前后保持连续；编辑后重新执行或继续运行也无需等待后端 running 确认；首个可见回复出现后立即隐藏思考提示；已处理摘要移除无操作含义的前置图标。
+- 8e53d92: Native 会话会在同一次长任务的工具调用轮次之间自动压缩上下文；压缩输入、输出和最终 checkpoint 使用包含工具 schema 与输出预留的同一动态预算，压缩后除完整摘要外还会按 token 预算保留最近的真实用户原文。上下文指示器会按完整输入显示系统与工具、会话内容、自动压缩线和输出预留。Agent 配置会按当前指令与全量工具动态拒绝不可用的小窗口；send、继续运行和编辑重跑共享同一运行状态入口，进程中断统一恢复为可继续的中性终态。运行中压缩与 continuation 前压缩会稳定显示在对应助手过程位置，刷新后不再堆到消息末尾。
+- Updated dependencies [8e53d92]
+  - @nextclaw/ncp@0.7.16
+
+## 0.6.17
+
+### Patch Changes
+
+- dbececb: 修复并发消息完成时聊天记录偶发重叠的问题，并隐藏静默回复遗留的异常文本。
+
 ## 0.6.16
 
 ### Patch Changes

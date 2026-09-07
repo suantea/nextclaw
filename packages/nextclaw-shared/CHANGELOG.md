@@ -1,5 +1,134 @@
 # @nextclaw/shared
 
+## 0.5.1
+
+### Patch Changes
+
+- b51f599: 修复正常 AI 回复在说明 `<noreply/>` 静默标记时被整条隐藏的问题。现在只有完整可见正文严格匹配该标记时才会静默，消息列表、回复策略与继续运行锚点使用一致语义。
+
+## 0.5.0
+
+### Minor Changes
+
+- 3cd57bf: 新增由 NextClaw 独立持久化的项目工作项：支持自定义状态、完整状态变化历史、关注标记、软删除恢复和项目内产物关联，不再依赖扫描会话历史或向项目目录写入追踪文件。
+
+  项目内会话会按条件获得工作项工具；CLI 提供同一套 CRUD、状态与产物入口并强制指定项目 ID。项目主页的概览、列表和看板会响应实时变更，所有工作项统一在右侧详情抽屉中打开，同时保留原有产物、Skills、工作约定与项目会话能力。
+
+## 0.5.0-beta.0
+
+### Minor Changes
+
+- 3cd57bf: 新增由 NextClaw 独立持久化的项目工作项：支持自定义状态、完整状态变化历史、关注标记、软删除恢复和项目内产物关联，不再依赖扫描会话历史或向项目目录写入追踪文件。
+
+  项目内会话会按条件获得工作项工具；CLI 提供同一套 CRUD、状态与产物入口并强制指定项目 ID。项目主页的概览、列表和看板会响应实时变更，所有工作项统一在右侧详情抽屉中打开，同时保留原有产物、Skills、工作约定与项目会话能力。
+
+## 0.4.30
+
+### Patch Changes
+
+- 60febb5: 修复 NPM 安装缺少当前平台 Portable Runtime runner 时无法自愈的问题；Linux runner 改为静态链接，并确保 runner 启动失败不会带崩 NextClaw 主服务。升级 SQLite 原生依赖并恢复真实安装脚本验证，覆盖 Node 26 安装。发布流程会在 macOS、Linux 与 Windows 上验证真实应用启用、持久组件启动和 Action 调用。
+
+## 0.4.29
+
+### Patch Changes
+
+- 882b6e0: Mini Apps 现在统一通过 `nextclaw app` 管理。可从 App Marketplace、本地应用目录或本地 `.napp` 包安装，并可通过命令行查看、启停、更新、回滚、卸载和查询操作结果。应用市场不再为每个应用保存或返回另一套安装命令。
+
+## 0.4.28
+
+### Patch Changes
+
+- 50f064c: 为所有模型运行记录可查询的触发证据，包括发起者、来源渠道、触发与运行模型、关联会话、消息、请求和工具调用；消息的“更多操作”现在统一提供这些详情。后台完成通知只由人类直接发起的运行触发，代理委派、定时任务、观察和系统运行保持静默。
+- Updated dependencies [50f064c]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/ncp@0.10.0
+
+## 0.4.27
+
+### Patch Changes
+
+- 70dd515: Add the experimental `@nextclaw/harness` SDK with Agent, Session, Run, and Contribution APIs; expose lifecycle-scoped tools, context, model providers, runtimes, and MCP capabilities; and add the non-interactive `nextclaw exec` command for headless tasks.
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0
+
+## 0.4.27-beta.0
+
+### Patch Changes
+
+- 70dd515: Add the experimental `@nextclaw/harness` SDK with Agent, Session, Run, and Contribution APIs; expose lifecycle-scoped tools, context, model providers, runtimes, and MCP capabilities; and add the non-interactive `nextclaw exec` command for headless tasks.
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0-beta.0
+
+## 0.4.26
+
+### Patch Changes
+
+- Updated dependencies [7cc703c]
+  - @nextclaw/ncp@0.8.1
+
+## 0.4.25
+
+### Patch Changes
+
+- c10dcaa: 新增统一的结构化运行诊断事件、安全错误分类和日志查询命令，覆盖 Service、扩展、配置、渠道、Agent、全部 kernel 工具、外部 transport 与定时任务关键链路；取消、网络与未知异常都有独立可查询终态。内置 AI 现在可以按时间窗和关联 ID 从日志证据排查运行故障。QQ 渠道首先接入完整投递链路，并默认不记录消息正文、工具参数/结果、完整 URL、用户身份或凭据。
+
+## 0.4.24
+
+### Patch Changes
+
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+  - @nextclaw/ncp@0.8.0
+
+## 0.4.23
+
+### Patch Changes
+
+- 9b22a7d: 支持将文档浏览器中的文档、应用、Panel App 和网页标签添加到聊天。发送后仍可识别并重新打开对应资源，AI 也能获得当时的资源地址和页面信息。项目文件树现在会保留展开与滚动状态，刷新会覆盖全部展开目录，“全部折叠”可可靠生效，并通过低开销的按需文件监听自动反映可见目录变化。
+
+## 0.4.22
+
+### Patch Changes
+
+- 7179c7a: 新增统一的系统管理对象 `@` 引用协议，首批支持收件箱报告和定时任务的分类浏览、分组搜索、不可变快照与模型上下文；`@` 面板中的文件和文件夹现在拥有独立入口、搜索分组与选择语义；收件箱“继续聊”进入带可见报告引用的聊天草稿，不再创建隐藏关联会话。
+
+## 0.4.21
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+  - @nextclaw/ncp@0.7.17
+
+## 0.4.20
+
+### Patch Changes
+
+- 4ab158d: 渠道扩展改为按需启动：未启用渠道不再常驻独立 Node 进程，运行中启用或禁用渠道会自动创建或回收对应扩展；同时增加 ready/generation 隔离、鉴权会话租约、有限故障恢复和扩展进程内存诊断。
+
+  在 ARM64 Linux、2 vCPU / 2 GiB 限制和无活跃任务的空配置基准中，三轮平均 working set 从旧版本约 865～885 MiB 降至 164.94 MiB，下降约 81%。活跃 Agent runtime、浏览器、MCP、本地模型和已启用渠道仍会按实际工作增加内存占用。
+
+- c54a1d9: 支持划选稳定的 AI 或用户历史消息并作为结构化片段添加到聊天；输入框与发送后保持一致的紧凑引用展示，AI 会收到选中时的精确快照。文件预览和会话消息共用新的划选浮层：拖选期间不追随鼠标，松手后下一帧立即出现并自动避让视口边界。
+
+## 0.4.19
+
+### Patch Changes
+
+- 8049f49: 支持直接编辑当前会话最近一条用户消息并在同一会话继续执行；中断或失败后可从输入框或最近一条 AI 回复继续运行，后续输出会直接续写原回复而不是新增消息气泡，并准确区分续写前后成功与取消的工具操作。编辑器会自动聚焦到末尾，运行中隐藏编辑操作，所有纯图标入口均提供明确提示；切换模型时会继续保留可用的恢复入口。
+- bf3ff68: Panel App 在全局面板中刷新或重新挂载后会恢复到用户刚才阅读的滚动位置；异步加载内容时，会等页面布局就绪后再完成恢复。
+- 08325d3: 新任务现在可以在发送首条消息前打开项目文件，并可随时切回默认工作目录；项目文件树与已打开文件页签共用统一操作菜单，可通过“更多操作”或右键添加到聊天，文件树的展开与滚动状态会在工作台切换后保留，首条消息创建正式会话时已打开的工作台也不会再关闭后闪回。文本型文件预览支持划选片段添加到聊天，引用会携带来源、位置、字符数量与选中快照，发送后可返回源文件，AI 也能准确读取该片段；输入框中的结构化引用支持复制、剪切和粘贴。文件、目录、项目、技能与文本片段在输入框和已发送消息中统一使用紧凑标签与语义图标。修复项目文件引用发送后丢失、AI 无法感知引用、引用后续正文被错误显示为链接，以及默认 workspace 会话中已发送文件引用点击无反应的问题。
+- Updated dependencies [8e53d92]
+  - @nextclaw/ncp@0.7.16
+
+## 0.4.18
+
+### Patch Changes
+
+- dbececb: 修复并发消息完成时聊天记录偶发重叠的问题，并隐藏静默回复遗留的异常文本。
+
 ## 0.4.17
 
 ### Patch Changes

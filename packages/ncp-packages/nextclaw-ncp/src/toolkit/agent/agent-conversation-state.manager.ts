@@ -1,5 +1,7 @@
 import type {
   NcpContextWindowUpdatedPayload,
+  NcpFailedEnvelope,
+  NcpCompletedEnvelope,
   NcpMessageAbortPayload,
   NcpMessageSentPayload,
   NcpRunErrorPayload,
@@ -11,6 +13,7 @@ import type {
   NcpToolCallEndPayload,
   NcpToolCallResultPayload,
   NcpToolCallStartPayload,
+  NcpToolExecutionStartedPayload,
   NcpReasoningDeltaPayload,
   NcpReasoningEndPayload,
   NcpReasoningStartPayload,
@@ -18,7 +21,7 @@ import type {
   NcpTextEndPayload,
   NcpTextStartPayload,
 } from "../../types/events.types.js";
-import type { NcpError } from "../../types/errors.js";
+import type { NcpError } from "../../types/errors.types.js";
 import type { NcpMessage } from "../../types/message.js";
 import type { NcpRunContext } from "../../types/run.types.js";
 import type {
@@ -48,7 +51,10 @@ export interface NcpAgentConversationStateManager extends NcpConversationStateMa
   prependHistory(messages: ReadonlyArray<NcpMessage>): void;
   /** Local peer sent a message (outbound); typically non-streaming. Add to messages. */
   handleMessageSent(payload: NcpMessageSentPayload): void;
-  handleMessageAbort(payload: NcpMessageAbortPayload): void;
+  /** Finalize one assistant step without settling the enclosing run. */
+  handleMessageCompleted(payload: NcpCompletedEnvelope): void;
+  handleMessageAbort(payload: NcpMessageAbortPayload, occurredAt?: string): void;
+  handleMessageFailed(payload: NcpFailedEnvelope, occurredAt?: string): void;
 
   handleMessageTextStart(payload: NcpTextStartPayload): void;
   handleMessageTextDelta(payload: NcpTextDeltaPayload): void;
@@ -62,13 +68,17 @@ export interface NcpAgentConversationStateManager extends NcpConversationStateMa
   handleMessageToolCallArgs(payload: NcpToolCallArgsPayload): void;
   handleMessageToolCallArgsDelta(payload: NcpToolCallArgsDeltaPayload): void;
   handleMessageToolCallEnd(payload: NcpToolCallEndPayload): void;
-  handleMessageToolCallResult(payload: NcpToolCallResultPayload): void;
+  handleMessageToolExecutionStarted(
+    payload: NcpToolExecutionStartedPayload,
+    occurredAt?: string,
+  ): void;
+  handleMessageToolCallResult(payload: NcpToolCallResultPayload, occurredAt?: string): void;
 
-  handleRunStarted(payload: NcpRunStartedPayload): void;
-  handleRunFinished(payload: NcpRunFinishedPayload): void;
-  handleRunError(payload: NcpRunErrorPayload): void;
+  handleRunStarted(payload: NcpRunStartedPayload, occurredAt?: string): void;
+  handleRunFinished(payload: NcpRunFinishedPayload, occurredAt?: string): void;
+  handleRunError(payload: NcpRunErrorPayload, occurredAt?: string): void;
   handleRunMetadata(payload: NcpRunMetadataPayload): void;
   handleContextWindowUpdated(payload: NcpContextWindowUpdatedPayload): void;
 
-  handleEndpointError(payload: NcpError): void;
+  handleEndpointError(payload: NcpError, occurredAt?: string): void;
 }

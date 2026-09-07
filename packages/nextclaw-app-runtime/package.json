@@ -1,6 +1,6 @@
 {
   "name": "@nextclaw/app-runtime",
-  "version": "0.9.13",
+  "version": "0.16.3",
   "private": false,
   "description": "Standalone micro app runtime and CLI for NextClaw apps.",
   "type": "module",
@@ -22,7 +22,7 @@
     "cli"
   ],
   "bin": {
-    "napp": "dist/main.js"
+    "napp": "dist/app/main.js"
   },
   "publishConfig": {
     "access": "public"
@@ -32,14 +32,32 @@
       "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./artifact-validation": {
+      "development": "./src/services/app-artifact-validation.service.ts",
+      "types": "./dist/services/app-artifact-validation.service.d.ts",
+      "default": "./dist/services/app-artifact-validation.service.js"
+    },
+    "./platform-target": {
+      "development": "./src/services/app-platform-target.service.ts",
+      "types": "./dist/services/app-platform-target.service.d.ts",
+      "default": "./dist/services/app-platform-target.service.js"
+    }
+  },
+  "imports": {
+    "#app-runtime/*.js": {
+      "types": "./src/*.ts",
+      "development": "./src/*.ts",
+      "default": "./dist/*.js"
     }
   },
   "files": [
     "dist",
+    "resources",
     "README.md"
   ],
   "scripts": {
-    "build": "tsdown src/index.ts src/main.ts --dts.sourcemap --clean --target es2022 --no-fixedExtension --unbundle",
+    "build": "tsdown src/index.ts src/app/main.ts --dts.sourcemap --clean --target es2022 --no-fixedExtension --unbundle",
     "prepack": "pnpm run build",
     "lint": "eslint .",
     "tsc": "tsc -p tsconfig.json",
@@ -48,6 +66,7 @@
     "prepublishOnly": "node ../../scripts/release/ensure-pnpm-publish.mjs"
   },
   "dependencies": {
+    "@nextclaw/shared": "workspace:*",
     "fflate": "^0.8.2"
   },
   "devDependencies": {

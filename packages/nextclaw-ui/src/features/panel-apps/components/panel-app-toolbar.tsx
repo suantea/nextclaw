@@ -1,43 +1,89 @@
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { MoreVertical, RefreshCw } from 'lucide-react';
+import { PanelAppMainSidebarMenuItem } from '@/features/panel-apps/components/panel-app-main-sidebar-menu-item';
+import { PanelAppOpenStandaloneMenuItem } from '@/features/panel-apps/components/panel-app-open-standalone-menu-item';
+import { usePanelApps } from '@/features/panel-apps/hooks/use-panel-apps';
+import { readPanelAppIdFromTab } from '@/features/right-panel-resources';
+import { IconActionButton } from '@/shared/components/ui/actions/icon-action-button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover';
+import type { PanelAppEntryView } from '@/shared/lib/api';
 import { t } from '@/shared/lib/i18n';
 
 type PanelAppToolbarProps = {
   appTitle: string;
-  onOpenApps: () => void;
+  entry?: PanelAppEntryView;
   onRefresh: () => void;
 };
 
 export function PanelAppToolbar({
   appTitle,
-  onOpenApps,
+  entry,
   onRefresh,
 }: PanelAppToolbarProps) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
   return (
     <div className="flex items-center justify-between gap-2 border-b border-border/70 bg-card px-3.5 py-2 shrink-0">
-      <button
-        type="button"
-        onClick={onOpenApps}
-        className="inline-flex shrink-0 items-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        title={t('appsTitle')}
-        aria-label={t('appsTitle')}
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-      </button>
       <span
         className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground"
         title={appTitle}
       >
         {appTitle}
       </span>
-      <button
-        type="button"
+      {entry ? (
+        <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+          <PopoverTrigger asChild>
+            <IconActionButton
+              icon={<MoreVertical className="h-3.5 w-3.5" />}
+              label={t('panelAppsMoreActions')}
+              size="sm"
+            />
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-48 rounded-xl p-1.5">
+            <PanelAppOpenStandaloneMenuItem
+              entry={entry}
+              onSelect={() => setIsMenuOpen(false)}
+            />
+            <PanelAppMainSidebarMenuItem
+              entry={entry}
+              onSelect={() => setIsMenuOpen(false)}
+            />
+          </PopoverContent>
+        </Popover>
+      ) : null}
+      <IconActionButton
+        icon={<RefreshCw className="h-3.5 w-3.5" />}
+        label={t('panelAppsRefreshCurrent')}
         onClick={onRefresh}
-        className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        title={t('panelAppsRefreshCurrent')}
-        aria-label={t('panelAppsRefreshCurrent')}
-      >
-        <RefreshCw className="h-3.5 w-3.5" />
-      </button>
+        size="sm"
+      />
     </div>
+  );
+}
+
+export function PanelAppDocBrowserToolbar({
+  appTitle,
+  currentUrl,
+  onRefresh,
+  resourceUri,
+}: {
+  appTitle: string;
+  currentUrl: string;
+  onRefresh: () => void;
+  resourceUri?: string;
+}) {
+  const panelApps = usePanelApps();
+  const appId = readPanelAppIdFromTab({ currentUrl, resourceUri });
+  const entry = useMemo(
+    () => panelApps.data?.entries.find((candidate) => candidate.appId === appId),
+    [appId, panelApps.data?.entries],
+  );
+
+  return (
+    <PanelAppToolbar
+      appTitle={entry?.title ?? appTitle}
+      entry={entry}
+      onRefresh={onRefresh}
+    />
   );
 }

@@ -1,6 +1,6 @@
 {
   "name": "@nextclaw/channel-extension-qq",
-  "version": "0.2.17",
+  "version": "0.2.32",
   "private": false,
   "description": "NextClaw QQ channel extension process.",
   "type": "module",
@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@nextclaw/extension-sdk": "workspace:*",
-    "qq-official-bot": "1.0.12"
+    "qq-official-bot": "1.2.4"
   },
   "devDependencies": {
     "@types/node": "^20.17.6",

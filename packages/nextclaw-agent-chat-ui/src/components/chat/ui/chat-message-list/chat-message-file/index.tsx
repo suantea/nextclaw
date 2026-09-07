@@ -31,6 +31,9 @@ type ChatMessageFileProps = {
     | "attachmentAttachedLabel"
     | "attachmentExpandLabel"
     | "attachmentCloseLabel"
+    | "previewZoomInLabel"
+    | "previewZoomOutLabel"
+    | "previewResetZoomLabel"
     | "attachmentCategoryLabels"
   >;
   onOpen?: (file: ChatMessageFileView) => void;
@@ -122,7 +125,7 @@ function renderActionControl(params: {
     "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
     isUser
       ? "bg-black/5 text-foreground/75 hover:bg-black/10 hover:text-foreground"
-      : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
+      : "bg-muted text-muted-foreground hover:bg-[var(--interaction-hover)] hover:text-foreground",
   );
 
   if (onOpen) {
@@ -330,8 +333,11 @@ export function ChatMessageFile({
         alt={file.label}
         expandLabel={expandLabel}
         closeLabel={closeLabel}
+        resetZoomLabel={texts?.previewResetZoomLabel}
         sizeLabel={sizeLabel}
         src={file.dataUrl}
+        zoomInLabel={texts?.previewZoomInLabel}
+        zoomOutLabel={texts?.previewZoomOutLabel}
       />
     );
   }

@@ -1,5 +1,937 @@
 # nextclaw
 
+## 0.48.3
+
+### Patch Changes
+
+- db88c76: 完全移除旧项目 Marker 与项目观测机制。Projects 不再读取 `.nextclaw/project.yaml`、扫描项目文件或全部历史会话，也不再提供 observation API 与 `nextclaw projects observe`；历史配置不会再产生 Marker 或未知字段诊断。
+
+  项目材料改为零配置的单一来源：产物只展示 Project Work 工作项显式关联的文件，支持去重、分页与搜索；Skills 固定读取 `.agents/skills`；工作约定固定读取项目根目录 `AGENTS.md`。
+
+  同时简化项目工作项列表与看板的状态分组，移除外层卡片边框和底色，只保留工作项自身的边界与轻量分组标题。
+
+- Updated dependencies [236ce18]
+- Updated dependencies [b51f599]
+- Updated dependencies [db88c76]
+- Updated dependencies [cb1a9bd]
+  - @nextclaw/kernel@0.16.0
+  - @nextclaw/shared@0.5.1
+  - @nextclaw/core@0.17.18
+  - @nextclaw/server@0.23.0
+  - @nextclaw/service@0.6.3
+  - @nextclaw/remote@0.3.57
+  - @nextclaw/app-runtime@0.16.3
+  - @nextclaw/mcp@0.3.45
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.45
+  - @nextclaw/runtime@0.4.44
+  - @nextclaw/ncp-mcp@0.2.45
+
+## 0.48.2
+
+### Patch Changes
+
+- 25a59ef: 新增安全的项目移除能力：用户可在项目页面确认影响后将项目从列表移除，或通过要求精确项目 ID 确认的 CLI 执行同一操作；本地目录、历史会话和 Project Work 保持不变，重新添加同一目录会恢复原项目。
+- 2a3ef71: 修复 NPM 安装选择 Beta 更新渠道后，无法发现版本更高的正式版 Runtime 更新的问题。
+- 04cb0a3: Prevent Portable WASI Apps that use standard key-value storage from crashing the native runner, generate new Rust/WASI Apps against the standard interface, and keep legacy host KV data on Spin's public store contract.
+- 7b960b9: 恢复项目概览中同等重要的当前工作与最近产物双区域，并为 UI、API、Agent Tool 和 CLI 增加按状态分组的有界工作项游标分页。
+- Updated dependencies [6f69aba]
+- Updated dependencies [25a59ef]
+- Updated dependencies
+- Updated dependencies [04cb0a3]
+- Updated dependencies [7b960b9]
+  - @nextclaw/app-runtime@0.16.2
+  - @nextclaw/kernel@0.15.2
+  - @nextclaw/server@0.22.2
+  - @nextclaw/service@0.6.2
+  - @nextclaw/core@0.17.17
+  - @nextclaw/remote@0.3.56
+  - @nextclaw/mcp@0.3.44
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.44
+  - @nextclaw/runtime@0.4.43
+  - @nextclaw/ncp-mcp@0.2.44
+
+## 0.48.1
+
+### Patch Changes
+
+- Updated dependencies [1bac8be]
+  - @nextclaw/kernel@0.15.1
+  - @nextclaw/remote@0.3.55
+  - @nextclaw/server@0.22.1
+  - @nextclaw/service@0.6.1
+
+## 0.48.0
+
+### Minor Changes
+
+- 3cd57bf: 新增由 NextClaw 独立持久化的项目工作项：支持自定义状态、完整状态变化历史、关注标记、软删除恢复和项目内产物关联，不再依赖扫描会话历史或向项目目录写入追踪文件。
+
+  项目内会话会按条件获得工作项工具；CLI 提供同一套 CRUD、状态与产物入口并强制指定项目 ID。项目主页的概览、列表和看板会响应实时变更，所有工作项统一在右侧详情抽屉中打开，同时保留原有产物、Skills、工作约定与项目会话能力。
+
+- 86d3479: 新增 Projects 项目主页：通过项目配置、项目文件、会话 Marker 和项目 Skills 展示可追溯的工作项、产物、上下文、AI 运行状态、待关注事项与诊断。已有项目会话与旧版观测快照会保持可读。
+
+  新增 `client.projects.getObservation()`、`GET /api/projects/:projectId/observation` 和 `nextclaw projects observe`，三条入口复用同一份 Kernel 快照合同。项目 setup 经用户确认后会建立 `.nextclaw/project.yaml`、根 `AGENTS.md` 与项目内工作追踪 Skill；后续 AI 在每个工作节点开始前输出紧凑 Marker，项目页会在流式输出期间更新。不会新增项目任务数据库、特殊会话类型或运行时 Skill 注入。
+
+### Patch Changes
+
+- c4fb100: 修复 NPM launcher 更新后继续运行旧 runtime bundle 的问题。launcher 版本高于当前 bundle 时，会先通过已配置的更新通道获取匹配 runtime，避免新包与旧执行代码混用。
+- 7518fc6: 修复 Desktop 0.47.0 中会话事件写入 SQLite 目录时因多余命名参数持续失败的问题。消息发送后的 journal、会话摘要和列表投影会重新保持一致，并新增真实 SQLite 回归测试阻止同类伪成功进入发布。
+- 50f2129: 为 WASI 应用补齐用户目录授权闭环。用户现在可以在应用页面或 CLI 中查看声明的目录权限，选择运行主机上的文件夹，以只读或读写方式授权，并随时替换或撤销；授权变化会立即淘汰旧的 Runtime 挂载。
+- 2da6df0: 显著降低 Portable Rust/WASI Action 的并发内存成本。Spin runner 现在在进程内共享 Runtime、Engine、FactorsExecutor 和已加载 Component，每个调用只创建独立的 Store、Instance 与任务上下文；十个简单 Action 的本机并发 physical footprint 增量由约 113.60 MiB 降至 2.61 MiB，连续 1000 个 Job 不再形成阶梯增长，同时保留权限、数据、取消、超时、Provider 与 Resident 合同。
+- Updated dependencies [3cd57bf]
+- Updated dependencies [86d3479]
+- Updated dependencies [862dbf2]
+- Updated dependencies [c4fb100]
+- Updated dependencies [7518fc6]
+- Updated dependencies [50f2129]
+- Updated dependencies [3c17608]
+  - @nextclaw/kernel@0.15.0
+  - @nextclaw/server@0.22.0
+  - @nextclaw/service@0.6.0
+  - @nextclaw/shared@0.5.0
+  - @nextclaw/core@0.17.16
+  - @nextclaw/ncp-agent-runtime@0.4.22
+  - @nextclaw/app-runtime@0.16.1
+  - @nextclaw/remote@0.3.54
+  - @nextclaw/mcp@0.3.43
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.43
+  - @nextclaw/runtime@0.4.42
+  - @nextclaw/ncp-toolkit@0.6.23
+  - @nextclaw/ncp-mcp@0.2.43
+
+## 0.48.0-beta.2
+
+### Minor Changes
+
+- 3cd57bf: 新增由 NextClaw 独立持久化的项目工作项：支持自定义状态、完整状态变化历史、关注标记、软删除恢复和项目内产物关联，不再依赖扫描会话历史或向项目目录写入追踪文件。
+
+  项目内会话会按条件获得工作项工具；CLI 提供同一套 CRUD、状态与产物入口并强制指定项目 ID。项目主页的概览、列表和看板会响应实时变更，所有工作项统一在右侧详情抽屉中打开，同时保留原有产物、Skills、工作约定与项目会话能力。
+
+### Patch Changes
+
+- 50f2129: 为 WASI 应用补齐用户目录授权闭环。用户现在可以在应用页面或 CLI 中查看声明的目录权限，选择运行主机上的文件夹，以只读或读写方式授权，并随时替换或撤销；授权变化会立即淘汰旧的 Runtime 挂载。
+- 2da6df0: 显著降低 Portable Rust/WASI Action 的并发内存成本。Spin runner 现在在进程内共享 Runtime、Engine、FactorsExecutor 和已加载 Component，每个调用只创建独立的 Store、Instance 与任务上下文；十个简单 Action 的本机并发 physical footprint 增量由约 113.60 MiB 降至 2.61 MiB，连续 1000 个 Job 不再形成阶梯增长，同时保留权限、数据、取消、超时、Provider 与 Resident 合同。
+- Updated dependencies [3cd57bf]
+- Updated dependencies [50f2129]
+- Updated dependencies [3c17608]
+  - @nextclaw/kernel@0.15.0-beta.1
+  - @nextclaw/server@0.22.0-beta.1
+  - @nextclaw/service@0.6.0-beta.2
+  - @nextclaw/shared@0.5.0-beta.0
+  - @nextclaw/app-runtime@0.16.1-beta.0
+  - @nextclaw/core@0.17.16-beta.1
+  - @nextclaw/remote@0.3.54-beta.1
+  - @nextclaw/mcp@0.3.43-beta.1
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.43-beta.1
+  - @nextclaw/runtime@0.4.42-beta.1
+  - @nextclaw/ncp-mcp@0.2.43-beta.1
+
+## 0.48.0-beta.1
+
+### Patch Changes
+
+- c4fb100: 修复 NPM launcher 更新后继续运行旧 runtime bundle 的问题。launcher 版本高于当前 bundle 时，会先通过已配置的更新通道获取匹配 runtime，避免新包与旧执行代码混用。
+- Updated dependencies [c4fb100]
+  - @nextclaw/service@0.6.0-beta.1
+
+## 0.48.0-beta.0
+
+### Minor Changes
+
+- 86d3479: 新增 Projects 项目主页：通过项目配置、项目文件、会话 Marker 和项目 Skills 展示可追溯的工作项、产物、上下文、AI 运行状态、待关注事项与诊断。已有项目会话与旧版观测快照会保持可读。
+
+  新增 `client.projects.getObservation()`、`GET /api/projects/:projectId/observation` 和 `nextclaw projects observe`，三条入口复用同一份 Kernel 快照合同。项目 setup 经用户确认后会建立 `.nextclaw/project.yaml`、根 `AGENTS.md` 与项目内工作追踪 Skill；后续 AI 在每个工作节点开始前输出紧凑 Marker，项目页会在流式输出期间更新。不会新增项目任务数据库、特殊会话类型或运行时 Skill 注入。
+
+### Patch Changes
+
+- Updated dependencies [86d3479]
+- Updated dependencies
+  - @nextclaw/kernel@0.15.0-beta.0
+  - @nextclaw/server@0.22.0-beta.0
+  - @nextclaw/service@0.6.0-beta.0
+  - @nextclaw/core@0.17.16-beta.0
+  - @nextclaw/ncp-agent-runtime@0.4.22-beta.0
+  - @nextclaw/remote@0.3.54-beta.0
+  - @nextclaw/mcp@0.3.43-beta.0
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.43-beta.0
+  - @nextclaw/runtime@0.4.42-beta.0
+  - @nextclaw/ncp-toolkit@0.6.23
+  - @nextclaw/ncp-mcp@0.2.43-beta.0
+
+## 0.47.0
+
+### Minor Changes
+
+- f38b756: Complete the Portable Capability Runtime with host-mediated files, secrets, networking, SQLite, jobs, streaming, resident events, AI and Agent slots, versioned providers, shared Panel/Agent/CLI invocation, and a current-evidence acceptance contract. Add end-to-end developer commands, real reference apps, cross-platform release gates, and user/developer documentation.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [f38b756]
+  - @nextclaw/core@0.17.15
+  - @nextclaw/app-runtime@0.16.0
+  - @nextclaw/kernel@0.14.0
+  - @nextclaw/server@0.21.0
+  - @nextclaw/service@0.5.0
+  - @nextclaw/mcp@0.3.42
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.42
+  - @nextclaw/remote@0.3.53
+  - @nextclaw/runtime@0.4.41
+  - @nextclaw/ncp-mcp@0.2.42
+
+## 0.46.0
+
+### Minor Changes
+
+- 99a2f2c: 将 WASM Service App 的共享执行器切换为嵌入式 Spin Runtime Factors，同时保持现有 `.napp`、WIT、Service Action 与 runner 协议不变。
+
+  新增外部依赖就绪状态：默认 App 仍为自包含并可直接启用；显式声明额外 capability 或 resource 的 App 会在 API、CLI 和界面中显示缺失要求，并在依赖未满足时阻止误启用。
+
+  新增独立 Provider App 与资源绑定闭环：Provider 可声明版本化 capability，Consumer 可通过 API、CLI 或 Agent 检查、绑定、验证和解绑；绑定只保存非敏感 Provider 引用，并通过 runner allowlist 执行受控跨 App 调用。
+
+- 9180398: 补齐 Rust WASI Component App 的创建、诊断、构建、校验、测试、调试、打包、安装与运行闭环，并为组件失败提供稳定错误码和运行观测信息。
+
+  同时使 NPM 安装在受支持的 Node.js 20 与 22+ 环境中都能直接使用 SQLite：Node.js 20 自动使用随包提供的 WASM SQLite 实现，无需本机编译原生依赖。
+
+### Patch Changes
+
+- Updated dependencies [99a2f2c]
+- Updated dependencies [9180398]
+  - @nextclaw/kernel@0.13.0
+  - @nextclaw/server@0.20.5
+  - @nextclaw/app-runtime@0.15.0
+  - @nextclaw/remote@0.3.52
+  - @nextclaw/service@0.4.6
+
+## 0.45.5
+
+### Patch Changes
+
+- 2e7db68: 修复正式 NPM 与桌面版的匿名活跃回执被错误归入开发环境的问题，使新版客户端的使用数据能进入管理后台默认的 production/stable 统计。
+- 9377757: 修复子 Agent 的运行、等待和通知语义：`sessions_spawn` 现在默认立即启动且不阻塞父 Agent，`notify` 只控制完成通知，`wait` 独立控制同步等待；仅创建空会话改为显式 `start=false`。异步任务结束后，原工具结果会可靠更新并在冷重启后保持终态。
+- Updated dependencies [2e7db68]
+- Updated dependencies [9377757]
+  - @nextclaw/service@0.4.5
+  - @nextclaw/core@0.17.14
+  - @nextclaw/kernel@0.12.3
+  - @nextclaw/mcp@0.3.41
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.41
+  - @nextclaw/remote@0.3.51
+  - @nextclaw/runtime@0.4.40
+  - @nextclaw/server@0.20.4
+  - @nextclaw/ncp-mcp@0.2.41
+
+## 0.45.4
+
+### Patch Changes
+
+- Auto-generated full public release batch.
+
+  Packages:
+  - nextclaw
+
+- Updated dependencies [824f59e]
+  - @nextclaw/server@0.20.3
+  - @nextclaw/remote@0.3.50
+  - @nextclaw/service@0.4.4
+
+## 0.45.3
+
+### Patch Changes
+
+- 51fac6a: 修复旧实例在第 20 次工具调用后突然中止 Agent 任务的问题：废弃并移除可配置的工具调用上限，旧配置文件中的相关值不再参与运行；NextClaw native runtime 统一使用固定的 1000 次工具调用安全预算，设置页、Agent 详情和 API 也不再暴露该配置。
+- Updated dependencies [51fac6a]
+  - @nextclaw/core@0.17.13
+  - @nextclaw/kernel@0.12.2
+  - @nextclaw/server@0.20.2
+  - @nextclaw/mcp@0.3.40
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.40
+  - @nextclaw/remote@0.3.49
+  - @nextclaw/runtime@0.4.39
+  - @nextclaw/service@0.4.3
+  - @nextclaw/ncp-mcp@0.2.40
+
+## 0.45.2
+
+### Patch Changes
+
+- 60febb5: 修复 NPM 安装缺少当前平台 Portable Runtime runner 时无法自愈的问题；Linux runner 改为静态链接，并确保 runner 启动失败不会带崩 NextClaw 主服务。升级 SQLite 原生依赖并恢复真实安装脚本验证，覆盖 Node 26 安装。发布流程会在 macOS、Linux 与 Windows 上验证真实应用启用、持久组件启动和 Action 调用。
+- Updated dependencies [60febb5]
+  - @nextclaw/kernel@0.12.1
+  - @nextclaw/service@0.4.2
+  - @nextclaw/shared@0.4.30
+  - @nextclaw/remote@0.3.48
+  - @nextclaw/server@0.20.1
+  - @nextclaw/app-runtime@0.14.1
+  - @nextclaw/core@0.17.12
+  - @nextclaw/mcp@0.3.39
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.39
+  - @nextclaw/runtime@0.4.38
+  - @nextclaw/ncp-mcp@0.2.39
+
+## 0.45.1
+
+### Patch Changes
+
+- 97e3b50: Fix stable runtime bundles so Portable Service Apps include an executable native runner on every published platform.
+- Updated dependencies [97e3b50]
+  - @nextclaw/service@0.4.1
+
+## 0.45.0
+
+### Minor Changes
+
+- 4066c41: 新增 Rust-first Portable Runtime 产品基础：NextClaw 现在可以从产品资源启动共享 Wasmtime runner，在现有 App Package、Panel App 与 Service Action 体系内运行 Rust/WASM Component，不需要手工配置开发者 runner 路径。
+
+  内置「日常小工具箱」提供今日清单、灵感便签、专注小钟和联系人整理四个真实场景，覆盖持久数据、Resident 后台事件、Provider/Consumer 组合、Panel 授权与 Agent Tool 复用。runner 超时或异常退出后会按依赖顺序恢复持久组件，并保留宿主管理的数据。
+
+  应用安装失败时会清理新建的不可变版本目录，避免发布者或实例校验失败阻塞后续合法安装。`nextclaw app check/dev/call` 已复用同一 Runtime 支持 Portable Service，构建合同和 CI 覆盖 macOS arm64、Linux x64 与 Windows x64，并保留 macOS x64、Linux arm64 目标映射；平台 runner 资源使用原子替换，热构建不会覆盖正在执行的二进制。Secret、Blob、长任务、流式能力和生产级资源隔离仍在整体产品计划中保持为未关闭项。
+
+### Patch Changes
+
+- Updated dependencies [4066c41]
+  - @nextclaw/app-runtime@0.14.0
+  - @nextclaw/kernel@0.12.0
+  - @nextclaw/server@0.20.0
+  - @nextclaw/service@0.4.0
+  - @nextclaw/remote@0.3.47
+
+## 0.44.2
+
+### Patch Changes
+
+- e0c3bf9: <!-- release-note-image: zh-CN | images/screenshots/nextclaw-inline-engineering-20260827-cn.png | NextClaw 对话内的悬臂梁载荷评估，参数、曲线与安全结论同步变化 -->
+
+  官网首页现在用真实 NextClaw 会话录屏展示消息内 Panel App：拖动工程参数后，图表、读数与安全结论会在同一条回复中同步变化；同时压缩关键图片并优化版本化媒体缓存，减少官网加载等待。
+
+- 882b6e0: Mini Apps 现在统一通过 `nextclaw app` 管理。可从 App Marketplace、本地应用目录或本地 `.napp` 包安装，并可通过命令行查看、启停、更新、回滚、卸载和查询操作结果。应用市场不再为每个应用保存或返回另一套安装命令。
+- bad2c8d: 现在可以直接从聊天侧边栏每个会话的更多菜单删除会话，无需先打开目标会话。删除当前会话会回到会话根页；删除其它会话不会中断当前阅读，并会显示成功或失败提示。删除确认弹窗打开后，可按 Enter 确认或 Escape 取消。命令行也新增 `nextclaw sessions delete <session-id> --confirm <session-id> --json`，确认值必须与会话 ID 完全一致。
+- Updated dependencies
+- Updated dependencies [f80df69]
+- Updated dependencies [4a6fc30]
+- Updated dependencies [882b6e0]
+- Updated dependencies [bad2c8d]
+  - @nextclaw/core@0.17.11
+  - @nextclaw/kernel@0.11.0
+  - @nextclaw/server@0.19.0
+  - @nextclaw/app-runtime@0.13.3
+  - @nextclaw/shared@0.4.29
+  - @nextclaw/service@0.3.49
+  - @nextclaw/mcp@0.3.38
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.38
+  - @nextclaw/remote@0.3.46
+  - @nextclaw/runtime@0.4.37
+  - @nextclaw/ncp-mcp@0.2.38
+
+## 0.44.1
+
+### Patch Changes
+
+- 2d292fa: 修复会话搜索索引重复全目录扫描和并发写入造成的全局卡顿；会话列表改为 SQLite 页码分页、后端搜索排序与滚动前预取，在大量会话与重工具调用历史并存时仍能快速出现，并可继续访问全部会话、历史和工具详情。
+- 1f61d34: 重做 NextClaw 官网首页产品实证、下载与安装信息架构和微信社群入口，让用户在首屏直接看见真实工作台，并在同一页面完成安装方式选择。
+- Updated dependencies
+- Updated dependencies [2d292fa]
+- Updated dependencies [a5a03e5]
+- Updated dependencies [c0523dc]
+- Updated dependencies [7d2b9f8]
+  - @nextclaw/server@0.18.3
+  - @nextclaw/core@0.17.10
+  - @nextclaw/kernel@0.10.3
+  - @nextclaw/service@0.3.48
+  - @nextclaw/remote@0.3.45
+  - @nextclaw/mcp@0.3.37
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.37
+  - @nextclaw/runtime@0.4.36
+  - @nextclaw/ncp-mcp@0.2.37
+
+## 0.44.0
+
+### Minor Changes
+
+- 667c4fd: 产品活跃统计改为默认开启的匿名汇总：每个客户端仅为当日、当周和当月生成相互独立的一次性收据，不再上传或保存稳定安装标识、账号、令牌、IP、User-Agent、消息内容或工具参数；隐私设置新增本机投递状态，管理后台同步展示当前自然日、自然周、自然月活跃与成功使用趋势。
+
+### Patch Changes
+
+- fe65833: 让桌面端 beta 更新渠道同时检查预览版和正式版，并提示版本较新的更新。
+- Updated dependencies [667c4fd]
+- Updated dependencies [8716fb9]
+  - @nextclaw/core@0.17.9
+  - @nextclaw/service@0.3.47
+  - @nextclaw/server@0.18.2
+  - @nextclaw/kernel@0.10.2
+  - @nextclaw/mcp@0.3.36
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.36
+  - @nextclaw/remote@0.3.44
+  - @nextclaw/runtime@0.4.35
+  - @nextclaw/ncp-mcp@0.2.36
+
+## 0.43.0
+
+### Minor Changes
+
+- 50f064c: 为所有模型运行记录可查询的触发证据，包括发起者、来源渠道、触发与运行模型、关联会话、消息、请求和工具调用；消息的“更多操作”现在统一提供这些详情。后台完成通知只由人类直接发起的运行触发，代理委派、定时任务、观察和系统运行保持静默。
+
+### Patch Changes
+
+- Updated dependencies [af85fa6]
+- Updated dependencies [50f064c]
+- Updated dependencies [50f064c]
+- Updated dependencies [6e57449]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/kernel@0.10.1
+  - @nextclaw/ncp@0.10.0
+  - @nextclaw/ncp-toolkit@0.6.23
+  - @nextclaw/core@0.17.8
+  - @nextclaw/remote@0.3.43
+  - @nextclaw/server@0.18.1
+  - @nextclaw/service@0.3.46
+  - @nextclaw/ncp-agent-runtime@0.4.21
+  - @nextclaw/ncp-mcp@0.2.35
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.21
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.22
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.35
+  - @nextclaw/mcp@0.3.35
+  - @nextclaw/runtime@0.4.34
+
+## 0.42.3
+
+### Patch Changes
+
+- 70dd515: Add the experimental `@nextclaw/harness` SDK with Agent, Session, Run, and Contribution APIs; expose lifecycle-scoped tools, context, model providers, runtimes, and MCP capabilities; and add the non-interactive `nextclaw exec` command for headless tasks.
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [5b07b81]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+- Updated dependencies [eabdf41]
+- Updated dependencies [ec60bc1]
+- Updated dependencies [70dd515]
+- Updated dependencies [3817714]
+- Updated dependencies [f9c6477]
+- Updated dependencies [83c0628]
+  - @nextclaw/kernel@0.10.0
+  - @nextclaw/ncp@0.9.0
+  - @nextclaw/core@0.17.7
+  - @nextclaw/service@0.3.45
+  - @nextclaw/server@0.18.0
+  - @nextclaw/runtime@0.4.33
+  - @nextclaw/app-runtime@0.13.2
+  - @nextclaw/remote@0.3.42
+  - @nextclaw/ncp-agent-runtime@0.4.20
+  - @nextclaw/ncp-mcp@0.2.34
+  - @nextclaw/ncp-toolkit@0.6.22
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.20
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.21
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.34
+  - @nextclaw/mcp@0.3.34
+
+## 0.42.3-beta.0
+
+### Patch Changes
+
+- 70dd515: Add the experimental `@nextclaw/harness` SDK with Agent, Session, Run, and Contribution APIs; expose lifecycle-scoped tools, context, model providers, runtimes, and MCP capabilities; and add the non-interactive `nextclaw exec` command for headless tasks.
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [5b07b81]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+- Updated dependencies [ec60bc1]
+- Updated dependencies [70dd515]
+- Updated dependencies [3817714]
+- Updated dependencies [f9c6477]
+- Updated dependencies [83c0628]
+  - @nextclaw/kernel@0.10.0-beta.0
+  - @nextclaw/ncp@0.9.0-beta.0
+  - @nextclaw/core@0.17.7-beta.0
+  - @nextclaw/service@0.3.45-beta.0
+  - @nextclaw/server@0.18.0-beta.0
+  - @nextclaw/runtime@0.4.33-beta.0
+  - @nextclaw/app-runtime@0.13.2-beta.0
+  - @nextclaw/remote@0.3.42-beta.0
+  - @nextclaw/ncp-agent-runtime@0.4.20-beta.0
+  - @nextclaw/ncp-mcp@0.2.34-beta.0
+  - @nextclaw/ncp-toolkit@0.6.22-beta.0
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.20-beta.0
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.21-beta.0
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.34-beta.0
+  - @nextclaw/mcp@0.3.34-beta.0
+
+## 0.42.2
+
+### Patch Changes
+
+- 9816eaf: Fix Windows Desktop Service App requests so packaged runtimes retain classified errors across package boundaries, and verify Favorites and Calendar actions in the real packaged desktop runtime.
+- Updated dependencies [9816eaf]
+  - @nextclaw/kernel@0.9.2
+  - @nextclaw/server@0.17.3
+  - @nextclaw/remote@0.3.41
+  - @nextclaw/service@0.3.44
+
+## 0.42.1
+
+### Patch Changes
+
+- 82e8b03: Built-in Service Apps now keep a structured error response when a request fails, instead of showing a non-JSON server error. Desktop releases also verify Favorites and Calendar on Linux and Windows without a system Node.js installation.
+- Updated dependencies [82e8b03]
+  - @nextclaw/server@0.17.2
+  - @nextclaw/remote@0.3.40
+  - @nextclaw/service@0.3.43
+
+## 0.42.0
+
+### Minor Changes
+
+- 6587602: 新增默认关闭的产品活跃统计与隐私设置：未登录安装使用随机匿名标识，登录后按账号归并，并可将团队和 QA 测试流量从外部 DAU、WAU、MAU 中分开。
+
+### Patch Changes
+
+- 1d63057: 重载工具调用会话现在会先显示受预算保护的最近内容，再自动补齐近期上下文，并减少重复 hydrate 与首屏资源串行等待；发布包同时内置经过校验的预压缩 UI 资产，外部静态服务器升级后不再丢失快速传输路径。真实 VPS 已登录热刷新中位约 1.13 秒，同时保留完整工具详情和更早历史。
+- Updated dependencies [1d63057]
+- Updated dependencies [3e6da7e]
+- Updated dependencies [6587602]
+- Updated dependencies [0f0753a]
+- Updated dependencies [7cc703c]
+  - @nextclaw/server@0.17.1
+  - @nextclaw/kernel@0.9.1
+  - @nextclaw/core@0.17.6
+  - @nextclaw/service@0.3.42
+  - @nextclaw/ncp@0.8.1
+  - @nextclaw/ncp-toolkit@0.6.21
+  - @nextclaw/remote@0.3.39
+  - @nextclaw/mcp@0.3.33
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.33
+  - @nextclaw/runtime@0.4.32
+  - @nextclaw/ncp-agent-runtime@0.4.19
+  - @nextclaw/ncp-mcp@0.2.33
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.19
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.20
+
+## 0.40.1
+
+### Patch Changes
+
+- 347e4b7: 统一 Panel App 在列表、右侧运行态和左侧主侧栏中的入口管理：左侧入口悬停后可直接移除，右侧恢复快捷入口也能正确显示添加或移除操作；移除不会中断当前 App 页面。
+
+## 0.40.0
+
+### Minor Changes
+
+- c19ae8f: 大工具调用历史会话改为按预算分级加载：首屏显示真实工具调用数量和类型，只有展开处理过程时才按消息读取完整参数与结果，并对超大工具组分批展示。历史分页与会话摘要改走有界投影读模型，避免打开会话时扫描完整 journal；会话列表先限量并限制 metadata 读取并发，减少首屏请求之间的 I/O 争用。
+
+  <!-- release-note-blog: docs/blog-drafts/2026-08-20-heavy-tool-call-session-performance.blog-draft.md -->
+
+- e8d725a: 支持用户从 Panel Apps 列表或运行中 App 的更多菜单手动添加主侧栏入口，并在主内容区无重复宿主 Header 地完整使用。安装不会自动占用主侧栏；禁用后入口暂时隐藏并可在重新启用后恢复，卸载或删除则会清理入口。添加/移除即时反馈，打开 App 不再等待活动统计写盘；右侧 Panel App 移除重复的“返回应用”动作，统一遵循资源浏览器历史。
+
+### Patch Changes
+
+- c10dcaa: 新增统一的结构化运行诊断事件、安全错误分类和日志查询命令，覆盖 Service、扩展、配置、渠道、Agent、全部 kernel 工具、外部 transport 与定时任务关键链路；取消、网络与未知异常都有独立可查询终态。内置 AI 现在可以按时间窗和关联 ID 从日志证据排查运行故障。QQ 渠道首先接入完整投递链路，并默认不记录消息正文、工具参数/结果、完整 URL、用户身份或凭据。
+- Updated dependencies [c19ae8f]
+- Updated dependencies [e8d725a]
+- Updated dependencies [c10dcaa]
+  - @nextclaw/kernel@0.9.0
+  - @nextclaw/server@0.17.0
+  - @nextclaw/core@0.17.5
+  - @nextclaw/service@0.3.41
+  - @nextclaw/remote@0.3.38
+  - @nextclaw/mcp@0.3.32
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.32
+  - @nextclaw/runtime@0.4.31
+  - @nextclaw/ncp-mcp@0.2.32
+
+## 0.39.2
+
+### Patch Changes
+
+- Auto-generated full public release batch.
+
+  Packages:
+  - nextclaw
+
+- Updated dependencies [ae676ff]
+  - @nextclaw/kernel@0.8.7
+  - @nextclaw/remote@0.3.37
+  - @nextclaw/server@0.16.7
+  - @nextclaw/service@0.3.40
+
+## 0.39.1
+
+### Patch Changes
+
+- Updated dependencies [0fa2748]
+  - @nextclaw/app-runtime@0.13.1
+  - @nextclaw/kernel@0.8.6
+  - @nextclaw/remote@0.3.36
+  - @nextclaw/server@0.16.6
+  - @nextclaw/service@0.3.39
+
+## 0.39.0
+
+### Minor Changes
+
+- 1df4217: Support one or multiple native platform artifacts per Mini App version, select the compatible artifact during install, expose platform-aware NextClaw app publishing commands, and label supported platforms in the App Marketplace.
+
+### Patch Changes
+
+- ef5d9ae: Convert function tools to the Responses API schema before sending model requests.
+- ef5d9ae: Keep the universal thinking-off option selected even when a provider only declares active reasoning levels.
+- Updated dependencies [7da88a5]
+- Updated dependencies [ef5d9ae]
+- Updated dependencies [1df4217]
+- Updated dependencies [65dc8fb]
+  - @nextclaw/server@0.16.5
+  - @nextclaw/core@0.17.4
+  - @nextclaw/app-runtime@0.13.0
+  - @nextclaw/kernel@0.8.5
+  - @nextclaw/remote@0.3.35
+  - @nextclaw/service@0.3.38
+  - @nextclaw/mcp@0.3.31
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.31
+  - @nextclaw/runtime@0.4.30
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.19
+  - @nextclaw/ncp-mcp@0.2.31
+
+## 0.38.1
+
+### Patch Changes
+
+- 80f7660: Fix OpenAI Responses history encoding and keep explicit thinking-off selections stable across session preference hydration and persistence.
+- Updated dependencies [80f7660]
+  - @nextclaw/core@0.17.3
+  - @nextclaw/kernel@0.8.4
+  - @nextclaw/mcp@0.3.30
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.30
+  - @nextclaw/remote@0.3.34
+  - @nextclaw/runtime@0.4.29
+  - @nextclaw/server@0.16.4
+  - @nextclaw/service@0.3.37
+  - @nextclaw/ncp-mcp@0.2.30
+
+## 0.38.0
+
+### Minor Changes
+
+- a6fd473: Add an Update session title command to the chat slash menu. The command asks AI to generate and apply a concise title from the current conversation without replacing the user's draft.
+
+### Patch Changes
+
+- 56ab5c2: 完善社区 App 的运行与公开上架合同：schema v2 Service App 必须如实声明为宿主原生进程并进入高权限人工审核，审核通过后可以公开上架；本地与市场服务端都会拒绝用 `wasi` 标签伪装沙箱。管理后台同步提供“通过并公开”和“通过但不公开”，并展示后端统一判定的运行方式、组件、权限与公开资格。
+- Updated dependencies [56ab5c2]
+  - @nextclaw/app-runtime@0.12.2
+  - @nextclaw/core@0.17.2
+  - @nextclaw/kernel@0.8.3
+  - @nextclaw/mcp@0.3.29
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.29
+  - @nextclaw/remote@0.3.33
+  - @nextclaw/runtime@0.4.28
+  - @nextclaw/server@0.16.3
+  - @nextclaw/service@0.3.36
+  - @nextclaw/ncp-mcp@0.2.29
+
+## 0.37.0
+
+### Minor Changes
+
+- 558e4c7: Auto-generated full public release batch.
+
+  Packages:
+  - nextclaw
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [ebbe1e0]
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+- Updated dependencies [004d51f]
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.18
+  - @nextclaw/service@0.3.35
+  - @nextclaw/ncp@0.8.0
+  - @nextclaw/ncp-toolkit@0.6.20
+  - @nextclaw/ncp-agent-runtime@0.4.18
+  - @nextclaw/core@0.17.1
+  - @nextclaw/kernel@0.8.2
+  - @nextclaw/server@0.16.2
+  - @nextclaw/ncp-mcp@0.2.28
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.18
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.28
+  - @nextclaw/mcp@0.3.28
+  - @nextclaw/remote@0.3.32
+  - @nextclaw/runtime@0.4.27
+
+## 0.36.2
+
+### Patch Changes
+
+- 27d7293: Harden App, Panel App, and Service App data management with isolated instance storage, crash-safe deletion recovery, side-effect-free catalog reads, and explicit keep-or-delete uninstall controls.
+- Updated dependencies [27d7293]
+  - @nextclaw/app-runtime@0.12.1
+  - @nextclaw/kernel@0.8.1
+  - @nextclaw/server@0.16.1
+  - @nextclaw/remote@0.3.31
+  - @nextclaw/service@0.3.34
+
+## 0.36.1
+
+### Patch Changes
+
+- 9c3069d: 修复页面更新后 Agent 与 CLI 仍可能进入旧版 runtime 的问题。launcher 元数据现在只在启动边界消费一次，更新后的页面、Agent shell、服务重启与新开的 `nextclaw` 命令会统一使用当前 runtime。
+- Updated dependencies [9c3069d]
+  - @nextclaw/service@0.3.33
+
+## 0.36.0
+
+### Minor Changes
+
+- ca2c98d: 把 App 数据生命周期补齐为可管理的产品能力：App 更新继续复用原实例，卸载与 Workspace Service 删除默认保留个人数据，也可以在确认后同时永久删除 data、config、state、cache、tmp 和 logs。
+
+  Apps 页面会显示六类数据占用、受管路径和已保留数据，并支持稍后清理；CLI 新增 `nextclaw app data list/delete`，开发态可用 `nextclaw app dev --reset-data --confirm <app-id>` 精确重置当前实例。HTTP、Client SDK、双语文档与内建自管理 Skill 同步使用同一套安全确认和 active/retained 规则。
+
+### Patch Changes
+
+- Updated dependencies [ca2c98d]
+  - @nextclaw/app-runtime@0.12.0
+  - @nextclaw/kernel@0.8.0
+  - @nextclaw/server@0.16.0
+  - @nextclaw/core@0.17.0
+  - @nextclaw/remote@0.3.30
+  - @nextclaw/service@0.3.32
+  - @nextclaw/mcp@0.3.27
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.27
+  - @nextclaw/runtime@0.4.26
+  - @nextclaw/ncp-mcp@0.2.27
+
+## 0.35.0
+
+### Minor Changes
+
+- 298233c: 把 Mini App、Panel App 和 Service App 收敛为可安装、可更新、可卸载的统一 App 产品：每个 App Instance 现在拥有独立的 data、config、state、cache、tmp 和 logs 目录，卸载默认保留个人数据，重装时只允许同一发布者继续使用。
+
+  更新会先安装和探测候选版本，再切换当前版本；候选 Service 启动失败、数据 schema 不兼容或代码完整性异常时，旧版本和旧数据保持可用。Apps 管理界面同时显示真实的数据位置、占用空间和运行隔离等级，原生进程会明确标注为当前用户完整权限，社区原生 Service App 不再允许直接进入公开目录。
+
+### Patch Changes
+
+- Updated dependencies [298233c]
+  - @nextclaw/app-runtime@0.11.0
+  - @nextclaw/kernel@0.7.0
+  - @nextclaw/remote@0.3.29
+  - @nextclaw/server@0.15.29
+  - @nextclaw/service@0.3.31
+
+## 0.34.0
+
+### Minor Changes
+
+- 237a931: 新增 NextClaw 原生 Mini App 发布链路：AI 和用户可以用 `nextclaw app validate-publish / publish` 校验并提交 Panel App、Service App 或组合应用；个人应用进入审核队列后再公开。Marketplace 会在写入前校验完整制品，并保护已经发布的个人版本不被待审核更新覆盖。
+
+### Patch Changes
+
+- Updated dependencies [4be6947]
+- Updated dependencies [237a931]
+  - @nextclaw/kernel@0.6.28
+  - @nextclaw/server@0.15.28
+  - @nextclaw/core@0.16.0
+  - @nextclaw/app-runtime@0.10.0
+  - @nextclaw/remote@0.3.28
+  - @nextclaw/service@0.3.30
+  - @nextclaw/mcp@0.3.26
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.26
+  - @nextclaw/runtime@0.4.25
+  - @nextclaw/ncp-mcp@0.2.26
+
+## 0.33.2
+
+### Patch Changes
+
+- 2542896: 将内置个人空间升级到 0.1.4：重新设计待办和日历，补齐响应式布局、编辑与失败状态、外部日历来源管理，并修复日程范围与同步数据的一致性。同时修复应用检查更新的 Registry 响应兼容问题、成功重试后仍显示历史失败的问题，以及 `app dev/call` 没有为本地 Service APP 注入隔离数据目录的问题。
+- Updated dependencies
+- Updated dependencies [2542896]
+  - @nextclaw/mcp@0.3.25
+  - @nextclaw/kernel@0.6.27
+  - @nextclaw/ncp-mcp@0.2.25
+  - @nextclaw/server@0.15.27
+  - @nextclaw/service@0.3.29
+  - @nextclaw/remote@0.3.27
+
+## 0.33.1
+
+### Patch Changes
+
+- 83c1949: Keep in-app runtime updates restartable on existing Linux systemd installations, including legacy units that still use `Restart=on-failure`.
+- Updated dependencies [83c1949]
+  - @nextclaw/service@0.3.28
+
+## 0.33.0
+
+### Minor Changes
+
+- efb52a7: 应用市场现在按页加载并支持服务端搜索，安装、更新、版本切换与卸载在后台持续执行；同时补齐应用图标、封面、详情与失败恢复体验，并允许用户卸载内置应用后按需重新安装。
+
+  <!-- release-note-image: en-US | images/screenshots/nextclaw-app-marketplace-en.png | NextClaw Add apps dialog showing Personal Space, Hello Notes, and Workspace Glance with their artwork and install state -->
+
+### Patch Changes
+
+- Updated dependencies [9b22a7d]
+- Updated dependencies [efb52a7]
+  - @nextclaw/kernel@0.6.26
+  - @nextclaw/server@0.15.26
+  - @nextclaw/core@0.15.24
+  - @nextclaw/service@0.3.27
+  - @nextclaw/remote@0.3.26
+  - @nextclaw/mcp@0.3.24
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.25
+  - @nextclaw/runtime@0.4.24
+  - @nextclaw/ncp-mcp@0.2.24
+
+## 0.32.0
+
+### Minor Changes
+
+- 6b3127f: 新增完整的 Apps 与 Mini App 体验：可从内置市场发现、安装、启用、更新、回滚和卸载组合应用，并首发由待办、Markdown 笔记、收藏与日历组成的“个人空间”。应用代码按版本不可变安装，个人数据保存在稳定目录；安装事务、包完整性、运行时授权清理、远程下载预算与日历订阅网络边界也得到强化。
+
+### Patch Changes
+
+- fb73f89: 改进 Marketplace 技能更新：检测到安装后的本地修改时返回明确冲突，并在用户确认后才覆盖更新；取消操作会保留现有技能文件。
+- 33eb6b2: 修复设置页更新后仍由 systemd 拉起旧运行时的问题。更新现在保持一键完成，并在切换运行时后由稳定 launcher 重新拉起新版本，页面版本、内核版本和实际进程保持一致。
+- Updated dependencies [fb73f89]
+- Updated dependencies [7179c7a]
+- Updated dependencies [33eb6b2]
+- Updated dependencies [6b3127f]
+  - @nextclaw/service@0.3.26
+  - @nextclaw/server@0.15.25
+  - @nextclaw/kernel@0.6.25
+  - @nextclaw/remote@0.3.25
+  - @nextclaw/core@0.15.23
+  - @nextclaw/mcp@0.3.23
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.24
+  - @nextclaw/runtime@0.4.23
+  - @nextclaw/ncp-mcp@0.2.23
+
+## 0.31.0
+
+### Minor Changes
+
+- ffb365c: 会话工作区现在提供与文件预览连续协作的项目文件 Explorer：目录树和预览可同时显示，支持新建文件与文件夹、上传、下载、重命名、删除、路径复制以及将文件或文件夹添加到聊天。Explorer 宽度可拖动并记忆，空间不足时才切换为覆盖式侧栏；所有写操作均由服务端限制在当前项目根目录内，同名上传只有在用户明确确认后才会覆盖。
+
+  <!-- release-note-image: zh-CN | images/screenshots/nextclaw-workspace-explorer-cn.png | NextClaw 项目文件 Explorer 和 Markdown 预览同时打开 -->
+  <!-- release-note-image: en-US | images/screenshots/nextclaw-workspace-explorer-en.png | NextClaw project Explorer beside a Markdown file preview -->
+
+### Patch Changes
+
+- c783019: Native 会话现在会并行执行同一轮中的只读文件、图片、网页和记忆查询，同时让写入、命令和未明确声明安全的工具继续独占执行；多个查询可以更快返回，工具结果仍按原调用位置回填，后续模型回复不会因完成顺序不同而错位。
+- 0b7df97: 改善 Web Chat 长连接的稳定性：空闲 SSE 现在会主动保活，短暂断流可在后台补齐会话并重连，不再立即展示无意义的网络错误；持续连接失败仍会明确提示。启动恢复同时改为逐会话、逐行扫描历史日志，降低大 journal 场景的峰值内存和 OOM 风险。
+- 7786bdf: 移除无法可靠完成会话恢复的 agent `gateway.restart` 能力；需要重启时，现在统一提示用户在外部终端运行顶层 `nextclaw restart`，并明确 `nextclaw gateway` 仅用于启动前台 gateway、不提供生命周期子命令。
+- Updated dependencies [ffb365c]
+- Updated dependencies [c783019]
+- Updated dependencies [0b7df97]
+- Updated dependencies [7786bdf]
+  - @nextclaw/server@0.15.24
+  - @nextclaw/core@0.15.22
+  - @nextclaw/kernel@0.6.24
+  - @nextclaw/ncp@0.7.17
+  - @nextclaw/service@0.3.25
+  - @nextclaw/remote@0.3.24
+  - @nextclaw/mcp@0.3.22
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.23
+  - @nextclaw/runtime@0.4.22
+  - @nextclaw/ncp-agent-runtime@0.4.17
+  - @nextclaw/ncp-mcp@0.2.22
+  - @nextclaw/ncp-toolkit@0.6.19
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.17
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.17
+
+## 0.30.0
+
+### Minor Changes
+
+- 4ab158d: 渠道扩展改为按需启动：未启用渠道不再常驻独立 Node 进程，运行中启用或禁用渠道会自动创建或回收对应扩展；同时增加 ready/generation 隔离、鉴权会话租约、有限故障恢复和扩展进程内存诊断。
+
+  在 ARM64 Linux、2 vCPU / 2 GiB 限制和无活跃任务的空配置基准中，三轮平均 working set 从旧版本约 865～885 MiB 降至 164.94 MiB，下降约 81%。活跃 Agent runtime、浏览器、MCP、本地模型和已启用渠道仍会按实际工作增加内存占用。
+
+### Patch Changes
+
+- c140b2a: 官网首页明确展示全部安装选择：除桌面版外，用户现在可以直接看到 npm、Docker，以及个人电脑、NAS 和云服务器等运行环境。
+- Updated dependencies [4ab158d]
+- Updated dependencies [c54a1d9]
+  - @nextclaw/kernel@0.6.23
+  - @nextclaw/server@0.15.23
+  - @nextclaw/service@0.3.24
+  - @nextclaw/remote@0.3.23
+  - @nextclaw/core@0.15.21
+  - @nextclaw/mcp@0.3.21
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.22
+  - @nextclaw/runtime@0.4.21
+  - @nextclaw/ncp-mcp@0.2.21
+
+## 0.29.0
+
+### Minor Changes
+
+- 8e53d92: Native 会话会在同一次长任务的工具调用轮次之间自动压缩上下文；压缩输入、输出和最终 checkpoint 使用包含工具 schema 与输出预留的同一动态预算，压缩后除完整摘要外还会按 token 预算保留最近的真实用户原文。上下文指示器会按完整输入显示系统与工具、会话内容、自动压缩线和输出预留。Agent 配置会按当前指令与全量工具动态拒绝不可用的小窗口；send、继续运行和编辑重跑共享同一运行状态入口，进程中断统一恢复为可继续的中性终态。运行中压缩与 continuation 前压缩会稳定显示在对应助手过程位置，刷新后不再堆到消息末尾。
+
+### Patch Changes
+
+- c3eb33c: 修复聊天失败时同一供应商错误在对话区和输入框重复显示、视觉提示过强且原始响应被截断的问题；错误现在只在对话区以低干扰样式显示一次，正文保留供应商返回的完整内容，并在内容较长时通过限高滚动查看。
+- 8049f49: 支持直接编辑当前会话最近一条用户消息并在同一会话继续执行；中断或失败后可从输入框或最近一条 AI 回复继续运行，后续输出会直接续写原回复而不是新增消息气泡，并准确区分续写前后成功与取消的工具操作。编辑器会自动聚焦到末尾，运行中隐藏编辑操作，所有纯图标入口均提供明确提示；切换模型时会继续保留可用的恢复入口。
+- ae21568: 修复运行中断或服务重启后，较早的助手回复偶尔排到后来用户消息之后的问题；聊天记录会按实际时间线稳定显示，并自动重建已有的错误消息索引。
+- e309470: 搜索设置新增 Exa 提供商：可配置 API Key 与自定义 Base URL，并使用统一的全局结果数量上限执行语义搜索和网页正文提取。感谢 [@suantea](https://github.com/suantea) 通过 [#23](https://github.com/Peiiii/nextclaw/pull/23) 贡献这项能力。
+- bf3ff68: Panel App 在全局面板中刷新或重新挂载后会恢复到用户刚才阅读的滚动位置；异步加载内容时，会等页面布局就绪后再完成恢复。
+- Updated dependencies [c3eb33c]
+- Updated dependencies [8049f49]
+- Updated dependencies [ae21568]
+- Updated dependencies [38e3e98]
+- Updated dependencies [db9cab7]
+- Updated dependencies [b507e1c]
+- Updated dependencies [98c5b7f]
+- Updated dependencies [e309470]
+- Updated dependencies [31d5655]
+- Updated dependencies [8e53d92]
+- Updated dependencies [bf3ff68]
+- Updated dependencies [071c144]
+- Updated dependencies [08325d3]
+  - @nextclaw/core@0.15.20
+  - @nextclaw/kernel@0.6.22
+  - @nextclaw/server@0.15.22
+  - @nextclaw/ncp-toolkit@0.6.18
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.21
+  - @nextclaw/ncp@0.7.16
+  - @nextclaw/runtime@0.4.20
+  - @nextclaw/mcp@0.3.20
+  - @nextclaw/remote@0.3.22
+  - @nextclaw/service@0.3.23
+  - @nextclaw/ncp-agent-runtime@0.4.16
+  - @nextclaw/ncp-mcp@0.2.20
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.16
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.16
+
+## 0.28.2
+
+### Patch Changes
+
+- 817f30a: Make fresh installs truly ready to use: initialize the packaged workspace templates correctly and tell users that the built-in OpenCode Zen model can be used without an API key.
+- Updated dependencies [817f30a]
+  - @nextclaw/service@0.3.22
+
+## 0.28.1
+
+### Patch Changes
+
+- dbececb: 修复并发消息完成时聊天记录偶发重叠的问题，并隐藏静默回复遗留的异常文本。
+- Updated dependencies [dbececb]
+- Updated dependencies [43b0e1d]
+- Updated dependencies [14f321a]
+  - @nextclaw/core@0.15.19
+  - @nextclaw/ncp-toolkit@0.6.17
+  - @nextclaw/kernel@0.6.21
+  - @nextclaw/runtime@0.4.19
+  - @nextclaw/server@0.15.21
+  - @nextclaw/service@0.3.21
+  - @nextclaw/mcp@0.3.19
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.20
+  - @nextclaw/remote@0.3.21
+  - @nextclaw/ncp-mcp@0.2.19
+
 ## 0.28.0
 
 ### Minor Changes

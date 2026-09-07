@@ -7,7 +7,7 @@ import type {
   SessionEntryView,
   ThinkingLevel
 } from '@/shared/lib/api';
-import { API_BASE } from '@/shared/lib/api';
+import { buildNcpAssetContentUrl } from '@/shared/lib/api';
 import {
   getSessionProjectName,
   normalizeSessionProjectRootValue,
@@ -21,22 +21,13 @@ const SESSION_ACTIVITY_PREVIEW_STATE_SET = new Set<SessionActivityPreviewView['s
   'cancelled',
   'idle'
 ]);
-
-function stringifyUnknown(value: unknown): string {
-  if (typeof value === 'string') {
-    return value;
-  }
-  try {
-    return JSON.stringify(value ?? {});
-  } catch {
-    return String(value ?? '');
-  }
-}
-
-function buildNcpAssetContentUrl(assetUri: string): string {
-  const query = new URLSearchParams({ uri: assetUri });
-  return `${API_BASE}/api/ncp/assets/content?${query.toString()}`;
-}
+const SESSION_ACTIVITY_PREVIEW_STATUS_KIND_SET = new Set<NonNullable<SessionActivityPreviewView['statusKind']>>([
+  'thinking',
+  'tool-running',
+  'tool-completed',
+  'run-failed',
+  'run-interrupted'
+]);
 
 function readOptionalString(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -66,13 +57,15 @@ function readNcpSessionActivityPreview(summary: NcpSessionSummaryView): SessionA
   if (!SESSION_ACTIVITY_PREVIEW_STATE_SET.has(state as SessionActivityPreviewView['state']) || !timestamp) {
     return null;
   }
-  const statusText = readOptionalString(previewRecord.statusText);
-  const replyText = readOptionalString(previewRecord.replyText);
+  const rawStatusKind = readOptionalString(previewRecord.statusKind);
   return {
     state: state as SessionActivityPreviewView['state'],
     timestamp,
-    ...(statusText ? { statusText } : {}),
-    ...(replyText ? { replyText } : {})
+    statusKind: SESSION_ACTIVITY_PREVIEW_STATUS_KIND_SET.has(rawStatusKind as NonNullable<SessionActivityPreviewView['statusKind']>)
+      ? rawStatusKind as NonNullable<SessionActivityPreviewView['statusKind']>
+      : undefined,
+    statusText: readOptionalString(previewRecord.statusText) ?? undefined,
+    replyText: readOptionalString(previewRecord.replyText) ?? undefined
   };
 }
 
@@ -201,7 +194,9 @@ function mapToolStatus(part: Extract<NcpMessagePart, { type: 'tool-invocation' }
 
 function toUiParts(parts: NcpMessagePart[]): UIMessage['parts'] {
   const uiParts: UIMessage['parts'] = [];
-  for (const part of parts) {
+  for (const part of parts.filter((candidate) =>
+    candidate.type !== 'tool-invocation' || !candidate.payloadDeferred,
+  )) {
     if (part.type === 'text') {
       uiParts.push({ type: 'text', text: part.text });
       continue;
@@ -274,13 +269,25 @@ function toUiParts(parts: NcpMessagePart[]): UIMessage['parts'] {
           status: mapToolStatus(part),
           toolCallId: part.toolCallId ?? `${part.toolName}-${Math.random().toString(36).slice(2, 8)}`,
           toolName: part.toolName,
-          args: stringifyUnknown(part.args),
-          result: part.result
+          args: typeof part.args === "string" ? part.args : "",
+          parsedArgs: part.args,
+          result: part.result,
+          ...(part.execution ? { execution: { ...part.execution } } : {})
         }
       });
     }
   }
   return uiParts;
+}
+
+export type NcpChatMessagePart =
+  | UIMessage['parts'][number]
+  | Extract<NcpMessagePart, { type: 'extension' }>;
+
+export function adaptNcpMessagePartsForChat(parts: NcpMessagePart[]): NcpChatMessagePart[] {
+  return parts.flatMap<NcpChatMessagePart>((part) =>
+    part.type === 'extension' ? [part] : toUiParts([part]),
+  );
 }
 
 function normalizeRole(role: NcpMessageView['role']): UIMessage['role'] {

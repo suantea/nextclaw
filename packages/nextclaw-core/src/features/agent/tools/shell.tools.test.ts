@@ -7,6 +7,7 @@ import {
   createExternalCommandEnv,
   createRuntimeChildEnv,
   NEXTCLAW_COMMAND_SURFACE_BIN_ENV,
+  resolveRuntimeCommandLaunch,
   sanitizeNodeOptionsForExternalCommand
 } from "@core/shared/lib/core-utils/index.js";
 
@@ -14,8 +15,12 @@ describe("ExecTool", () => {
   it("returns structured success output with stdout and stderr preserved", async () => {
     const runner = vi.fn(async () => ({ stdout: "hello\n", stderr: "warn\n" }));
     const tool = new ExecTool({}, runner);
+    const reportExecutionStarted = vi.fn();
 
-    const result = await tool.execute({ command: "echo hello" });
+    const result = await tool.execute(
+      { command: "echo hello" },
+      { toolCallId: "exec-success", reportExecutionStarted },
+    );
 
     expect(result).toMatchObject({
       ok: true,
@@ -28,6 +33,10 @@ describe("ExecTool", () => {
       stdoutTruncated: false,
       stderrTruncated: false
     });
+    expect(reportExecutionStarted).toHaveBeenCalledOnce();
+    expect(reportExecutionStarted.mock.invocationCallOrder[0]).toBeLessThan(
+      runner.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("returns structured failure output with stdout, stderr, and exit metadata preserved", async () => {
@@ -61,8 +70,12 @@ describe("ExecTool", () => {
   it("returns structured blocked results for safety guard failures", async () => {
     const runner = vi.fn(async () => ({ stdout: "ok", stderr: "" }));
     const tool = new ExecTool({}, runner);
+    const reportExecutionStarted = vi.fn();
 
-    const result = await tool.execute({ command: "rm -rf /tmp/demo" });
+    const result = await tool.execute(
+      { command: "rm -rf /tmp/demo" },
+      { toolCallId: "exec-blocked", reportExecutionStarted },
+    );
 
     expect(result).toEqual({
       ok: false,
@@ -83,6 +96,7 @@ describe("ExecTool", () => {
       blockedReason: "dangerous_pattern"
     });
     expect(runner).not.toHaveBeenCalled();
+    expect(reportExecutionStarted).not.toHaveBeenCalled();
   });
 
   it("removes development node conditions before launching external commands", async () => {
@@ -284,5 +298,37 @@ describe("createRuntimeChildEnv", () => {
     );
 
     expect(env.NODE_OPTIONS).toBeUndefined();
+  });
+});
+
+describe("resolveRuntimeCommandLaunch", () => {
+  it.each(["node", "node.exe"])("resolves %s to the host node executable", (command) => {
+    expect(resolveRuntimeCommandLaunch(command, {
+      execPath: "C:\\Program Files\\NextClaw\\NextClaw.exe",
+      electronRunAsNode: true,
+    })).toEqual({
+      command: "C:\\Program Files\\NextClaw\\NextClaw.exe",
+      envPatch: { ELECTRON_RUN_AS_NODE: "1" },
+    });
+  });
+
+  it("uses the host node without an Electron env patch in a regular Node runtime", () => {
+    expect(resolveRuntimeCommandLaunch("node", {
+      execPath: "/opt/nextclaw/node",
+      electronRunAsNode: false,
+    })).toEqual({
+      command: "/opt/nextclaw/node",
+      envPatch: {},
+    });
+  });
+
+  it("preserves custom process commands", () => {
+    expect(resolveRuntimeCommandLaunch("./bin/service", {
+      execPath: "/opt/nextclaw/node",
+      electronRunAsNode: true,
+    })).toEqual({
+      command: "./bin/service",
+      envPatch: {},
+    });
   });
 });

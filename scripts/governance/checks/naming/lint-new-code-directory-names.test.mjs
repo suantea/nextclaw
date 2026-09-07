@@ -24,8 +24,25 @@ test("allows versioned and dated docs directories", () => {
 
 test("allows approved hidden governance directories", () => {
   const violations = collectDirectoryNameViolations([
-    ".agents/skills/post-edit-maintainability-guard/SKILL.md"
+    ".agents/skills/development-review/SKILL.md"
   ]);
 
   assert.deepEqual(violations, []);
+});
+
+test("allows kebab-case Panel App package directories", () => {
+  const violations = collectDirectoryNameViolations([
+    "packages/nextclaw/resources/apps/personal-organizer/panels/personal-organizer-todos.panel/index.html"
+  ]);
+
+  assert.deepEqual(violations, []);
+});
+
+test("still blocks non-kebab Panel App package directories", () => {
+  const violations = collectDirectoryNameViolations([
+    "packages/nextclaw/resources/apps/personal-organizer/panels/PersonalOrganizer.panel/index.html"
+  ]);
+
+  assert.equal(violations.length, 1);
+  assert.match(violations[0].message, /PersonalOrganizer\.panel/);
 });

@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextclawKernel } from "@nextclaw/kernel";
 import { eventKeys } from "@nextclaw/shared";
 import { NextclawDistributionService } from "@nextclaw-service/services/runtime/nextclaw-distribution.service.js";
-import { NpmRuntimeUpdateHost } from "./npm-runtime-update-host.service.js";
+import {
+  NpmRuntimeUpdateHost,
+  resolveNpmRuntimeUpdateApplyRestartMode,
+  SUPERVISED_RUNTIME_UPDATE_EXIT_CODE,
+} from "./npm-runtime-update-host.service.js";
 
 const mocks = vi.hoisted(() => {
   const state = {
@@ -36,6 +40,7 @@ const mocks = vi.hoisted(() => {
     state,
     getPackageVersion: vi.fn(() => "0.18.12-beta.4"),
     requestManagedServiceRestart: vi.fn().mockResolvedValue(undefined),
+    managerOptions: [] as Array<Record<string, unknown>>,
     sourceOptions: [] as Array<{ packagedPublicKeyPath?: string } | undefined>,
     stateStore: {
       read: vi.fn(() => state),
@@ -116,12 +121,16 @@ vi.mock("@nextclaw-service/services/runtime/npm-runtime-update-source.service.js
 
     resolveChannel = () => "stable";
     resolveBundlePublicKey = () => "mock-public-key";
-    resolveManifestUrl = () => "https://example.invalid/manifest.json";
+    resolveManifestUrls = () => ["https://example.invalid/manifest.json"];
   }
 }));
 
 vi.mock("@nextclaw-service/managers/runtime-update.manager.js", () => ({
   RuntimeUpdateManager: class {
+    constructor(options: Record<string, unknown>) {
+      mocks.managerOptions.push(options);
+    }
+
     getSnapshot = () => mocks.manager.getSnapshot();
     checkForUpdate = () => mocks.manager.checkForUpdate();
     downloadUpdate = () => mocks.manager.downloadUpdate();
@@ -131,21 +140,61 @@ vi.mock("@nextclaw-service/managers/runtime-update.manager.js", () => ({
 
 const TEST_DISTRIBUTION = {
   version: "0.18.12-beta.4",
+  productEnvironment: "production" as const,
+  releaseChannel: "beta" as const,
   appEntrypoint: "/pkg/dist/cli/app/index.js",
+  launcherVersion: "0.30.0",
   launcherEntrypoint: "/pkg/dist/cli/launcher/index.js",
+  launchedByLauncher: true,
+  templatesDir: "/pkg/templates",
   uiDistDir: "/pkg/ui-dist",
   runtimeUpdatePublicKeyPath: "/pkg/resources/update-bundle-public.pem"
 };
+
+describe("resolveNpmRuntimeUpdateApplyRestartMode", () => {
+  it("recognizes explicit and legacy systemd supervision before managed-service state", () => {
+    const serviceState = { pid: 1234, uiPort: 55667 };
+
+    expect(resolveNpmRuntimeUpdateApplyRestartMode({
+      currentPid: 1234,
+      env: { NEXTCLAW_PROCESS_SUPERVISOR: "systemd" },
+      launchedByLauncher: true,
+      serviceState,
+      uiPort: 55667,
+    })).toEqual({ mode: "supervised-process-restart", source: "configured-systemd" });
+    expect(resolveNpmRuntimeUpdateApplyRestartMode({
+      currentPid: 1234,
+      env: { INVOCATION_ID: "systemd-invocation-id" },
+      launchedByLauncher: true,
+      serviceState,
+      uiPort: 55667,
+    })).toEqual({ mode: "supervised-process-restart", source: "legacy-systemd-invocation" });
+  });
+
+  it("does not infer legacy systemd when an explicit non-systemd supervisor is configured", () => {
+    expect(resolveNpmRuntimeUpdateApplyRestartMode({
+      currentPid: 1234,
+      env: {
+        INVOCATION_ID: "ambient-systemd-invocation-id",
+        NEXTCLAW_PROCESS_SUPERVISOR: "external",
+      },
+      launchedByLauncher: true,
+      serviceState: null,
+      uiPort: 55667,
+    })).toEqual({ mode: "manual-process-restart", source: "manual-process" });
+  });
+});
 
 describe("NpmRuntimeUpdateHost", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.sourceOptions.length = 0;
+    mocks.managerOptions.length = 0;
     mocks.state.channel = "stable";
     mocks.state.lastUpdateCheckAt = null;
     NextclawDistributionService.configure(TEST_DISTRIBUTION);
   });
-
+  afterEach(() => vi.unstubAllEnvs());
   it("uses distribution metadata when creating the runtime update source", () => {
     const eventBus = new NextclawKernel().eventBus;
     new NpmRuntimeUpdateHost({
@@ -159,6 +208,20 @@ describe("NpmRuntimeUpdateHost", () => {
       { packagedPublicKeyPath: "/pkg/resources/update-bundle-public.pem" }
     ]);
     expect(mocks.getPackageVersion).not.toHaveBeenCalled();
+  });
+
+  it("keeps stable launcher and running runtime versions as separate facts", () => {
+    new NpmRuntimeUpdateHost({
+      eventBus: new NextclawKernel().eventBus,
+      applyRestartMode: "manual-process-restart",
+      requestRestart: vi.fn(),
+      uiConfig: { port: 55667 }
+    });
+
+    expect(mocks.managerOptions.at(-1)).toMatchObject({
+      launcherVersion: "0.30.0",
+      runningVersion: "0.18.12-beta.4"
+    });
   });
 
   it("returns completed check and download snapshots without requiring realtime events", async () => {
@@ -286,6 +349,30 @@ describe("NpmRuntimeUpdateHost", () => {
     expect(mocks.requestManagedServiceRestart).toHaveBeenCalledWith(requestRestart, {
       reason: "runtime update apply",
       uiPort: 55667
+    });
+  });
+
+  it("exits a supervised process so the host can relaunch the new runtime", async () => {
+    const requestRestart = vi.fn();
+    const host = new NpmRuntimeUpdateHost({
+      eventBus: new NextclawKernel().eventBus,
+      applyRestartMode: "supervised-process-restart",
+      requestRestart,
+      uiConfig: { port: 55667 }
+    });
+
+    await expect(host.applyDownloadedUpdate()).resolves.toMatchObject({
+      status: "restart-required",
+      recoveryCommand: null
+    });
+    expect(mocks.requestManagedServiceRestart).not.toHaveBeenCalled();
+    expect(requestRestart).toHaveBeenCalledWith({
+      reason: "runtime update apply",
+      manualMessage: "Restart the supervised NextClaw process to apply the runtime update.",
+      strategy: "exit-process",
+      exitCode: SUPERVISED_RUNTIME_UPDATE_EXIT_CODE,
+      delayMs: 500,
+      silentNotification: true
     });
   });
 

@@ -1,6 +1,10 @@
 import type { OpenAITool } from "./agent-runtime.types.js";
-import type { NcpError } from "./errors.js";
-import type { NcpMessage, NcpToolOutputContentItem } from "./message.js";
+import type { NcpError } from "./errors.types.js";
+import type {
+  NcpMessage,
+  NcpToolExecutionTiming,
+  NcpToolOutputContentItem,
+} from "./message.js";
 
 /**
  * NCP event and payload definitions.
@@ -31,10 +35,21 @@ export type NcpOutboundMessageDraft = Omit<NcpMessage, "sessionId"> & {
   sessionId?: string;
 };
 
-export type NcpAgentSendEnvelope = Omit<NcpRequestEnvelope, "sessionId" | "message"> & {
+export type NcpAgentSendEnvelope = Omit<
+  NcpRequestEnvelope,
+  "sessionId" | "message"
+> & {
   sessionId?: string;
   message: NcpMessage | NcpOutboundMessageDraft;
+  /** Stable key for retrying the same logical input without materializing it twice. */
+  idempotencyKey?: string;
+  /** Prefer delivery at the next safe step of the active run; unsupported runtimes queue it. */
+  delivery?: NcpInputDelivery;
 };
+
+export type NcpInputDelivery = "queue" | "prefer-steer";
+
+export type NcpResolvedInputDelivery = "started" | "queued" | "steered";
 
 export type NcpProviderRuntimeRoute = {
   model: string;
@@ -177,6 +192,7 @@ export type NcpRunErrorPayload = {
   sessionId?: string;
   messageId?: string;
   error?: string;
+  interrupted?: boolean;
   threadId?: string;
   runId?: string;
   startedAt?: string;
@@ -274,11 +290,20 @@ export type NcpToolCallEndPayload = {
   toolCallId: string;
 } & NcpCorrelationPayload;
 
+export type NcpToolExecutionStartedPayload = {
+  sessionId: string;
+  messageId?: string;
+  toolCallId: string;
+} & NcpCorrelationPayload;
+
 export type NcpToolCallResultPayload = {
   sessionId: string;
   toolCallId: string;
   content: unknown;
   contentItems?: NcpToolOutputContentItem[];
+  /** Defaults to true for backward compatibility. Progress snapshots set false. */
+  final?: boolean;
+  execution?: NcpToolExecutionTiming;
 } & NcpCorrelationPayload;
 
 // ---------------------------------------------------------------------------
@@ -307,6 +332,7 @@ export enum NcpEventType {
   MessageToolCallArgsDelta = "message.tool-call-args-delta",
   MessageToolCallOutputDelta = "message.tool-call-output-delta",
   MessageToolCallEnd = "message.tool-call-end",
+  MessageToolExecutionStarted = "message.tool-execution-started",
   MessageToolCallResult = "message.tool-call-result",
   MessageRead = "message.read",
   MessageDelivered = "message.delivered",
@@ -331,42 +357,80 @@ export type NcpEventTiming = {
   occurredAt?: string;
 };
 
-export type NcpEndpointEvent = NcpEventTiming & (
-  | { type: NcpEventType.EndpointReady }
-  | { type: NcpEventType.MessageRequest; payload: NcpAgentSendEnvelope }
-  | { type: NcpEventType.MessageStreamRequest; payload: NcpStreamRequestPayload }
-  | { type: NcpEventType.MessageSent; payload: NcpMessageSentPayload }
-  | { type: NcpEventType.MessageAccepted; payload: NcpMessageAcceptedPayload }
-  | { type: NcpEventType.MessageIncoming; payload: NcpResponseEnvelope }
-  | { type: NcpEventType.MessageCompleted; payload: NcpCompletedEnvelope }
-  | { type: NcpEventType.MessageFailed; payload: NcpFailedEnvelope }
-  | { type: NcpEventType.MessageAbort; payload: NcpMessageAbortPayload }
-  | { type: NcpEventType.EndpointError; payload: NcpError }
-  | { type: NcpEventType.RunStarted; payload: NcpRunStartedPayload }
-  | { type: NcpEventType.RunFinished; payload: NcpRunFinishedPayload }
-  | { type: NcpEventType.RunError; payload: NcpRunErrorPayload }
-  | { type: NcpEventType.RunMetadata; payload: NcpRunMetadataPayload }
-  | { type: NcpEventType.ContextWindowUpdated; payload: NcpContextWindowUpdatedPayload }
-  | { type: NcpEventType.MessageTextStart; payload: NcpTextStartPayload }
-  | { type: NcpEventType.MessageTextDelta; payload: NcpTextDeltaPayload }
-  | { type: NcpEventType.MessageTextEnd; payload: NcpTextEndPayload }
-  | { type: NcpEventType.MessageReasoningStart; payload: NcpReasoningStartPayload }
-  | { type: NcpEventType.MessageReasoningDelta; payload: NcpReasoningDeltaPayload }
-  | { type: NcpEventType.MessageReasoningEnd; payload: NcpReasoningEndPayload }
-  | { type: NcpEventType.MessageToolCallStart; payload: NcpToolCallStartPayload }
-  | { type: NcpEventType.MessageToolCallArgs; payload: NcpToolCallArgsPayload }
-  | { type: NcpEventType.MessageToolCallArgsDelta; payload: NcpToolCallArgsDeltaPayload }
-  | { type: NcpEventType.MessageToolCallOutputDelta; payload: NcpToolCallOutputDeltaPayload }
-  | { type: NcpEventType.MessageToolCallEnd; payload: NcpToolCallEndPayload }
-  | { type: NcpEventType.MessageToolCallResult; payload: NcpToolCallResultPayload }
-  | { type: NcpEventType.TypingStart; payload: NcpTypingStartPayload }
-  | { type: NcpEventType.TypingEnd; payload: NcpTypingEndPayload }
-  | { type: NcpEventType.PresenceUpdated; payload: NcpPresenceUpdatedPayload }
-  | { type: NcpEventType.MessageRead; payload: NcpMessageReadPayload }
-  | { type: NcpEventType.MessageDelivered; payload: NcpMessageDeliveredPayload }
-  | { type: NcpEventType.MessageRecalled; payload: NcpMessageRecalledPayload }
-  | { type: NcpEventType.MessageReaction; payload: NcpMessageReactionPayload }
-);
+export type NcpEndpointEvent = NcpEventTiming &
+  (
+    | { type: NcpEventType.EndpointReady }
+    | { type: NcpEventType.MessageRequest; payload: NcpAgentSendEnvelope }
+    | {
+        type: NcpEventType.MessageStreamRequest;
+        payload: NcpStreamRequestPayload;
+      }
+    | { type: NcpEventType.MessageSent; payload: NcpMessageSentPayload }
+    | { type: NcpEventType.MessageAccepted; payload: NcpMessageAcceptedPayload }
+    | { type: NcpEventType.MessageIncoming; payload: NcpResponseEnvelope }
+    | { type: NcpEventType.MessageCompleted; payload: NcpCompletedEnvelope }
+    | { type: NcpEventType.MessageFailed; payload: NcpFailedEnvelope }
+    | { type: NcpEventType.MessageAbort; payload: NcpMessageAbortPayload }
+    | { type: NcpEventType.EndpointError; payload: NcpError }
+    | { type: NcpEventType.RunStarted; payload: NcpRunStartedPayload }
+    | { type: NcpEventType.RunFinished; payload: NcpRunFinishedPayload }
+    | { type: NcpEventType.RunError; payload: NcpRunErrorPayload }
+    | { type: NcpEventType.RunMetadata; payload: NcpRunMetadataPayload }
+    | {
+        type: NcpEventType.ContextWindowUpdated;
+        payload: NcpContextWindowUpdatedPayload;
+      }
+    | { type: NcpEventType.MessageTextStart; payload: NcpTextStartPayload }
+    | { type: NcpEventType.MessageTextDelta; payload: NcpTextDeltaPayload }
+    | { type: NcpEventType.MessageTextEnd; payload: NcpTextEndPayload }
+    | {
+        type: NcpEventType.MessageReasoningStart;
+        payload: NcpReasoningStartPayload;
+      }
+    | {
+        type: NcpEventType.MessageReasoningDelta;
+        payload: NcpReasoningDeltaPayload;
+      }
+    | {
+        type: NcpEventType.MessageReasoningEnd;
+        payload: NcpReasoningEndPayload;
+      }
+    | {
+        type: NcpEventType.MessageToolCallStart;
+        payload: NcpToolCallStartPayload;
+      }
+    | {
+        type: NcpEventType.MessageToolCallArgs;
+        payload: NcpToolCallArgsPayload;
+      }
+    | {
+        type: NcpEventType.MessageToolCallArgsDelta;
+        payload: NcpToolCallArgsDeltaPayload;
+      }
+    | {
+        type: NcpEventType.MessageToolCallOutputDelta;
+        payload: NcpToolCallOutputDeltaPayload;
+      }
+    | { type: NcpEventType.MessageToolCallEnd; payload: NcpToolCallEndPayload }
+    | {
+        type: NcpEventType.MessageToolExecutionStarted;
+        payload: NcpToolExecutionStartedPayload;
+      }
+    | {
+        type: NcpEventType.MessageToolCallResult;
+        payload: NcpToolCallResultPayload;
+      }
+    | { type: NcpEventType.TypingStart; payload: NcpTypingStartPayload }
+    | { type: NcpEventType.TypingEnd; payload: NcpTypingEndPayload }
+    | { type: NcpEventType.PresenceUpdated; payload: NcpPresenceUpdatedPayload }
+    | { type: NcpEventType.MessageRead; payload: NcpMessageReadPayload }
+    | {
+        type: NcpEventType.MessageDelivered;
+        payload: NcpMessageDeliveredPayload;
+      }
+    | { type: NcpEventType.MessageRecalled; payload: NcpMessageRecalledPayload }
+    | { type: NcpEventType.MessageReaction; payload: NcpMessageReactionPayload }
+  );
 
 export type NcpEndpointEventDraft = NcpEndpointEvent extends infer Event
   ? Event extends NcpEndpointEvent

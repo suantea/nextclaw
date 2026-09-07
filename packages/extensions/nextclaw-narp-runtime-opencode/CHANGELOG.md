@@ -1,5 +1,207 @@
 # @nextclaw/nextclaw-narp-runtime-opencode
 
+## 0.2.45
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.45
+
+## 0.2.44
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.44
+
+## 0.2.43
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.43
+
+## 0.2.43-beta.1
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.43-beta.1
+
+## 0.2.43-beta.0
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.43-beta.0
+
+## 0.2.42
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.42
+
+## 0.2.41
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.41
+
+## 0.2.40
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.40
+
+## 0.2.39
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.39
+
+## 0.2.38
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.38
+
+## 0.2.37
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.37
+
+## 0.2.36
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.36
+
+## 0.2.35
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/ncp@0.10.0
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.22
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.35
+
+## 0.2.34
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.21
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.34
+
+## 0.2.34-beta.0
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0-beta.0
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.21-beta.0
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.34-beta.0
+
+## 0.2.33
+
+### Patch Changes
+
+- Updated dependencies [7cc703c]
+  - @nextclaw/ncp@0.8.1
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.33
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.20
+
+## 0.2.32
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.32
+
+## 0.2.31
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.31
+
+## 0.2.30
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.30
+
+## 0.2.29
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.29
+
+## 0.2.28
+
+### Patch Changes
+
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+  - @nextclaw/ncp@0.8.0
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.19
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.28
+
+## 0.2.27
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.27
+
+## 0.2.26
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.26
+
+## 0.2.25
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.25
+
+## 0.2.24
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.24
+
+## 0.2.23
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+  - @nextclaw/ncp@0.7.17
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.23
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.18
+
+## 0.2.22
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.22
+
+## 0.2.21
+
+### Patch Changes
+
+- Updated dependencies [38e3e98]
+- Updated dependencies [8e53d92]
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.17
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.21
+  - @nextclaw/ncp@0.7.16
+
+## 0.2.20
+
+### Patch Changes
+
+- @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.20
+
 ## 0.2.19
 
 ### Patch Changes

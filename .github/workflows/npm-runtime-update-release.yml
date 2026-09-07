@@ -1,6 +1,42 @@
 name: npm-runtime-update-release
+run-name: npm-runtime-update-release target=${{ inputs.release_target }} dispatch=${{ inputs.dispatch_id }}
 
 on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      minimum_launcher_version_override:
+        required: false
+        type: string
+      channel:
+        required: true
+        type: string
+      release_target:
+        required: true
+        type: string
+      dispatch_id:
+        required: true
+        type: string
+      publish:
+        required: false
+        default: false
+        type: boolean
+      prepared_npm_artifact_name:
+        required: false
+        type: string
+      prepared_run_id:
+        required: false
+        type: string
+      prepared_source_sha:
+        required: false
+        type: string
+    secrets:
+      NEXTCLAW_DESKTOP_BUNDLE_PRIVATE_KEY:
+        required: false
+      NEXTCLAW_UPDATE_BUNDLE_PRIVATE_KEY:
+        required: false
   workflow_dispatch:
     inputs:
       release_tag:
@@ -19,9 +55,38 @@ on:
         options:
           - beta
           - stable
+      release_target:
+        description: "Immutable commit SHA used for every runtime bundle"
+        required: true
+        type: string
+      dispatch_id:
+        description: "Unique caller identity used to locate this exact dispatch"
+        required: true
+        type: string
+      publish:
+        description: "Publish prepared Runtime artifacts after building"
+        required: false
+        default: true
+        type: boolean
+      prepared_npm_artifact_name:
+        description: "Same-run exact-source NPM artifact used to materialize the versioned release tree"
+        required: false
+        type: string
+      prepared_run_id:
+        description: "Exact npm-release-prepare run containing prebuilt Runtime artifacts"
+        required: false
+        type: string
+      prepared_source_sha:
+        description: "Exact source SHA bound to the prepared Runtime artifacts"
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: write
+
+  # Stable release uses a prebuilt exact-source run. Beta and explicit recovery
+  # may still execute the matrix in this workflow.
 
 env:
   NPM_RUNTIME_RELEASE_TAG: ${{ inputs.release_tag }}
@@ -32,8 +97,9 @@ env:
 jobs:
   build-npm-runtime-update:
     name: npm-runtime-${{ matrix.platform }}-${{ matrix.arch }}
+    if: ${{ !inputs.prepared_run_id }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -41,34 +107,87 @@ jobs:
           - os: macos-14
             platform: darwin
             arch: arm64
-          - os: macos-14
+            cargo_target: aarch64-apple-darwin
+          - os: macos-15-intel
             platform: darwin
             arch: x64
-          - os: ubuntu-latest
+            cargo_target: x86_64-apple-darwin
+          - os: ubuntu-22.04
             platform: linux
             arch: x64
+            cargo_target: x86_64-unknown-linux-musl
           - os: windows-latest
             platform: win32
             arch: x64
+            cargo_target: x86_64-pc-windows-msvc
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ inputs.release_target }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9.15.1
 
+      - name: Download exact-source prepared NPM tree
+        if: ${{ inputs.prepared_npm_artifact_name != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.prepared_npm_artifact_name }}
+          path: ${{ runner.temp }}/npm-release-prepared
+
+      - name: Materialize the versioned release tree
+        if: ${{ inputs.prepared_npm_artifact_name != '' }}
+        shell: bash
+        env:
+          PREPARED_NPM_ARTIFACT_DIR: ${{ runner.temp }}/npm-release-prepared
+        run: >-
+          node --input-type=module -e
+          "import { importPreparedNpmReleaseArtifact } from './scripts/release/prepared-npm-release-artifact.mjs';
+          importPreparedNpmReleaseArtifact({ artifactDirectory: process.env.PREPARED_NPM_ARTIFACT_DIR,
+          registry: 'https://registry.npmjs.org', rootDir: process.cwd(), targetBranch: 'master' });"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.94.1
+        with:
+          targets: wasm32-wasip2,${{ matrix.cargo_target }}
+
+      - name: Restore portable runtime Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/nextclaw-wasmtime-runner/target
+          key: portable-runtime-rust-${{ runner.os }}-${{ matrix.cargo_target }}-${{ hashFiles('apps/nextclaw-wasmtime-runner/Cargo.lock') }}
+          restore-keys: |
+            portable-runtime-rust-${{ runner.os }}-${{ matrix.cargo_target }}-
+
+      - name: Install cargo-component
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-component
+
+      - name: Install Linux static toolchain
+        if: ${{ matrix.platform == 'linux' }}
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build Portable Service App runtime
+        run: node apps/nextclaw-wasmtime-runner/scripts/build-product-runtime.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+
+      - name: Verify native runner Factor and lifecycle contract
+        run: node apps/nextclaw-wasmtime-runner/tools/spin-runner-smoke.tools.mjs
 
       - name: Build signed NPM runtime update channel
         shell: bash
@@ -78,16 +197,7 @@ jobs:
           release_notes_url="https://github.com/${{ github.repository }}/releases/tag/${NPM_RUNTIME_RELEASE_TAG}"
           if [ "$NPM_RUNTIME_UPDATE_CHANNEL" = "stable" ]; then
             runtime_version="$(node -p "require('./packages/nextclaw/package.json').version")"
-            release_notes_json="apps/docs/public/release-notes/nextclaw-v${runtime_version}.json"
-            if [ ! -f "$release_notes_json" ]; then
-              echo "::error::Stable NPM runtime update requires $release_notes_json."
-              exit 1
-            fi
-            release_notes_url="$(node -e "const data=require('./${release_notes_json}'); process.stdout.write(data.links?.html?.['en-US'] || data.links?.html?.['zh-CN'] || '')")"
-            if [ -z "$release_notes_url" ]; then
-              echo "::error::Stable NPM runtime update release notes URL is missing in $release_notes_json."
-              exit 1
-            fi
+            release_notes_url="$(node scripts/release/release-core-notes.mjs --version "$runtime_version" --format url)"
           fi
 
           extra_args=()
@@ -96,6 +206,9 @@ jobs:
               --minimum-launcher-version "$NPM_RUNTIME_MINIMUM_LAUNCHER_VERSION_OVERRIDE"
               --allow-minimum-launcher-version-override true
             )
+          fi
+          if [ "$NPM_RUNTIME_UPDATE_CHANNEL" = "stable" ]; then
+            extra_args+=(--compatibility-channel beta)
           fi
 
           pnpm -C packages/nextclaw runtime-update:build -- \
@@ -107,29 +220,99 @@ jobs:
             --output-dir dist/npm-runtime-updates \
             "${extra_args[@]}"
 
+      - name: Verify Linux runner is statically linked
+        if: ${{ matrix.platform == 'linux' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          runner="packages/nextclaw/resources/native/linux-x64/nextclaw-wasmtime-runner"
+          if readelf -l "$runner" | grep -q 'Requesting program interpreter'; then
+            echo "Linux runner unexpectedly requests a dynamic interpreter."
+            exit 1
+          fi
+          if readelf -d "$runner" | grep -q '(NEEDED)'; then
+            echo "Linux runner unexpectedly declares dynamic dependencies."
+            exit 1
+          fi
+
+      - name: Verify real HTTP enable and component lifecycle
+        run: pnpm -C packages/nextclaw validation:portable-runtime-http
+
       - name: Upload NPM runtime update artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: npm-runtime-update-${{ matrix.platform }}-${{ matrix.arch }}
+          name: npm-runtime-prepared-${{ inputs.prepared_source_sha || inputs.release_target }}-${{ matrix.platform }}-${{ matrix.arch }}
           if-no-files-found: error
           path: |
             packages/nextclaw/dist/npm-runtime-updates
 
   publish-npm-runtime-update-channel:
     needs: [build-npm-runtime-update]
+    if: ${{ always() && inputs.publish && (inputs.prepared_run_id != '' || needs.build-npm-runtime-update.result == 'success') }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: nextclaw-github-pages-state
+      cancel-in-progress: false
     steps:
+      - name: Start Runtime promotion timing
+        shell: bash
+        run: echo "NPM_RUNTIME_PROMOTION_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ inputs.release_target }}
+          fetch-depth: 1
 
-      - name: Download NPM runtime update artifacts
+      - name: Checkout publisher control plane
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: .tmp/publisher
+
+      - name: Download same-run NPM runtime update artifacts
+        if: ${{ inputs.prepared_run_id == '' }}
         uses: actions/download-artifact@v4
         with:
-          pattern: npm-runtime-update-*
+          pattern: npm-runtime-prepared-*
           path: dist/npm-runtime-updates
           merge-multiple: true
+
+      - name: Download exact prepared Runtime artifacts
+        if: ${{ inputs.prepared_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.prepared_run_id }}
+          pattern: npm-runtime-prepared-${{ inputs.prepared_source_sha }}-*
+          path: dist/npm-runtime-updates
+          merge-multiple: true
+
+      - name: Verify prepared Runtime identity and completeness
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_version="${NPM_RUNTIME_RELEASE_TAG#nextclaw@}"
+          expected_targets=(darwin-arm64 darwin-x64 linux-x64 win32-x64)
+          for target in "${expected_targets[@]}"; do
+            manifest="dist/npm-runtime-updates/${NPM_RUNTIME_UPDATE_CHANNEL}/manifest-${NPM_RUNTIME_UPDATE_CHANNEL}-${target}.json"
+            test -f "$manifest"
+            jq -e \
+              --arg version "$expected_version" \
+              --arg channel "$NPM_RUNTIME_UPDATE_CHANNEL" \
+              '.latestVersion == $version and .channel == $channel and .hostKind == "npm-runtime-bundle"' \
+              "$manifest" >/dev/null
+            if [ "$NPM_RUNTIME_UPDATE_CHANNEL" = "stable" ]; then
+              compatibility_manifest="dist/npm-runtime-updates/beta/manifest-beta-${target}.json"
+              test -f "$compatibility_manifest"
+              jq -e \
+                --arg version "$expected_version" \
+                '.latestVersion == $version and .channel == "beta" and .hostKind == "npm-runtime-bundle"' \
+                "$compatibility_manifest" >/dev/null
+            fi
+          done
 
       - name: Publish NPM runtime release metadata
         shell: bash
@@ -139,8 +322,7 @@ jobs:
           set -euo pipefail
           release_args=(--title "$NPM_RUNTIME_RELEASE_TAG" --notes "NPM runtime update assets for $NPM_RUNTIME_RELEASE_TAG.")
           if [ "$NPM_RUNTIME_UPDATE_CHANNEL" = "stable" ]; then
-            release_metadata="apps/docs/public/release-notes/nextclaw-v${NPM_RUNTIME_RELEASE_TAG#nextclaw@}.json"
-            release_notes="$(jq -er '.summary["en-US"] + "\n\nFull release notes: " + .links.html["en-US"]' "$release_metadata")"
+            release_notes="$(node scripts/release/release-core-notes.mjs --version "${NPM_RUNTIME_RELEASE_TAG#nextclaw@}" --format notes)"
             release_args=(--title "NextClaw v${NPM_RUNTIME_RELEASE_TAG#nextclaw@}" --notes "$release_notes" --prerelease=false --latest)
           else
             release_args+=(--prerelease --latest=false)
@@ -172,7 +354,7 @@ jobs:
           rm -rf .tmp/gh-pages
 
           if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
-            git fetch origin gh-pages
+            git fetch --depth=1 origin gh-pages
             git worktree add .tmp/gh-pages origin/gh-pages
           else
             git worktree add --detach .tmp/gh-pages
@@ -185,20 +367,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! find dist/npm-runtime-updates -type f -name 'manifest-*.json' | grep -q .; then
-            echo "No NPM runtime update manifests were downloaded."
-            exit 1
-          fi
-
-          mkdir -p .tmp/gh-pages/npm-runtime-updates
-          cp -R dist/npm-runtime-updates/. .tmp/gh-pages/npm-runtime-updates/
-          find .tmp/gh-pages/npm-runtime-updates -type f -name 'nextclaw-runtime-*.zip' -delete
+          node .tmp/publisher/scripts/release/npm-runtime-update-channel-publisher.mjs \
+            --artifacts-dir dist/npm-runtime-updates \
+            --state-dir .tmp/gh-pages \
+            --release-channel "$NPM_RUNTIME_UPDATE_CHANNEL"
           touch .tmp/gh-pages/.nojekyll
 
       - name: Publish NPM runtime update channel to gh-pages
         shell: bash
         run: |
           set -euo pipefail
+          node .tmp/publisher/scripts/release/github-pages-artifact.mjs verify-state --state-dir .tmp/gh-pages
           git -C .tmp/gh-pages config user.name "github-actions[bot]"
           git -C .tmp/gh-pages config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C .tmp/gh-pages add npm-runtime-updates .nojekyll
@@ -208,3 +387,32 @@ jobs:
           fi
           git -C .tmp/gh-pages commit -m "chore: publish npm runtime update channel"
           git -C .tmp/gh-pages push origin HEAD:gh-pages
+
+      - name: Record Runtime promotion timing
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          elapsed_seconds=$(( $(date +%s) - NPM_RUNTIME_PROMOTION_STARTED_AT ))
+          budget_status="met"
+          if [ "$elapsed_seconds" -gt 120 ]; then
+            budget_status="missed"
+          fi
+          {
+            echo "## nextclaw.runtime-promotion/v1"
+            echo
+            echo "- source: ${{ inputs.prepared_source_sha || inputs.release_target }}"
+            echo "- release: $NPM_RUNTIME_RELEASE_TAG"
+            echo "- elapsed_seconds: $elapsed_seconds"
+            echo "- budget_seconds: 120"
+            echo "- budget_status: $budget_status"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-public-pages:
+    needs: [publish-npm-runtime-update-channel]
+    if: ${{ always() && needs.publish-npm-runtime-update-channel.result == 'success' }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/github-pages-deploy.yml

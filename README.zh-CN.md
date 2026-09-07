@@ -4,35 +4,56 @@
 
 <div align="center">
 
+<img src="apps/landing/public/logo.svg" width="72" alt="NextClaw 标志" />
+
 # NextClaw
 
-**让 AI 在你自己的电脑上，真正把事情做完。**
+**你的长期个人智能搭档。**
 
-说出你要做什么。NextClaw 会把资料、模型、Agent、技能、浏览器、本机应用、自动化和聊天入口放进同一个任务里，一路推进到可用结果。
+说出你要完成的事。NextClaw 会把会话、文件、工具和生成结果放进同一个工作台，一路推进到真正可以交付的结果。
+
+</div>
+
+[![NextClaw 工作台在会话中展示数据可视化并打开项目文档](images/screenshots/nextclaw-hero-workbench-cn.png)](https://nextclaw.io/)
+
+<div align="center">
+
+**从一句话到可用结果，中间做过的事都不会散落。**
+
+[下载与安装](https://nextclaw.io/zh/download/) · [查看使用场景](https://nextclaw.io/zh/use-cases/) · [阅读文档](https://docs.nextclaw.io/zh/)
 
 [![npm](https://img.shields.io/npm/v/nextclaw)](https://www.npmjs.com/package/nextclaw)
 [![GitHub Release](https://img.shields.io/github/v/release/Peiiii/nextclaw?display_name=tag)](https://github.com/Peiiii/nextclaw/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Node.js LTS](https://img.shields.io/badge/Node.js-LTS-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![Discord](https://img.shields.io/badge/Discord-NextClaw-5865F2?logo=discord&logoColor=white)](https://discord.gg/j4Skbgye)
 
-[官网](https://nextclaw.io/zh/) · [下载](https://nextclaw.io/zh/download/) · [安装方式](https://nextclaw.io/zh/install/) · [文档](https://docs.nextclaw.io/zh/) · [版本发布](https://github.com/Peiiii/nextclaw/releases)
-
-<p>
-  <img src="https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows" />
-  <img src="https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS" />
-  <img src="https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux" />
-  <img src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker" />
-  <img src="https://img.shields.io/badge/云服务器-4285F4?style=flat-square&logo=googlecloud&logoColor=white" alt="云服务器" />
-</p>
+开源 · 本地优先 · 支持 macOS、Windows、Linux、Docker 和云服务器
 
 </div>
 
-![NextClaw 会话中的数据分析结果与右侧 Markdown 文档预览](images/screenshots/nextclaw-hero-workbench-cn.png)
+## 为什么选择 NextClaw
 
-NextClaw 是一个本地优先的 AI 工作台，适合处理那些不只是“问一句、答一句”的任务。对话、资料、工具、生成结果和后续操作可以留在一起，不用每换一个软件就重新开始。
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <strong>直接说目标</strong><br /><br />
+      无论是报告、数据分析、文件处理、小应用还是定时任务，NextClaw 都会组织背后的工具和步骤。
+    </td>
+    <td width="33%" valign="top">
+      <strong>过程和结果都留在一起</strong><br /><br />
+      会话、本地文件、网页资料、生成的文档和后续修改都在同一个任务里，不用反复切换和重来。
+    </td>
+    <td width="33%" valign="top">
+      <strong>自己选择怎么运行</strong><br /><br />
+      可使用 Native、Codex、Claude Code、OpenCode 或 Hermes，并运行在自己的电脑、NAS 或服务器上。
+    </td>
+  </tr>
+</table>
 
-## 可以用它做什么
+NextClaw 也把 `nextclaw` 命令行作为一等使用入口。许多核心操作可以从终端、脚本、CI 或其他 Agent 调用，并在适用时提供机器可读的输出。
+
+全新安装无需填写 API Key，开箱即可开始第一个任务。内置免费试用由公共网关提供，限额和模型可能变化，请勿发送敏感或机密信息。
+
+## 可以直接交给它的事
 
 - **调研和对比** — 收集网页、笔记和参考资料，整理成简报、来源列表或对比表。
 - **数据分析和可视化** — 从网页、CSV 或表格里整理数据，清洗、统计、画图，再写出结论。
@@ -45,17 +66,23 @@ NextClaw 是一个本地优先的 AI 工作台，适合处理那些不只是“�
 
 ## 产品导览
 
+### 从原始材料做到可以检查的结果
+
+从一组原始材料开始，让 Agent 整理和可视化数据，再在会话旁检查结果。源文件和项目文档仍留在同一个工作区里，后续可以继续修改。
+
+[![NextClaw 会话右侧打开数据分析仪表盘](images/screenshots/nextclaw-workspace-preview-cn.png)](images/screenshots/nextclaw-workspace-preview-cn.png)
+
 ### AI 主动把重要结果送到你面前
 
 定时任务、后台 Agent 或长期监测完成后，NextClaw 可以把报告送进收件箱。你可以稍后阅读、集中管理，也可以带着完整内容直接继续聊。
 
-[![NextClaw AI 主动送达项目晨报](images/screenshots/nextclaw-ai-delivery-inbox-cn.png)](images/screenshots/nextclaw-ai-delivery-inbox-cn.png)
+[![NextClaw 岛屿主题展示每日 AI 与科技简报主动送达到 AI 收件箱](images/screenshots/nextclaw-island-inbox-workspace-cn.png)](images/screenshots/nextclaw-island-inbox-workspace-cn.png)
 
 ### 每次任务都可以选择 Agent Runtime
 
-Agent 保留自己的身份、主目录、记忆和技能，再由 Native、Codex、Claude Code、OpenCode 或 Hermes 执行当前任务。下面这个真实会话使用 Codex 完善项目架构，右侧同步查看生成的 Markdown 文档。
+Agent 保留自己的身份、主目录、记忆和技能，再由 Native、Codex、Claude Code、OpenCode 或 Hermes 执行当前任务。开始任务时选择 Runtime，其余工作区和任务上下文保持不变。
 
-[![NextClaw 使用 Codex 推进项目并在右侧预览 Markdown 架构文档](images/screenshots/nextclaw-codex-runtime-markdown-preview-cn.png)](images/screenshots/nextclaw-codex-runtime-markdown-preview-cn.png)
+[![NextClaw Runtime 选择器展示 Native、Claude Code、Codex、Hermes 和 OpenCode](images/screenshots/nextclaw-agent-runtime-picker-cn.png)](images/screenshots/nextclaw-agent-runtime-picker-cn.png)
 
 ### 真实文件可以直接放在会话旁边
 
@@ -67,7 +94,7 @@ Agent 保留自己的身份、主目录、记忆和技能，再由 Native、Code
 
 和 Agent 边聊边做页面，完成后可以直接运行，也可以保存为 Panel App，以后随时打开和继续修改。
 
-[![NextClaw 会话中运行 Agent 制作的电子钢琴](images/screenshots/nextclaw-panel-app-piano-cn.png)](images/screenshots/nextclaw-panel-app-piano-cn.png)
+[![NextClaw 会话右侧运行 Agent 制作的唐诗卡片应用](images/screenshots/nextclaw-panel-app-running-cn.png)](images/screenshots/nextclaw-panel-app-running-cn.png)
 
 ### 工作台里的更多界面
 
@@ -127,7 +154,7 @@ npm install -g nextclaw
 nextclaw start
 ```
 
-打开 [http://127.0.0.1:55667](http://127.0.0.1:55667)，选择模型提供商后即可开始任务。
+打开 [http://127.0.0.1:55667](http://127.0.0.1:55667)，直接使用内置免费试用模型开始任务；需要时再配置自己的模型提供商。
 
 如果系统找不到 `npm`，请安装或重新安装 Node.js LTS，再重开终端。远程主机的 `55667` 端口提供纯 HTTP 服务，只适合临时验证；日常访问请用 Nginx 或 Caddy 终止 HTTPS。
 
@@ -143,11 +170,13 @@ nextclaw stop
 curl -fsSL https://nextclaw.io/install-docker.sh | bash
 ```
 
-反向代理、域名和远程访问设置请查看 [Docker 部署文档](https://docs.nextclaw.io/zh/guide/tutorials/docker-one-click)。所有支持的方式都可以在[安装方式页面](https://nextclaw.io/zh/install/)中对比。
+反向代理、域名和远程访问设置请查看 [Docker 部署文档](https://docs.nextclaw.io/zh/guide/tutorials/docker-one-click)。所有支持的方式都可以在[下载与安装页](https://nextclaw.io/zh/download/)中对比。
+
+当前已验证的服务器配置、空闲内存数据，以及活跃任务可能增加的资源占用见[运行资源与内存基准](https://docs.nextclaw.io/zh/guide/resource-usage)。
 
 ## 模型、渠道与工具
 
-- **模型** — OpenRouter、OpenAI、Anthropic、Gemini、DeepSeek、MiniMax、Moonshot、通义千问、智谱、AiHubMix、vLLM，以及自定义 OpenAI 兼容接口。
+- **模型** — 开箱即用的内置免费试用，以及 OpenRouter、OpenAI、Anthropic、Gemini、DeepSeek、MiniMax、Moonshot、通义千问、智谱、AiHubMix、vLLM 和自定义 OpenAI 兼容接口。
 - **聊天渠道** — 微信、飞书/Lark、QQ、钉钉、企业微信、Telegram、Discord、Slack、WhatsApp 和邮箱。
 - **可扩展能力** — 技能、MCP、CLI 工具、浏览器操作、本地文件、面板应用和定时任务。
 - **本地可控** — 配置、会话和密钥保存在你控制的环境中。接入的模型和渠道会收到你通过它们发送的数据。
@@ -196,7 +225,6 @@ pnpm run screenshots:refresh
 ## 社群
 
 - **微信群** — 扫描下方二维码。
-- **Discord** — [NextClaw / OpenClaw](https://discord.gg/j4Skbgye)
 - **问题反馈** — [GitHub Issues](https://github.com/Peiiii/nextclaw/issues)
 
 <img src="images/contact/nextclaw-contact-wechat-group.png" width="180" alt="NextClaw 微信群二维码" />

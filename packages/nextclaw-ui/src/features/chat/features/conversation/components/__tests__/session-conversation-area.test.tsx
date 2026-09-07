@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { SessionConversationArea } from "@/features/chat/features/conversation/components/session-conversation-area";
+import type { ChatDraftIntent } from "@/features/chat/managers/chat-draft-intent.manager";
 
 const mocks = vi.hoisted(() => {
   const inputRenderSpy = vi.fn();
@@ -39,7 +40,7 @@ const mocks = vi.hoisted(() => {
     selectedSessionType: "default",
     pendingProjectRoot: null,
     composerFocusRequestId: 0,
-    sendError: null,
+    sendError: null as string | null,
   };
   const inputQuery = {
     defaultModel: undefined as string | undefined,
@@ -52,6 +53,7 @@ const mocks = vi.hoisted(() => {
     selectedSession: null as null | {
       activityPreview?: {
         state: "running" | "completed" | "failed" | "cancelled" | "idle";
+        statusKind?: "run-failed" | "run-interrupted";
         statusText?: string;
         replyText?: string;
       };
@@ -70,6 +72,7 @@ const mocks = vi.hoisted(() => {
     skillRecords: [],
   };
   const controller = {
+    canEditQueuedInput: true,
     canStopGeneration: true,
     deleteQueuedInput: vi.fn(),
     editQueuedInput: vi.fn(),
@@ -77,20 +80,22 @@ const mocks = vi.hoisted(() => {
     isSending: true,
     queuedInputs: [],
     send: vi.fn(),
+    sendSteering: vi.fn(),
     sendDisabled: true,
     stop: vi.fn(),
     stopDisabled: false,
+    steerQueuedInput: vi.fn(),
   };
   const agent = {
     visibleMessages: [] as unknown[],
     isHydrating: false,
     isRunning: true,
     isSending: true,
-    hydrateError: null,
+    hydrateError: null as Error | null,
     snapshot: {
       activeRun: null,
       contextWindow: null,
-      error: null,
+      error: null as { code?: string; message: string } | null,
     },
     send: vi.fn(),
     abort: vi.fn(),
@@ -105,6 +110,8 @@ const mocks = vi.hoisted(() => {
     inputRenderSpy,
     initialPromptSpy,
     inputSnapshot,
+    pendingInputs: [] as unknown[],
+    runtimeBlocked: false,
     presenter: {
       chatUiManager: {
         goToProviders: vi.fn(),
@@ -116,7 +123,7 @@ const mocks = vi.hoisted(() => {
     },
     appPresenter: {
       chatDraftIntentManager: {
-        consumePending: vi.fn(() => null),
+        consumePending: vi.fn<() => ChatDraftIntent | null>(() => null),
         markConsumed: vi.fn(),
         subscribe: vi.fn(() => vi.fn()),
       },
@@ -138,12 +145,14 @@ vi.mock(
     ChatConversationContent: ({
       bottomSlot,
       isContextCompacting,
+      messageActionsDisabled,
       messages,
       showWelcome,
       welcomeSlot,
     }: {
       bottomSlot?: ReactNode;
       isContextCompacting?: boolean;
+      messageActionsDisabled?: boolean;
       messages: readonly unknown[];
       showWelcome: boolean;
       welcomeSlot?: ReactNode;
@@ -151,6 +160,7 @@ vi.mock(
       <div
         data-testid="conversation-content"
         data-context-compacting={String(Boolean(isContextCompacting))}
+        data-message-actions-disabled={String(Boolean(messageActionsDisabled))}
         data-show-welcome={String(showWelcome)}
       >
         {showWelcome ? (
@@ -188,8 +198,12 @@ vi.mock(
   () => ({
     useSessionRunQueue: () => ({
       inputs: [],
+      pendingInputs: mocks.pendingInputs,
       isLoading: false,
+      refreshPendingInputs: vi.fn(async () => []),
+      refreshQueuedInputs: vi.fn(async () => []),
       removeQueuedInput: vi.fn(async () => null),
+      steerQueuedInput: vi.fn(async () => null),
     }),
   }),
 );
@@ -197,7 +211,7 @@ vi.mock(
 vi.mock(
   "@/features/chat/features/runtime/utils/ncp-chat-runtime-availability.utils",
   () => ({
-    isNcpChatRuntimeBlocked: () => false,
+    isNcpChatRuntimeBlocked: () => mocks.runtimeBlocked,
     resolveNcpChatSendErrorMessage: ({ message }: { message: string | null }) =>
       message,
   }),
@@ -206,8 +220,11 @@ vi.mock(
 vi.mock(
   "@/features/chat/features/conversation/hooks/use-session-conversation-input-state",
   () => ({
-    useSessionConversationInputState: (initialPrompt?: string | null) => {
-      mocks.initialPromptSpy(initialPrompt);
+    useSessionConversationInputState: (
+      initialPrompt?: string | null,
+      sessionKey?: string | null,
+    ) => {
+      mocks.initialPromptSpy(initialPrompt, sessionKey);
       return {
         inputActions: mocks.inputActions,
         inputSnapshot: mocks.inputSnapshot,
@@ -262,10 +279,16 @@ describe("SessionConversationArea input boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.agent.visibleMessages = [];
+    mocks.pendingInputs = [];
     mocks.agent.isHydrating = false;
     mocks.agent.isRunning = true;
     mocks.agent.isSending = true;
+    mocks.agent.hydrateError = null;
     mocks.agent.snapshot.contextWindow = null;
+    mocks.agent.snapshot.error = null;
+    mocks.controller.isSending = true;
+    mocks.runtimeBlocked = false;
+    mocks.inputSnapshot.sendError = null;
     mocks.inputQuery.defaultModel = undefined;
     mocks.inputQuery.fallbackPreferredModel = undefined;
     mocks.inputQuery.selectedSession = null;
@@ -286,6 +309,30 @@ describe("SessionConversationArea input boundary", () => {
     expect(params.agent.isSending).toBe(false);
   });
 
+  it("disables message recovery actions until the NCP agent is ready", () => {
+    mocks.agent.isRunning = false;
+    mocks.agent.isSending = false;
+    mocks.controller.isSending = false;
+    mocks.runtimeBlocked = true;
+
+    const rendered = renderArea("session-1");
+
+    expect(
+      screen.getByTestId("conversation-content").dataset.messageActionsDisabled,
+    ).toBe("true");
+
+    mocks.runtimeBlocked = false;
+    rendered.rerender(
+      <MemoryRouter>
+        <SessionConversationArea sessionKey="session-1" />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByTestId("conversation-content").dataset.messageActionsDisabled,
+    ).toBe("false");
+  });
+
   it("keeps the composer input subtree stable when only streamed messages change", () => {
     const rendered = renderArea("session-1");
 
@@ -300,6 +347,35 @@ describe("SessionConversationArea input boundary", () => {
 
     expect(screen.getByTestId("message-count").textContent).toBe("1");
     expect(mocks.inputRenderSpy).toHaveBeenCalledOnce();
+  });
+
+  it("projects a steering input as one pending user message until its durable message arrives", () => {
+    const message = {
+      id: "steering-message-1",
+      sessionId: "session-1",
+      role: "user",
+      status: "final",
+      timestamp: "2026-08-22T00:00:00.000Z",
+      parts: [{ type: "text", text: "改变方向" }],
+    };
+    mocks.pendingInputs = [{
+      id: "pending-input-1",
+      intendedRunId: "run-1",
+      placement: "steering",
+      message,
+    }];
+    const rendered = renderArea("session-1");
+
+    expect(screen.getByTestId("message-count").textContent).toBe("1");
+
+    mocks.agent.visibleMessages = [message];
+    rendered.rerender(
+      <MemoryRouter>
+        <SessionConversationArea sessionKey="session-1" />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId("message-count").textContent).toBe("1");
   });
 
   it("shows compaction feedback only for the active session", () => {
@@ -319,13 +395,27 @@ describe("SessionConversationArea input boundary", () => {
       .toBe("false");
   });
 
-  it("does not replace the welcome composer just because draft send starts", () => {
-    renderArea(null);
+  it("leaves the welcome surface on the first local sending render", () => {
+    mocks.agent.isRunning = false;
+    mocks.agent.isSending = false;
+    mocks.controller.isSending = false;
+    const rendered = renderArea(null);
 
     expect(screen.getByTestId("conversation-content").dataset.showWelcome).toBe(
       "true",
     );
-    expect(screen.getByTestId("welcome")).toBeTruthy();
+
+    mocks.controller.isSending = true;
+    rendered.rerender(
+      <MemoryRouter>
+        <SessionConversationArea sessionKey={null} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId("conversation-content").dataset.showWelcome).toBe(
+      "false",
+    );
+    expect(screen.queryByTestId("welcome")).toBeNull();
     expect(screen.getByTestId("conversation-input")).toBeTruthy();
   });
 
@@ -349,7 +439,60 @@ describe("SessionConversationArea input boundary", () => {
       </MemoryRouter>,
     );
 
-    expect(mocks.initialPromptSpy).toHaveBeenCalledWith("每天整理项目风险");
+    expect(mocks.initialPromptSpy).toHaveBeenCalledWith(
+      "每天整理项目风险",
+      null,
+    );
+    expect(mocks.inputActions.applyPromptSuggestion).toHaveBeenCalledWith(
+      "每天整理项目风险",
+    );
+  });
+
+  it("consumes a system object draft intent as a visible composer token", () => {
+    const reference = {
+      uri: "nextclaw://objects/inbox-delivery/delivery-1",
+      objectType: "inbox-delivery",
+      objectId: "delivery-1",
+      label: "OOM investigation report",
+      description: "Root cause and mitigation",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      version: "sha256-report",
+      assetUri: "asset://store/report",
+      fileName: "oom-investigation-report.md",
+      mimeType: "text/markdown",
+      sizeBytes: 128,
+    };
+    mocks.appPresenter.chatDraftIntentManager.consumePending.mockReturnValueOnce({
+      id: 1,
+      kind: "system-object-reference",
+      reference,
+    });
+
+    render(
+      <MemoryRouter>
+        <SessionConversationArea
+          consumeDraftIntent
+          sessionKey={null}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(mocks.presenter.chatSessionListManager.createSession).toHaveBeenCalledOnce();
+    expect(mocks.appPresenter.chatDraftIntentManager.markConsumed).toHaveBeenCalledWith(1);
+    const update = mocks.inputActions.update.mock.calls.at(-1)?.[0] as (
+      current: { nodes: []; text: string },
+    ) => { nodes: Array<Record<string, unknown>>; text: string };
+    const next = update({ nodes: [], text: "" });
+    expect(next.nodes).toEqual([
+      expect.objectContaining({
+        type: "token",
+        tokenKind: "system_object",
+        tokenKey: reference.uri,
+        label: reference.label,
+        data: { reference },
+      }),
+    ]);
+    expect(next.text).toBe("");
   });
 
   it("syncs draft preferences with the selected runtime context", () => {
@@ -380,7 +523,7 @@ describe("SessionConversationArea input boundary", () => {
     mocks.inputQuery.selectedSession = {
       activityPreview: {
         state: "failed",
-        statusText: "Run failed: Invalid API Key",
+        statusText: "Invalid API Key",
       },
       status: "idle",
     };
@@ -388,8 +531,31 @@ describe("SessionConversationArea input boundary", () => {
     renderArea("session-1");
 
     expect(screen.getByTestId("conversation-bottom-slot")).toBeTruthy();
-    expect(screen.getByText(/出错了|Something went wrong/)).toBeTruthy();
-    expect(screen.getByText("Run failed: Invalid API Key")).toBeTruthy();
+    expect(screen.getByText("Invalid API Key")).toBeTruthy();
+  });
+
+  it("renders overlapping runtime failures once with a subdued diagnostic surface", () => {
+    const providerError = `Chat Completions API failed (402): {\n  "error": "${"x".repeat(240)} END_OF_PROVIDER_ERROR"\n}`;
+    mocks.inputSnapshot.sendError = providerError;
+    mocks.agent.snapshot.error = { message: providerError };
+    mocks.inputQuery.selectedSession = {
+      activityPreview: {
+        state: "failed",
+        statusText: providerError,
+      },
+      status: "idle",
+    };
+
+    renderArea("session-1");
+
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    const failureStatus = screen.getByRole("status");
+    expect(failureStatus.className).toContain("bg-muted/45");
+    expect(failureStatus.className).not.toContain("bg-red");
+    const errorDetail = failureStatus.querySelector("pre");
+    expect(errorDetail?.className).toContain("max-h-32");
+    expect(errorDetail?.className).toContain("overflow-auto");
+    expect(errorDetail?.textContent).toBe(providerError);
   });
 
   it("does not surface user-cancelled previews as conversation errors", () => {
@@ -405,5 +571,26 @@ describe("SessionConversationArea input boundary", () => {
 
     expect(screen.queryByTestId("conversation-bottom-slot")).toBeNull();
     expect(screen.queryByText(/出错了|Something went wrong/)).toBeNull();
+  });
+
+  it("does not expose recovered runtime interruption diagnostics as task errors", () => {
+    const recoveryDetail = "Run interrupted: internal recovery detail.";
+    mocks.agent.snapshot.error = {
+      code: "run-interrupted",
+      message: recoveryDetail,
+    };
+    mocks.inputQuery.selectedSession = {
+      activityPreview: {
+        state: "failed",
+        statusKind: "run-interrupted",
+        statusText: recoveryDetail,
+      },
+      status: "idle",
+    };
+
+    renderArea("session-1");
+
+    expect(screen.queryByTestId("conversation-bottom-slot")).toBeNull();
+    expect(screen.queryByText(recoveryDetail)).toBeNull();
   });
 });

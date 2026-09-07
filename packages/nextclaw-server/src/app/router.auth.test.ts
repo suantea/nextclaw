@@ -9,7 +9,7 @@ import { UiAuthService } from "@nextclaw-server/features/auth/index.js";
 import { createUiRouter } from "./router.js";
 import { createRouterTestKernel } from "@nextclaw-server/app/tests/router-test-kernel.js";
 import { EventBus } from "@nextclaw/shared";
-import type { UiKernelHost } from "@nextclaw-server/app/types/router-options.types.js";
+import type { UiExtensionHost, UiKernelHost } from "@nextclaw-server/app/types/router-options.types.js";
 
 const tempDirs: string[] = [];
 const originalHome = process.env.NEXTCLAW_HOME;
@@ -31,11 +31,16 @@ function useIsolatedHome(): string {
   return homeDir;
 }
 
-function createApp(configPath: string, kernelOverrides: Partial<UiKernelHost> = {}) {
+function createApp(
+  configPath: string,
+  kernelOverrides: Partial<UiKernelHost> = {},
+  extensions?: UiExtensionHost,
+) {
   return createUiRouter({
     kernel: createRouterTestKernel(kernelOverrides),
     configPath,
     appEventBus: new EventBus(),
+    ...(extensions ? { extensions } : {}),
   });
 }
 
@@ -87,6 +92,92 @@ describe("ui auth config", () => {
 });
 
 describe("ui auth routes", () => {
+  it("exposes extension lifecycle diagnostics through the runtime status route", async () => {
+    useIsolatedHome();
+    const configPath = createTempConfigPath();
+    saveConfig(ConfigSchema.parse({}), configPath);
+    const runtimeStatus = [{
+      extensionId: "nextclaw-channel-extension-weixin",
+      generation: "generation-1",
+      lastExit: null,
+      leaseReasons: [{ kind: "enabled-channel" as const, channelId: "weixin" }],
+      memory: { rssBytes: 80 * 1024 * 1024, pssBytes: 60 * 1024 * 1024 },
+      pid: 123,
+      startedAt: "2026-08-09T00:00:00.000Z",
+      state: "running" as const,
+      startupDurationMs: 120,
+    }];
+    const app = createApp(configPath, { extensions: { getRuntimeStatus: () => runtimeStatus } as never }, {
+      authenticateEventStreamCredential: () => null,
+      getChannelBindings: () => [],
+      getUiMetadata: () => [],
+    });
+
+    const response = await app.request("http://localhost/api/runtime/extensions");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      data: runtimeStatus,
+    });
+  });
+
+  it("exposes a safe global Extension catalog with declared capabilities", async () => {
+    useIsolatedHome();
+    const configPath = createTempConfigPath();
+    saveConfig(ConfigSchema.parse({}), configPath);
+    const app = createApp(configPath, { extensions: {
+      getManifests: () => [{
+        id: "world-extension",
+        name: "World",
+        version: "1.2.0",
+        rootDir: "/private/extension-root",
+        server: { type: "stdio", command: "node", args: ["server.js"] },
+        contributes: {
+          observations: {
+            read: { description: "Read state" },
+            events: { description: "Receive events" },
+          },
+          channels: [{ id: "world", name: "World channel" }],
+        },
+      }],
+      getRuntimeStatus: () => [{
+        extensionId: "world-extension",
+        generation: "generation-1",
+        lastExit: null,
+        leaseReasons: [{ kind: "observation-subscription", subscriptionId: "subscription-1" }],
+        memory: null,
+        pid: 123,
+        startedAt: "2026-08-23T00:00:00.000Z",
+        state: "running",
+        startupDurationMs: 120,
+      }],
+    } as never }, {
+      authenticateEventStreamCredential: () => null,
+      getChannelBindings: () => [],
+      getUiMetadata: () => [],
+    });
+
+    const response = await app.request("http://localhost/api/runtime/extensions/catalog");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      ok: true,
+      data: {
+        counts: { total: 1, running: 1, withObservations: 1, withChannels: 1 },
+        extensions: [{
+          id: "world-extension",
+          name: "World",
+          state: "running",
+          observations: { context: true, events: true },
+          channels: [{ id: "world", name: "World channel" }],
+        }],
+      },
+    });
+    expect(JSON.stringify(payload)).not.toContain("private/extension-root");
+  });
+
   it("keeps config routes public when auth is disabled", async () => {
     useIsolatedHome();
     const configPath = createTempConfigPath();
@@ -173,6 +264,15 @@ describe("ui auth protection flows", () => {
 
     const healthResponse = await app.request("http://localhost/api/health");
     expect(healthResponse.status).toBe(200);
+    expect(await healthResponse.json()).toMatchObject({
+      ok: true,
+      data: {
+        status: "ok",
+        services: {
+          ncpAgent: "pending"
+        }
+      }
+    });
 
     const bootstrapStatusResponse = await app.request("http://localhost/api/runtime/bootstrap-status");
     expect(bootstrapStatusResponse.status).toBe(200);

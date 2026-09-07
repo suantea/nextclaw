@@ -1,6 +1,9 @@
 import { useState, type MouseEvent } from 'react';
-import { AppWindow, MoreVertical, Star, Trash2, type LucideIcon } from 'lucide-react';
+import { MoreVertical, Star, Trash2, type LucideIcon } from 'lucide-react';
 import type { PanelAppEntryView } from '@/shared/lib/api';
+import { PanelAppIcon } from '@/features/panel-apps/components/panel-app-icon';
+import { PanelAppMainSidebarMenuItem } from '@/features/panel-apps/components/panel-app-main-sidebar-menu-item';
+import { PanelAppOpenStandaloneMenuItem } from '@/features/panel-apps/components/panel-app-open-standalone-menu-item';
 import { ConfirmDialog } from '@/shared/components/ui/confirm-dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover';
 import { getLanguage, getLocale, t } from '@/shared/lib/i18n';
@@ -36,7 +39,6 @@ export function PanelAppListItem({
     setIsMenuOpen(false);
     setIsDeleteDialogOpen(true);
   };
-
   return (
     <div className="group w-full min-w-0 rounded-lg border border-border/60 bg-card px-2.5 py-2.5 transition-colors hover:bg-muted/40">
       <div className="flex min-w-0 items-start gap-2">
@@ -75,6 +77,14 @@ export function PanelAppListItem({
               </button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-48 rounded-xl p-1.5">
+              <PanelAppOpenStandaloneMenuItem
+                entry={entry}
+                onSelect={() => setIsMenuOpen(false)}
+              />
+              <PanelAppMainSidebarMenuItem
+                entry={entry}
+                onSelect={() => setIsMenuOpen(false)}
+              />
               <PanelAppMenuItem
                 destructive
                 disabled={deletePending}
@@ -118,7 +128,7 @@ function PanelAppMenuItem({
       type="button"
       className={cn(
         'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-        destructive ? 'text-destructive hover:bg-destructive/10' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+        destructive ? 'text-destructive hover:bg-destructive/10' : 'text-muted-foreground hover:bg-[var(--interaction-hover)] hover:text-accent-foreground',
       )}
       disabled={disabled}
       onClick={onClick}
@@ -143,31 +153,4 @@ function formatPanelAppTime(value: string): string {
     return new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric' }).format(date);
   }
   return new Intl.DateTimeFormat(locale, { year: '2-digit', month: 'numeric', day: 'numeric' }).format(date);
-}
-
-function PanelAppIcon({ icon, title }: { icon?: string; title: string }) {
-  if (!icon) {
-    return <AppWindow className="h-4 w-4" />;
-  }
-  if (isImageIcon(icon)) {
-    return (
-      <img
-        src={icon}
-        alt=""
-        aria-hidden="true"
-        className="h-5 w-5 rounded-sm object-contain"
-        title={title}
-      />
-    );
-  }
-  return <span className="max-w-6 truncate text-center leading-none">{icon}</span>;
-}
-
-function isImageIcon(icon: string): boolean {
-  return (
-    icon.startsWith('data:image/') ||
-    icon.startsWith('http://') ||
-    icon.startsWith('https://') ||
-    icon.startsWith('/')
-  );
 }

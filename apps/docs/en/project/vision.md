@@ -1,5 +1,7 @@
 # NextClaw Vision
 
+**NextClaw, your long-term personal AI partner.**
+
 NextClaw's long-term vision is to become the personal operating layer for the AI era.
 
 It is not a traditional operating system kernel. It is the default entry point through which users interact with software, the internet, systems, services, and cloud computing.
@@ -25,6 +27,8 @@ NextClaw should become a unified entry point, not just one more parallel tool.
 - users should increasingly start with NextClaw when they want to get something done
 - software, services, channels, devices, and cloud resources should be brought together through NextClaw
 - it should grow into a default workspace for workflows, conversations, and information flows
+
+A unified entry point does not mean a GUI-only product. When an operation can be expressed clearly from a terminal, NextClaw aims to expose it through the `nextclaw` CLI so users, developers, scripts, CI jobs, and Agents can work with the same product capabilities. Visual and direct-manipulation experiences can remain UI-first.
 
 ### 2. Capability Orchestration
 

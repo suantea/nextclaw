@@ -1,4 +1,4 @@
-import { APP_NAME } from "@nextclaw/core";
+import { APP_NAME, createExternalCommandEnv } from "@nextclaw/core";
 import { spawn } from "node:child_process";
 import type { ManagedServiceManager } from "@nextclaw-service/managers/managed-service.manager.js";
 import { NextclawDistributionService } from "@nextclaw-service/services/runtime/nextclaw-distribution.service.js";
@@ -9,7 +9,6 @@ import type { RequestRestartParams } from "@nextclaw-service/types/cli.types.js"
 import { isProcessRunning } from "@nextclaw-service/utils/cli.utils.js";
 import { resolveCliSubcommandLaunch } from "@nextclaw-service/utils/marketplace/cli-subcommand-launch.utils.js";
 import { writeRestartSentinel } from "@nextclaw-service/utils/restart-sentinel.utils.js";
-import { createTopLevelNextclawCommandEnv } from "@nextclaw-service/utils/top-level-nextclaw-command-env.utils.js";
 
 type ServiceRestartManagerDeps = {
   managedService: ManagedServiceManager;
@@ -21,7 +20,7 @@ export class ServiceRestartManager {
     isProcessRunning,
     currentPid: () => process.pid,
     restartBackgroundService: async (reason) => this.restartBackgroundService(reason),
-    scheduleProcessExit: (delayMs, reason) => this.scheduleProcessExit(delayMs, reason),
+    scheduleProcessExit: (delayMs, reason, exitCode) => this.scheduleProcessExit(delayMs, reason, exitCode),
   });
   private serviceRestartTask: Promise<boolean> | null = null;
   private selfRelaunchArmed = false;
@@ -32,6 +31,7 @@ export class ServiceRestartManager {
     const {
       changedPaths,
       delayMs,
+      exitCode,
       manualMessage,
       mode,
       reason,
@@ -60,6 +60,7 @@ export class ServiceRestartManager {
     const result = await this.restartCoordinator.requestRestart({
       reason,
       strategy,
+      exitCode,
       delayMs,
       manualMessage
     });
@@ -143,10 +144,10 @@ export class ServiceRestartManager {
     }
   };
 
-  private scheduleProcessExit = (delayMs: number, reason: string): void => {
+  private scheduleProcessExit = (delayMs: number, reason: string, exitCode: number): void => {
     console.warn(`Gateway restart requested (${reason}).`);
     setTimeout(() => {
-      process.exit(0);
+      process.exit(exitCode);
     }, delayMs);
   };
 
@@ -156,10 +157,7 @@ export class ServiceRestartManager {
     delayMs?: number;
   }): void => {
     const { delayMs: requestedDelayMs, reason, strategy = "background-service-or-manual" } = params;
-    if (
-      strategy !== "background-service-or-exit" &&
-      strategy !== "exit-process"
-    ) {
+    if (strategy !== "background-service-or-exit") {
       return;
     }
     if (this.selfRelaunchArmed) {
@@ -230,7 +228,7 @@ setTimeout(() => {
       const helper = spawn(process.execPath, ["-e", helperScript], {
         detached: true,
         stdio: "ignore",
-        env: createTopLevelNextclawCommandEnv(process.env),
+        env: createExternalCommandEnv(process.env),
         windowsHide: true
       });
       helper.unref();

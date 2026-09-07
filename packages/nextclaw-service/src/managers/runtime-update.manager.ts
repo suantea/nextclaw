@@ -1,7 +1,9 @@
 import type { UpdateManifest, UpdateProgress, UpdateSnapshot } from "@nextclaw/kernel";
 import { getPackageVersion } from "@nextclaw-service/utils/cli.utils.js";
-import { resolveEffectiveNpmRuntimeVersion } from "@nextclaw-service/services/runtime/npm-runtime-bundle.service.js";
-import type { NpmRuntimeBundleService } from "@nextclaw-service/services/runtime/npm-runtime-bundle.service.js";
+import {
+  isNpmRuntimeBundleComplete,
+  type NpmRuntimeBundleService
+} from "@nextclaw-service/services/runtime/npm-runtime-bundle.service.js";
 import type { NpmRuntimeBundleLayoutStore } from "@nextclaw-service/stores/npm-runtime-bundle-layout.store.js";
 import type { NpmRuntimeUpdateService, NpmRuntimeAvailableUpdate } from "@nextclaw-service/services/runtime/npm-runtime-update.service.js";
 import type { NpmRuntimeUpdateStateStore } from "@nextclaw-service/stores/npm-runtime-update-state.store.js";
@@ -13,8 +15,9 @@ type RuntimeUpdateManagerOptions = {
   stateStore: NpmRuntimeUpdateStateStore;
   bundleService: NpmRuntimeBundleService;
   updateService: NpmRuntimeUpdateService;
-  resolveManifestUrl: (channel: NpmRuntimeReleaseChannel) => string | null;
+  resolveManifestUrls: (channel: NpmRuntimeReleaseChannel) => string[];
   launcherVersion?: string;
+  runningVersion?: string;
   channel: NpmRuntimeReleaseChannel;
   now?: () => Date;
 };
@@ -28,19 +31,29 @@ type NpmRuntimeUpdateActionOptions = {
 
 export class RuntimeUpdateManager {
   private readonly launcherVersion: string;
+  private readonly runningVersion: string;
   private readonly now: () => Date;
   private availableManifest: UpdateManifest | null = null;
 
   constructor(private readonly options: RuntimeUpdateManagerOptions) {
     this.launcherVersion = options.launcherVersion ?? getPackageVersion();
+    this.runningVersion = options.runningVersion ?? getPackageVersion();
     this.now = options.now ?? (() => new Date());
     this.options.layout.ensureLauncherDirs();
     this.syncStateFromCurrentPointer();
   }
 
-  getSnapshot = (): UpdateSnapshot => this.toSnapshotFromState(this.options.stateStore.read(), {
-    status: this.options.stateStore.read().downloadedVersion ? "downloaded" : "idle"
-  });
+  getSnapshot = (): UpdateSnapshot => {
+    const state = this.options.stateStore.read();
+    return this.toSnapshotFromState(state, {
+      status: state.downloadedVersion
+        ? "downloaded"
+        : this.requiresRunningVersionRestart(state)
+          ? "restart-required"
+          : "idle",
+      requiresRestart: this.requiresRunningVersionRestart(state)
+    });
+  };
 
   run = async (options: NpmRuntimeUpdateActionOptions = {}): Promise<UpdateSnapshot> => {
     if (options.apply) {
@@ -66,7 +79,7 @@ export class RuntimeUpdateManager {
   };
 
   checkForUpdate = async (): Promise<UpdateSnapshot> => {
-    const manifestUrl = this.options.resolveManifestUrl(this.options.channel);
+    const manifestUrls = this.options.resolveManifestUrls(this.options.channel);
     if (!this.options.updateService.hasSignatureVerifier()) {
       return this.toSnapshotFromState(this.options.stateStore.read(), {
         status: "blocked",
@@ -76,7 +89,7 @@ export class RuntimeUpdateManager {
         errorMessage: "Runtime bundle updates require a configured update public key."
       });
     }
-    if (!manifestUrl) {
+    if (manifestUrls.length === 0) {
       return this.toSnapshotFromState(this.options.stateStore.read(), {
         status: "blocked",
         installationKind: "npm-runtime-bundle",
@@ -92,7 +105,7 @@ export class RuntimeUpdateManager {
       channel: this.options.channel,
       lastUpdateCheckAt: checkedAt
     }));
-    const availableUpdate = await this.options.updateService.checkForUpdate(manifestUrl, state.currentVersion, state.badVersions);
+    const availableUpdate = await this.options.updateService.checkForUpdates(manifestUrls, state.currentVersion, state.badVersions);
     return this.toSnapshotAfterCheck(availableUpdate, this.options.stateStore.read());
   };
 
@@ -125,6 +138,7 @@ export class RuntimeUpdateManager {
     this.availableManifest = null;
     return this.toSnapshotFromState(this.options.stateStore.read(), {
       status: "restart-required",
+      targetVersion: downloadedVersion,
       availableVersion: null,
       downloadedVersion: null,
       releaseNotesUrl: null,
@@ -156,6 +170,17 @@ export class RuntimeUpdateManager {
         minimumHostVersion: availableUpdate?.kind === "runtime-bundle-update" ? availableUpdate.manifest.minimumLauncherVersion : null,
         canApplyInApp: true,
         requiresRestart: false
+      });
+    }
+    if (this.requiresRunningVersionRestart(state)) {
+      this.availableManifest = availableUpdate?.kind === "runtime-bundle-update" ? availableUpdate.manifest : null;
+      return this.toSnapshotFromState(state, {
+        status: "restart-required",
+        availableVersion: availableUpdate?.manifest.latestVersion ?? null,
+        minimumHostVersion: availableUpdate?.manifest.minimumLauncherVersion ?? null,
+        releaseNotesUrl: availableUpdate?.manifest.releaseNotesUrl ?? null,
+        canApplyInApp: false,
+        requiresRestart: true
       });
     }
     if (!availableUpdate) {
@@ -199,17 +224,18 @@ export class RuntimeUpdateManager {
   };
 
   private syncStateFromCurrentPointer = (): void => {
-    const currentPointer = this.options.layout.readCurrentPointer();
-    const effectiveCurrentVersion = resolveEffectiveNpmRuntimeVersion({
-      launcherVersion: this.launcherVersion,
-      currentBundleVersion: currentPointer?.version ?? null
-    });
-    if (!effectiveCurrentVersion) {
-      return;
+    let currentVersion: string | null = null;
+    try {
+      const currentBundle = this.options.bundleService.resolveCurrentBundle();
+      if (currentBundle && isNpmRuntimeBundleComplete({ bundleDirectory: currentBundle.bundleDirectory })) {
+        currentVersion = currentBundle.manifest.runtimeVersion ?? currentBundle.manifest.bundleVersion;
+      }
+    } catch {
+      currentVersion = null;
     }
     this.options.stateStore.update((state) => ({
       ...state,
-      currentVersion: effectiveCurrentVersion
+      currentVersion
     }));
   };
 
@@ -223,7 +249,8 @@ export class RuntimeUpdateManager {
       installationKind: "npm-runtime-bundle",
       channel: state.channel,
       hostVersion: this.launcherVersion,
-      currentVersion: state.currentVersion,
+      currentVersion: this.runningVersion,
+      targetVersion: null,
       availableVersion: null,
       downloadedVersion: state.downloadedVersion,
       minimumHostVersion: null,
@@ -240,5 +267,11 @@ export class RuntimeUpdateManager {
       ...patch,
       status
     };
+  };
+
+  private requiresRunningVersionRestart = (state: NpmRuntimeUpdateState): boolean => {
+    const targetVersion = state.currentVersion?.trim();
+    const runningVersion = this.runningVersion.trim();
+    return Boolean(targetVersion && runningVersion && targetVersion !== runningVersion);
   };
 }

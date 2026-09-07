@@ -98,6 +98,71 @@ describe("OpenAICompatibleProvider responses payload parser", () => {
     expect(capturedBody).not.toHaveProperty("reasoning");
   });
 
+  it("encodes mixed Responses history with role-correct content and no message reasoning field", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          status: "completed",
+          output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }],
+          usage: {}
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    const responseProvider = new OpenAICompatibleProvider({
+      apiKey: "sk-test",
+      apiBase: "http://127.0.0.1:9/v1",
+      defaultModel: "gpt-test",
+      wireApi: "responses"
+    });
+    await responseProvider.chat({
+      messages: [
+        { role: "system", content: "Follow instructions." },
+        { role: "user", content: "hello" },
+        {
+          role: "assistant",
+          content: "Let me check.",
+          reasoning_content: "private provider reasoning",
+          tool_calls: [{
+            id: "call_1",
+            type: "function",
+            function: { name: "lookup", arguments: "{\"q\":\"hello\"}" }
+          }]
+        },
+        { role: "tool", tool_call_id: "call_1", content: "result" },
+        { role: "assistant", content: "Done." }
+      ],
+      thinkingLevel: "high"
+    });
+
+    expect(capturedBody).toMatchObject({
+      reasoning: { effort: "high" },
+      input: [
+        { role: "system", content: [{ type: "input_text", text: "Follow instructions." }] },
+        { role: "user", content: [{ type: "input_text", text: "hello" }] },
+        { role: "assistant", content: [{ type: "output_text", text: "Let me check." }] },
+        {
+          type: "function_call",
+          name: "lookup",
+          arguments: "{\"q\":\"hello\"}",
+          call_id: "call_1"
+        },
+        { type: "function_call_output", call_id: "call_1", output: "result" },
+        { role: "assistant", content: [{ type: "output_text", text: "Done." }] }
+      ]
+    });
+    expect(JSON.stringify(capturedBody)).not.toContain('"reasoning_content"');
+    const responseInput = ((capturedBody ?? {}) as Record<string, unknown>).input as
+      | Array<Record<string, unknown>>
+      | undefined;
+    expect(responseInput).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ reasoning: expect.anything() })])
+    );
+  });
+
   it("preserves nested cache usage details from responses API", async () => {
     globalThis.fetch = vi.fn(async () => new Response(
       JSON.stringify({
@@ -500,6 +565,109 @@ describe("OpenAICompatibleProvider responses fallback policy", () => {
     ).rejects.toThrow("Cannot POST /chat/completions");
 
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("OpenAICompatibleProvider MiniMax thinking", () => {
+  it("disables MiniMax-M3 thinking on non-stream chat requests when thinking is off", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        capturedBody = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({
+          id: "resp_minimax",
+          object: "chat.completion",
+          created: 0,
+          model: "MiniMax-M3",
+          choices: [{
+            index: 0,
+            message: { role: "assistant", content: "OK" },
+            finish_reason: "stop",
+          }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }));
+      });
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected http server to bind an ephemeral port.");
+    }
+
+    try {
+      const provider = new OpenAICompatibleProvider({
+        apiKey: "sk-test",
+        apiBase: `http://127.0.0.1:${address.port}`,
+        defaultModel: "MiniMax-M3",
+        wireApi: "chat",
+      });
+      await provider.chat({
+        messages: [{ role: "user", content: "summarize" }],
+        thinkingLevel: "off",
+      });
+    } finally {
+      server.close();
+    }
+
+    expect(capturedBody).toMatchObject({
+      model: "MiniMax-M3",
+      thinking: { type: "disabled" },
+    });
+  });
+
+  it("uses provider-declared thinking control for DeepSeek compaction requests", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        capturedBody = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({
+          id: "resp_deepseek",
+          object: "chat.completion",
+          created: 0,
+          model: "deepseek-v4-flash",
+          choices: [{
+            index: 0,
+            message: { role: "assistant", content: "OK" },
+            finish_reason: "stop",
+          }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }));
+      });
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected http server to bind an ephemeral port.");
+    }
+
+    try {
+      const provider = new OpenAICompatibleProvider({
+        apiKey: "sk-test",
+        apiBase: `http://127.0.0.1:${address.port}`,
+        chatCompletionsThinkingControl: "thinking-type",
+        defaultModel: "deepseek-v4-flash",
+        wireApi: "chat",
+      });
+      await provider.chat({
+        messages: [{ role: "user", content: "summarize" }],
+        thinkingLevel: "off",
+      });
+    } finally {
+      server.close();
+    }
+
+    expect(capturedBody).toMatchObject({
+      model: "deepseek-v4-flash",
+      thinking: { type: "disabled" },
+    });
   });
 });
 

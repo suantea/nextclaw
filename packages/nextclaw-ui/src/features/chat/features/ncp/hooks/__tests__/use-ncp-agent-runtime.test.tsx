@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
 import {
   type NcpAgentClientEndpoint,
   type NcpAgentSendEnvelope,
@@ -158,6 +158,29 @@ class ExistingSessionLiveClient implements NcpAgentClientEndpoint {
   };
 }
 
+function RuntimeMessagesProbe({
+  client,
+  manager,
+}: {
+  client: NcpAgentClientEndpoint;
+  manager: DefaultNcpAgentConversationStateManager;
+}) {
+  const { visibleMessages } = useNcpAgentRuntime({
+    sessionId: "ncp-mt7hs0u9-15yce6jv",
+    client,
+    manager,
+  });
+  return (
+    <div data-testid="runtime-messages">
+      {visibleMessages.map((message) => (
+        <div key={message.id} data-message-id={message.id}>
+          {message.id}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function readAssistantText(messages: readonly NcpMessage[]): string {
   const assistant = messages.find((message) => message.role === "assistant");
   return assistant?.parts
@@ -171,7 +194,7 @@ describe("useNcpAgentRuntime", () => {
     vi.clearAllMocks();
   });
 
-  it("returns a command handle when a new root chat materializes a session id", async () => {
+  it("keeps an accepted run active while a new root chat materializes", async () => {
     const client = new DeferredSendClient();
     const manager = new DefaultNcpAgentConversationStateManager();
     const envelope: NcpAgentSendEnvelope = {
@@ -206,9 +229,102 @@ describe("useNcpAgentRuntime", () => {
         sessionId: "session-created",
       }),
     ]);
+    expect(result.current.isRunning).toBe(true);
     expect(client.stop).not.toHaveBeenCalled();
 
     rerender({ sessionId: "session-created" });
+    expect(result.current.isRunning).toBe(true);
+
+    await act(async () => {
+      await client.emit({
+        type: NcpEventType.RunStarted,
+        payload: {
+          sessionId: "session-created",
+          runId: "run-1",
+        },
+      });
+    });
+    await waitFor(() => {
+      expect(result.current.isRunning).toBe(true);
+    });
+
+    await act(async () => {
+      await client.emit({
+        type: NcpEventType.RunFinished,
+        payload: {
+          sessionId: "session-created",
+          runId: "run-1",
+        },
+      });
+    });
+    await waitFor(() => {
+      expect(result.current.isRunning).toBe(false);
+    });
+  });
+
+  it("shows a preallocated draft message before send returns and keeps it through materialization", async () => {
+    const client = new DeferredSendClient();
+    const manager = new DefaultNcpAgentConversationStateManager();
+    const envelope: NcpAgentSendEnvelope = {
+      sessionId: "session-preallocated",
+      message: {
+        id: "user-preallocated",
+        sessionId: "session-preallocated",
+        role: "user",
+        status: "final",
+        parts: [{ type: "text", text: "show immediately" }],
+        timestamp: now,
+      },
+    };
+    let releaseSend = () => {};
+    client.send.mockImplementationOnce(
+      (pendingEnvelope) =>
+        new Promise((resolve) => {
+          releaseSend = () => resolve({
+            sessionId: "session-preallocated",
+            userMessageId: pendingEnvelope.message.id,
+            assistantMessageId: "assistant-1",
+            runId: "run-1",
+          });
+        }),
+    );
+    const { result, rerender } = renderHook(
+      ({ sessionId }: { sessionId?: string }) =>
+        useNcpAgentRuntime({ sessionId, client, manager: manager as never }),
+      { initialProps: { sessionId: undefined as string | undefined } },
+    );
+
+    let sendPromise!: ReturnType<typeof result.current.send>;
+    act(() => {
+      sendPromise = result.current.send(envelope);
+    });
+
+    await waitFor(() => {
+      expect(result.current.visibleMessages).toEqual([envelope.message]);
+    });
+    expect(result.current.isSending).toBe(true);
+
+    await act(async () => {
+      releaseSend();
+      await sendPromise;
+    });
+    rerender({ sessionId: "session-preallocated" });
+
+    expect(result.current.visibleMessages).toEqual([envelope.message]);
+    expect(result.current.isRunning).toBe(true);
+
+    await act(async () => {
+      await client.emit({
+        type: NcpEventType.MessageSent,
+        payload: {
+          sessionId: "session-preallocated",
+          message: envelope.message as NcpMessage,
+        },
+      });
+    });
+    await waitFor(() => {
+      expect(result.current.visibleMessages).toEqual([envelope.message]);
+    });
   });
 
   it("shows an existing-session user message before send returns and deduplicates the server event", async () => {
@@ -275,6 +391,132 @@ describe("useNcpAgentRuntime", () => {
     expect(result.current.visibleMessages).toEqual([envelope.message]);
   });
 
+  it("keeps an earlier streaming assistant before a later optimistic user message", async () => {
+    const client = new DeferredSendClient();
+    const manager = new DefaultNcpAgentConversationStateManager();
+    manager.hydrate({
+      sessionId: "session-existing",
+      messages: [
+        {
+          id: "user-first",
+          sessionId: "session-existing",
+          role: "user",
+          status: "final",
+          parts: [{ type: "text", text: "start" }],
+          timestamp: "2026-05-14T00:00:00.000Z",
+        },
+        {
+          id: "assistant-old",
+          sessionId: "session-existing",
+          role: "assistant",
+          status: "streaming",
+          parts: [{ type: "text", text: "working" }],
+          timestamp: "2026-05-14T00:00:01.000Z",
+        },
+      ],
+    });
+    await manager.dispatch({
+      type: NcpEventType.MessageTextStart,
+      payload: { sessionId: "session-existing", messageId: "assistant-old" },
+    });
+    const { result } = renderHook(() =>
+      useNcpAgentRuntime({ sessionId: "session-existing", client, manager: manager as never }),
+    );
+
+    await act(async () => {
+      await result.current.send({
+        sessionId: "session-existing",
+        message: {
+          id: "user-later",
+          sessionId: "session-existing",
+          role: "user",
+          status: "final",
+          parts: [{ type: "text", text: "later" }],
+          timestamp: "2026-05-14T00:00:02.000Z",
+        },
+      });
+    });
+
+    expect(result.current.visibleMessages.map((message) => message.id)).toEqual([
+      "user-first",
+      "assistant-old",
+      "user-later",
+    ]);
+  });
+
+  it("keeps the live assistant boundary and DOM identity when a steered user has an earlier timestamp", async () => {
+    const client = new DeferredSendClient();
+    const manager = new DefaultNcpAgentConversationStateManager();
+    manager.hydrate({
+      sessionId: "ncp-mt7hs0u9-15yce6jv",
+      messages: [{
+        id: "user-mt7jp7vd",
+        sessionId: "ncp-mt7hs0u9-15yce6jv",
+        role: "user",
+        status: "final",
+        parts: [{ type: "text", text: "first" }],
+        timestamp: "2026-08-24T18:04:10.460Z",
+      }],
+    });
+    await manager.dispatchBatch([
+      {
+        type: NcpEventType.RunStarted,
+        payload: {
+          sessionId: "ncp-mt7hs0u9-15yce6jv",
+          runId: "agent-run-7c65d8b1-6bda-4f08-a2ad-d5f5318366fb",
+        },
+      },
+      {
+        type: NcpEventType.MessageReasoningDelta,
+        payload: {
+          sessionId: "ncp-mt7hs0u9-15yce6jv",
+          messageId: "assistant-message-2629eaf9-c4ce-4562-b22d-c70f1e8c85e2",
+          delta: "Planning",
+        },
+      },
+    ]);
+
+    const view = render(<RuntimeMessagesProbe client={client} manager={manager} />);
+    const assistantSelector = '[data-message-id="assistant-message-2629eaf9-c4ce-4562-b22d-c70f1e8c85e2"]';
+    const assistantNode = view.container.querySelector(assistantSelector);
+    expect(assistantNode).not.toBeNull();
+
+    await act(async () => {
+      await manager.dispatch({
+        type: NcpEventType.MessageSent,
+        payload: {
+          sessionId: "ncp-mt7hs0u9-15yce6jv",
+          message: {
+            id: "user-mt7jpad5",
+            sessionId: "ncp-mt7hs0u9-15yce6jv",
+            role: "user",
+            status: "final",
+            parts: [{ type: "text", text: "steer" }],
+            timestamp: "2026-08-24T18:04:13.625Z",
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      const ids = [...view.container.querySelectorAll("[data-message-id]")]
+        .map((node) => node.getAttribute("data-message-id"));
+      expect(ids).toEqual([
+        "user-mt7jp7vd",
+        "assistant-message-2629eaf9-c4ce-4562-b22d-c70f1e8c85e2",
+        "user-mt7jpad5",
+      ]);
+    });
+    expect(view.container.querySelector(assistantSelector)).toBe(assistantNode);
+  });
+
+});
+
+describe("useNcpAgentRuntime commands and live stream", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("marks an optimistic user message as failed when send fails", async () => {
     const client = new DeferredSendClient();
     const manager = new DefaultNcpAgentConversationStateManager();
@@ -332,6 +574,32 @@ describe("useNcpAgentRuntime", () => {
         details: { source: "chat-ui" },
       },
     });
+  });
+
+  it("adopts an accepted run before persisted run.started arrives", async () => {
+    const client = new DeferredSendClient();
+    const manager = new DefaultNcpAgentConversationStateManager();
+    const { result } = renderHook(() =>
+      useNcpAgentRuntime({ sessionId: "session-running", client, manager: manager as never }),
+    );
+
+    await act(async () => {
+      await result.current.acceptRun({
+        assistantMessageId: null,
+        sessionId: "session-running",
+        userMessageId: "continuation-user-1",
+        runId: "run-accepted-1",
+      });
+    });
+
+    expect(result.current.activeRunId).toBe("run-accepted-1");
+    expect(result.current.isRunning).toBe(true);
+    await act(async () => {
+      await result.current.abort();
+    });
+    expect(client.abort).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-accepted-1",
+    }));
   });
 
   it("clears the local running state when the live stream publishes message.abort", async () => {

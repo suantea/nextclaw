@@ -235,14 +235,24 @@ function buildAnthropicTools(tools: Array<Record<string, unknown>> | undefined):
 }
 
 function normalizeUsage(usage: Record<string, unknown> | null): Record<string, number> {
-  const inputTokens = typeof usage?.input_tokens === "number" ? usage.input_tokens : 0;
+  const baseInputTokens = typeof usage?.input_tokens === "number" ? usage.input_tokens : 0;
   const outputTokens = typeof usage?.output_tokens === "number" ? usage.output_tokens : 0;
+  const cacheReadInputTokens = typeof usage?.cache_read_input_tokens === "number"
+    ? usage.cache_read_input_tokens
+    : null;
+  const cacheCreationInputTokens = typeof usage?.cache_creation_input_tokens === "number"
+    ? usage.cache_creation_input_tokens
+    : null;
+  // Anthropic reports base input, cache reads, and cache writes as separate usage categories.
+  const inputTokens = baseInputTokens + (cacheReadInputTokens ?? 0) + (cacheCreationInputTokens ?? 0);
   return {
-    input_tokens: inputTokens,
+    input_tokens: baseInputTokens,
     output_tokens: outputTokens,
     prompt_tokens: inputTokens,
     completion_tokens: outputTokens,
-    total_tokens: inputTokens + outputTokens
+    total_tokens: inputTokens + outputTokens,
+    ...(cacheReadInputTokens === null ? {} : { cache_read_input_tokens: cacheReadInputTokens }),
+    ...(cacheCreationInputTokens === null ? {} : { cache_creation_input_tokens: cacheCreationInputTokens })
   };
 }
 
@@ -315,11 +325,6 @@ function buildRequestHeaders(params: {
   return headers;
 }
 
-function readErrorMessage(payload: Record<string, unknown> | null, fallback: string): string {
-  const errorRecord = readRecord(payload?.error);
-  return readString(errorRecord?.message) ?? readString(payload?.message) ?? fallback;
-}
-
 export class AnthropicMessagesProvider extends LLMProvider {
   private readonly defaultModel: string;
   private readonly extraHeaders: Record<string, string> | null;
@@ -372,16 +377,16 @@ export class AnthropicMessagesProvider extends LLMProvider {
           signal
         });
         const rawText = await response.text();
-        const parsed = rawText.trim().length > 0
-          ? (JSON.parse(rawText) as Record<string, unknown>)
-          : {};
         if (!response.ok) {
-          const error = new Error(readErrorMessage(parsed, rawText.slice(0, 240) || `HTTP ${response.status}`)) as Error & {
+          const error = new Error(rawText || `HTTP ${response.status}`) as Error & {
             status?: number;
           };
           error.status = response.status;
           throw error;
         }
+        const parsed = rawText.trim().length > 0
+          ? (JSON.parse(rawText) as Record<string, unknown>)
+          : {};
         return normalizeResponse(parsed);
       } catch (error) {
         lastError = error;

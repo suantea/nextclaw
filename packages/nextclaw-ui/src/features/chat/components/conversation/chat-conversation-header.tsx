@@ -16,7 +16,10 @@ export function ChatParentSessionBanner({
   }
   const trimmedLabel = parentSessionLabel.trim();
   return (
-    <div className="bg-background/75 px-4 py-2 backdrop-blur-sm sm:px-5">
+    <div
+      data-theme-surface="header"
+      className="bg-background/75 px-4 py-2 backdrop-blur-sm sm:px-5"
+    >
       <button
         type="button"
         onClick={onGoToParentSession}
@@ -58,6 +61,7 @@ export function ChatConversationHeader({
   return (
     <div
       data-testid="chat-conversation-header"
+      data-theme-surface="header"
       className={cn(
         "bg-background/80 backdrop-blur-sm flex items-center justify-between shrink-0 overflow-hidden transition-colors duration-200",
         isMobileLayout ? "px-3 sm:px-3" : "px-4 sm:px-5",
@@ -76,7 +80,7 @@ export function ChatConversationHeader({
             icon={<ArrowLeft className="h-4 w-4" />}
             label={t("chat")}
             onClick={onBackToList}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--interaction-hover)] hover:text-accent-foreground"
           />
         ) : null}
         {leading}

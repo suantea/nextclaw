@@ -55,6 +55,41 @@ export type ChatComposerEditorSnapshot = {
   selection: ChatComposerSelection | null;
 };
 
+export function syncChatComposerTokenSelectionState(
+  root: HTMLElement,
+  snapshot: ChatComposerEditorSnapshot,
+): void {
+  const selectionStart = snapshot.selection?.start ?? 0;
+  const selectionEnd = snapshot.selection?.end ?? 0;
+  const selectedTokenIds = new Set<string>();
+  let cursor = 0;
+  for (const node of snapshot.nodes) {
+    const nodeLength = node.type === 'text' ? node.text.length : 1;
+    if (
+      node.type === 'token' &&
+      selectionStart < cursor + nodeLength &&
+      selectionEnd > cursor
+    ) {
+      selectedTokenIds.add(node.id);
+    }
+    cursor += nodeLength;
+  }
+  root.querySelectorAll<HTMLElement>('[data-composer-node-type="token"]').forEach((element) => {
+    const selected = selectedTokenIds.has(element.dataset.composerNodeId ?? '');
+    if (element.dataset.composerSelected === String(selected)) {
+      return;
+    }
+    element.dataset.composerSelected = String(selected);
+    if (selected) {
+      element.style.setProperty('background-color', 'var(--interaction-selection)', 'important');
+      element.style.setProperty('border-color', 'var(--interaction-selection-border)', 'important');
+      return;
+    }
+    element.style.removeProperty('background-color');
+    element.style.removeProperty('border-color');
+  });
+}
+
 export const CHAT_COMPOSER_EXTERNAL_UPDATE_TAG = 'nextclaw-chat-composer-external-update';
 
 function getComposerLeafDescriptors(): {
@@ -253,7 +288,9 @@ function readNodesFromEditor(): ChatComposerNode[] {
     const tokenNode = descriptor.node as ChatComposerTokenNode;
     nextNodes.push({
       id: tokenNode.getComposerId(),
+      data: tokenNode.getData(),
       label: tokenNode.getLabel(),
+      previewUrl: tokenNode.getPreviewUrl(),
       tokenKey: tokenNode.getTokenKey(),
       tokenKind: tokenNode.getTokenKind(),
       type: 'token',
@@ -288,6 +325,45 @@ export function readChatComposerSnapshotFromEditorState(
   });
 }
 
+export function insertChatComposerNodesAtSelection(
+  nodes: readonly ChatComposerNode[],
+): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) {
+    return false;
+  }
+  const lexicalNodes: LexicalNode[] = [];
+  for (const node of nodes) {
+    if (node.type === 'token') {
+      lexicalNodes.push(
+        $createChatComposerTokenNode({
+          composerId: node.id,
+          data: node.data,
+          label: node.label,
+          previewUrl: node.previewUrl,
+          tokenKey: node.tokenKey,
+          tokenKind: node.tokenKind,
+        }),
+      );
+      continue;
+    }
+    const parts = node.text.split('\n');
+    for (const [index, part] of parts.entries()) {
+      if (part) {
+        lexicalNodes.push($createTextNode(part));
+      }
+      if (index < parts.length - 1) {
+        lexicalNodes.push($createLineBreakNode());
+      }
+    }
+  }
+  if (lexicalNodes.length === 0) {
+    return false;
+  }
+  selection.insertNodes(lexicalNodes);
+  return true;
+}
+
 export function writeChatComposerStateToLexicalRoot(
   nodes: ChatComposerNode[],
   selection: ChatComposerSelection | null,
@@ -303,7 +379,9 @@ export function writeChatComposerStateToLexicalRoot(
       paragraph.append(
         $createChatComposerTokenNode({
           composerId: node.id,
+          data: node.data,
           label: node.label,
+          previewUrl: node.previewUrl,
           tokenKey: node.tokenKey,
           tokenKind: node.tokenKind,
         }),

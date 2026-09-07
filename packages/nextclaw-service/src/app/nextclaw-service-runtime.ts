@@ -1,5 +1,11 @@
 import { APP_NAME, getConfigPath, getDataDir, loadConfig, resolveWorkspacePath } from "@nextclaw/core";
-import { NextclawKernel } from "@nextclaw/kernel";
+import {
+  NextclawKernel,
+  runNextclawTask,
+  type NextclawHarnessOptions,
+  type NextclawTaskInput,
+  type NextclawTaskResult,
+} from "@nextclaw/kernel";
 import { existsSync, mkdirSync } from "node:fs";
 import { ManagedServiceManager } from "@nextclaw-service/managers/managed-service.manager.js";
 import { ServiceCommandManager, runCliAgentCommand, type NextclawServiceCommands } from "@nextclaw-service/managers/service-command.manager.js";
@@ -9,6 +15,7 @@ import { NpmRuntimeLauncher } from "@nextclaw-service/launcher/npm-runtime-launc
 import { NpmRuntimeUpdateCommandService } from "@nextclaw-service/services/runtime/npm-runtime-update-command.service.js";
 import { initializeConfigIfMissing } from "@nextclaw-service/services/runtime/runtime-config-init.service.js";
 import { NextclawDistributionService } from "@nextclaw-service/services/runtime/nextclaw-distribution.service.js";
+import { ProductActivityReporter } from "@nextclaw-service/services/product-activity/product-activity-reporter.service.js";
 import { managedServiceStateStore } from "@nextclaw-service/stores/managed-service-state.store.js";
 import type { AgentCommandOptions, LoginCommandOptions, UpdateCommandOptions } from "@nextclaw-service/types/cli.types.js";
 import { isProcessRunning } from "@nextclaw-service/utils/cli.utils.js";
@@ -38,7 +45,7 @@ export class NextclawServiceRuntime {
   constructor(options: NextclawServiceRuntimeOptions) {
     logStartupTrace("cli.runtime.constructor.begin");
     this.logo = options.logo ?? "🤖";
-    this.workspaceManager = new ServiceWorkspaceManager();
+    this.workspaceManager = new ServiceWorkspaceManager(NextclawDistributionService.get().templatesDir);
     this.managedServiceManager = new ManagedServiceManager({
       requestRestart: (params) => this.restartManager.requestRestart(params),
       initializeAgentHomeDirectory: (homeDirectory) => this.workspaceManager.createWorkspaceTemplates(homeDirectory)
@@ -74,6 +81,27 @@ export class NextclawServiceRuntime {
   get version(): string {
     return NextclawDistributionService.get().version;
   }
+
+  runTask = async (input: NextclawTaskInput): Promise<NextclawTaskResult> => {
+    const configPath = getConfigPath();
+    const distribution = NextclawDistributionService.get();
+    const productActivityReporter = new ProductActivityReporter({
+      homeDir: getDataDir(),
+      productVersion: distribution.version,
+      environment: distribution.productEnvironment,
+      releaseChannel: distribution.releaseChannel,
+      loadConfig: () => loadConfig(configPath),
+    });
+    const options: NextclawHarnessOptions = {
+      builtInAppsDirectory: distribution.builtInAppsDirectory,
+      configPath,
+      homeDir: getDataDir(),
+      portableServiceRunnerPath: distribution.portableServiceRunnerPath,
+      productActivitySink: productActivityReporter,
+      productVersion: distribution.version,
+    };
+    return await runNextclawTask(input, options);
+  };
 
   onboard = async (): Promise<void> => {
     console.warn(
@@ -119,8 +147,12 @@ export class NextclawServiceRuntime {
     if (!options.auto) {
       console.log(`\n${this.logo} ${APP_NAME} is ready! (${source})`);
       console.log("\nNext steps:");
-      console.log(`  1. Add your API key to ${configPath}`);
-      console.log(`  2. Chat: ${APP_NAME} agent -m "Hello!"`);
+      if (createdConfig) {
+        console.log(`  1. Chat now (OpenCode Zen needs no API key): ${APP_NAME} agent -m "Hello!"`);
+      } else {
+        console.log(`  1. Chat: ${APP_NAME} agent -m "Hello!"`);
+      }
+      console.log(`  2. Optional: configure another provider in ${configPath}`);
     } else {
       console.log(
         `Tip: Run "${APP_NAME} init${force ? " --force" : ""}" to re-run initialization if needed.`,
@@ -135,9 +167,21 @@ export class NextclawServiceRuntime {
 
   agent = async (opts: AgentCommandOptions): Promise<void> => {
     const configPath = getConfigPath();
+    const distribution = NextclawDistributionService.get();
+    const productActivityReporter = new ProductActivityReporter({
+      homeDir: getDataDir(),
+      productVersion: distribution.version,
+      environment: distribution.productEnvironment,
+      releaseChannel: distribution.releaseChannel,
+      loadConfig: () => loadConfig(configPath),
+    });
     const kernel = new NextclawKernel({
       homeDir: getDataDir(),
       configPath,
+      portableServiceRunnerPath: distribution.portableServiceRunnerPath,
+      productVersion: distribution.version,
+      runtimeVersion: distribution.version,
+      productActivitySink: productActivityReporter,
     });
     const config = kernel.configManager.config;
 
@@ -169,11 +213,12 @@ export class NextclawServiceRuntime {
 
 export const runNextclawNpmRuntimeLauncher = (
   argv: string[] = process.argv,
-): void => {
+): Promise<never> => {
   const distribution = NextclawDistributionService.get();
-  new NpmRuntimeLauncher({
+  return new NpmRuntimeLauncher({
     argv,
     launcherVersion: distribution.version,
     packagedAppEntrypoint: distribution.appEntrypoint,
+    packagedPortableRunnerPath: distribution.portableServiceRunnerPath,
   }).run();
 };

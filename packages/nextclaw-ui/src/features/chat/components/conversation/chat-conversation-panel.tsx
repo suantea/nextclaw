@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { ChatConversationHeaderSection } from "@/features/chat/components/conversation/chat-conversation-header-section";
 import { ChatConversationParentBanner } from "@/features/chat/components/conversation/chat-conversation-parent-banner";
 import { ChatConversationWorkspaceSection } from "@/features/chat/components/conversation/chat-conversation-workspace-section";
@@ -19,15 +18,12 @@ export function ChatConversationPanel({
   const sessionKey = useChatSessionListStore(
     (state) => state.snapshot.selectedSessionKey,
   );
-  const handleSessionMaterialized = useCallback((materializedSessionKey: string) => {
-    if (!presenter.chatUiManager.isAtChatRoot()) {
-      return;
-    }
-    presenter.chatUiManager.goToSession(materializedSessionKey, { replace: true });
-  }, [presenter]);
 
   return (
-    <section className="relative flex-1 min-h-0 flex overflow-hidden bg-background">
+    <section
+      data-theme-surface="workspace"
+      className="relative flex-1 min-h-0 flex overflow-hidden bg-background"
+    >
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <ChatConversationParentBanner />
         <ChatConversationHeaderSection
@@ -37,7 +33,7 @@ export function ChatConversationPanel({
         <SessionConversationArea
           consumeDraftIntent
           sessionKey={sessionKey}
-          onSessionMaterialized={handleSessionMaterialized}
+          onSessionMaterialized={presenter.chatThreadManager.materializeRootDraftSession}
         />
       </div>
 

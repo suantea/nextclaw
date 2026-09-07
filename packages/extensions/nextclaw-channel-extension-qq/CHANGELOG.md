@@ -1,5 +1,118 @@
 # @nextclaw/channel-extension-qq
 
+## 0.2.32
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.5.3
+
+## 0.2.31
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.5.2
+
+## 0.2.31-beta.0
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.5.2-beta.0
+
+## 0.2.30
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.5.1
+
+## 0.2.29
+
+### Patch Changes
+
+- Updated dependencies [f80df69]
+  - @nextclaw/extension-sdk@0.5.0
+
+## 0.2.28
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.4.1
+
+## 0.2.27
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+  - @nextclaw/extension-sdk@0.4.0
+
+## 0.2.27-beta.0
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+  - @nextclaw/extension-sdk@0.4.0-beta.0
+
+## 0.2.26
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.3.26
+
+## 0.2.25
+
+### Patch Changes
+
+- 256e2cb: 修复 QQ 网关短暂断线后错过消息的问题，并避免入站提交失败被误记为已处理。
+- c10dcaa: 新增统一的结构化运行诊断事件、安全错误分类和日志查询命令，覆盖 Service、扩展、配置、渠道、Agent、全部 kernel 工具、外部 transport 与定时任务关键链路；取消、网络与未知异常都有独立可查询终态。内置 AI 现在可以按时间窗和关联 ID 从日志证据排查运行故障。QQ 渠道首先接入完整投递链路，并默认不记录消息正文、工具参数/结果、完整 URL、用户身份或凭据。
+- Updated dependencies [c10dcaa]
+  - @nextclaw/extension-sdk@0.3.25
+
+## 0.2.24
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.3.24
+
+## 0.2.23
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.3.23
+
+## 0.2.22
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.3.22
+
+## 0.2.21
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.3.21
+
+## 0.2.20
+
+### Patch Changes
+
+- 4ab158d: 渠道扩展改为按需启动：未启用渠道不再常驻独立 Node 进程，运行中启用或禁用渠道会自动创建或回收对应扩展；同时增加 ready/generation 隔离、鉴权会话租约、有限故障恢复和扩展进程内存诊断。
+
+  在 ARM64 Linux、2 vCPU / 2 GiB 限制和无活跃任务的空配置基准中，三轮平均 working set 从旧版本约 865～885 MiB 降至 164.94 MiB，下降约 81%。活跃 Agent runtime、浏览器、MCP、本地模型和已启用渠道仍会按实际工作增加内存占用。
+
+- Updated dependencies [4ab158d]
+  - @nextclaw/extension-sdk@0.3.20
+
+## 0.2.19
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.3.19
+
+## 0.2.18
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.3.18
+
 ## 0.2.17
 
 ### Patch Changes

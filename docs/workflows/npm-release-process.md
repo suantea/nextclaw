@@ -3,30 +3,37 @@
 Scope: publish npm packages in `packages/*` and `packages/extensions/*`.
 This does NOT cover registry/console deployment.
 
-## Prereqs
-- npm auth for this repo should come from the project-root `.npmrc` (gitignored).
+## Local recovery prerequisites
+
+- Formal stable production publishing runs in GitHub Actions and uses the controlled `NPM_TOKEN` from the `npm-production` environment; it never reads a developer machine's `.npmrc`.
+- Local dry-run or explicit recovery auth for this repo should come from the project-root `.npmrc` (gitignored).
 - If release commands run from an isolated worktree or a different cwd, set
   `NPM_CONFIG_USERCONFIG=/absolute/path/to/<repo>/.npmrc` so npm still reads the
   project-root credentials.
 
 ## Standard flow
-1) Create changeset
+
+1. Create changeset
+
 ```bash
 pnpm changeset
 ```
 
-2) Sync package READMEs (source of truth in `docs/npm-readmes`)
+2. Sync package READMEs (source of truth in `docs/npm-readmes`)
+
 ```bash
 pnpm release:sync-readmes
 pnpm release:check-readmes
 ```
 
-3) Bump versions + changelogs
+3. Bump versions + changelogs
+
 ```bash
 pnpm release:version
 ```
 
-4) Publish
+4. Publish
+
 ```bash
 pnpm release:publish
 ```
@@ -53,11 +60,13 @@ nextclaw --version
 ```
 
 Runtime channel storage rule:
+
 - signed manifests and `update-bundle-public.pem` stay on `gh-pages`,
 - large `nextclaw-runtime-*.zip` bundle files are uploaded to GitHub Release assets for the matching release tag,
 - this avoids GitHub Pages / git push file-size limits while keeping the public manifest URL stable.
 
 Notes:
+
 - `release:version` and `release:publish` automatically run README sync/check.
 - `release:check:groups` now only gates the explicit release batch from pending changesets or freshly versioned packages.
 - `release:check` now validates only the explicit release batch (packages from pending changesets, or freshly versioned public packages after `release:version`) instead of the whole workspace.
@@ -118,6 +127,82 @@ Behavior is intentionally explicit:
 - only packages with real post-version drift are auto-added to the new changeset;
 - existing pending changesets are reused instead of duplicated.
 
+## Stable NPM and product shortcuts
+
+Formal stable production releases are owned by `.github/workflows/release.yml` and run on GitHub-hosted runners. The currently validated production authentication is the controlled `NPM_TOKEN` in the `npm-production` environment. Dispatch it from `master` and select:
+
+- `target=npm` for `NPM_READY` only;
+- `target=product` for NPM plus the stable Runtime channel and previous-version upgrade verification;
+- `target=all` for the same product closure followed by the Draft-first Desktop child workflow, five-platform artifacts, update manifests, APT, and `ALL_PLATFORMS_READY`.
+
+`target=all` is the recommended full-platform trigger. The parent Actions run owns stage ordering and recovery; AI or a local shell only dispatches and monitors it. The Desktop job runs `release:desktop:stable` on the exact release commit, generates its bilingual GitHub body from the matching structured release-notes JSON, and never receives the NPM token or Desktop signing secret.
+
+The repository-local commands below remain the dry-run, diagnostic, and recovery implementation primitives. They are not the recommended production trigger after the Actions workflow is configured.
+
+Use the local NPM-only primitive when auditing or recovering a stable package batch:
+possible:
+
+```bash
+pnpm release:npm:stable -- --dry-run
+pnpm release:npm:stable
+```
+
+This command owns only NPM `latest`, exact per-package version/integrity/tag verification, a
+public-registry cold tarball payload audit, and the release commit/tags/target-branch closure. It
+does not open the runtime or desktop channels and does not wait for docs, website, social release
+material, or a full dependency install. Its completion marker is `NPM_READY`.
+
+Versioning, strict build/typecheck/lint, package audit, and tarball packing are prepared ahead of
+the user-triggered publish window by the exact-commit `npm-release-prepare` workflow. The formal
+command consumes only a matching immutable artifact and fails quickly if it is unavailable; it
+never falls back to rebuilding inside the publish window. The command resolves NPM credentials in
+this order: explicit `NPM_CONFIG_USERCONFIG`, current worktree `.npmrc`, primary worktree `.npmrc`.
+It prints the absolute config path and `npm whoami` identity, and refuses to fall back to ambient
+`~/.npmrc` for a formal publish.
+
+For a local dry-run or explicit recovery of the conventional product closure, use:
+
+```bash
+pnpm release:product:stable -- --dry-run
+pnpm release:product:stable
+```
+
+The product command performs one staged closure:
+
+1. consume the exact-commit prepared Changesets batch and report version-change, actual-upload,
+   validation-closure, and support-package counts separately;
+2. verify stable mode, branch, project-scoped auth, public key, dependency closure, and prepared
+   package artifacts;
+3. publish immutable tarballs concurrently, verify every package identity/integrity/latest, close
+   release commit/tags and local/remote target branches, and run a public cold tarball payload audit;
+   registry visibility uses bounded exponential backoff without repeating `npm publish`, and reports
+   `NPM_READY` from the release facts even when the 60-second performance target is missed;
+4. report structured release notes and the applicable docs/website/X release plan as `CONTENT_READY` or `CONTENT_PENDING` without invalidating the core release;
+5. trigger and wait for the stable runtime workflow, then verify the GitHub Release assets,
+   `gh-pages`, and public manifests;
+6. upgrade from the previous stable through
+   `--check`, `--download-only`, `--apply`, and a new process version check.
+
+Release notes and surface material are an asynchronous enrichment state and do not block the NPM or
+Runtime core stages. Recovery never repeats a successful publish. Resume from the failed boundary with
+the exact versions printed by the command; `release:stable` remains the compatible internal owner:
+
+```bash
+pnpm release:stable -- --resume-from git --version 0.30.0 --previous-version 0.29.0
+pnpm release:stable -- --resume-from runtime --version 0.30.0 --previous-version 0.29.0
+pnpm release:stable -- --resume-from install --version 0.30.0 --previous-version 0.29.0
+```
+
+The strict release checkpoint stores publish packages separately from validation-only support
+packages. Both can reuse successful fingerprinted builds, but only publish packages become tags or
+registry artifacts. The validated publish path also skips lifecycle rebuilds only when every
+ignored hook matches the repository contract and the checkpoint proves the build passed; any custom
+hook fails closed.
+
+`--skip-runtime-channel` and `--skip-published-install` remain explicit low-level exceptions. Prefer
+the named owner commands above for normal intent. Pure package batches that do not include
+`nextclaw` skip product-runtime stages automatically.
+
 ## Beta closure shortcut
 
 If you want the reusable "one command" beta flow for NPM packages, use:
@@ -153,7 +238,7 @@ Notes:
 If you only want to publish beta packages and do **not** want to open the auto-update channel yet, use:
 
 ```bash
-pnpm release:beta:npm
+pnpm release:npm:beta
 ```
 
 This is the fast path for:
@@ -162,7 +247,9 @@ This is the fast path for:
 - validating package install / manual upgrade first,
 - deferring the runtime workflow until later.
 
-It is equivalent to the full beta owner with `--skip-runtime-channel`, but the command name makes the intent explicit.
+It is equivalent to the full beta owner with `--skip-runtime-channel`, but the command name makes the
+intent explicit and verifies a real `nextclaw@beta` install before reporting `NPM_READY`. The older
+`pnpm release:beta:npm` entry remains compatible.
 
 If `nextclaw@beta` is already published and you later want to open or refresh the runtime update channel only, use:
 
@@ -190,5 +277,5 @@ pnpm release:beta:runtime -- --minimum-launcher-version-override 0.18.12-beta.3
 Recommended semantics:
 
 - `pnpm release:beta` = full closure, package + runtime channel
-- `pnpm release:beta:npm` = package only
+- `pnpm release:npm:beta` = package only (`release:beta:npm` remains compatible)
 - `pnpm release:beta:runtime` = runtime channel only

@@ -1,22 +1,17 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { NcpMessage } from '@nextclaw/ncp';
-import type {
-  ChatContentParams,
-  ChatFileOperationLineViewModel,
-  ChatFilePreviewViewer,
-} from '@nextclaw/agent-chat-ui';
-import type {
-  SessionContextWindowView,
-  SessionTypeIconView
-} from '@/shared/lib/api';
+import type { ChatContentParams, ChatFileOperationLineViewModel, ChatFilePreviewViewer } from '@nextclaw/agent-chat-ui';
+import type { SessionContextWindowView, SessionTypeIconView } from '@/shared/lib/api';
 import {
   normalizePersistedWorkspaceFileTab,
   retainWorkspaceFileTabs,
   toPersistedWorkspaceFileTab,
 } from '@/features/chat/features/workspace/utils/chat-workspace-file-tab-persistence.utils';
 import {
+  CHAT_WORKSPACE_EXPLORER_DEFAULT_WIDTH,
   CHAT_WORKSPACE_PANEL_DEFAULT_WIDTH,
+  normalizeChatWorkspaceExplorerWidth,
   normalizeChatWorkspacePanelWidth,
 } from '@/features/chat/features/workspace/utils/chat-workspace-panel-layout.utils';
 import { createWorkspaceNavigationEntryFromSnapshot } from '@/features/chat/features/workspace/utils/chat-thread-workspace-session.utils';
@@ -62,7 +57,8 @@ export type ChatWorkspacePanelKind =
   | 'side-chat-draft'
   | 'project-files'
   | 'file'
-  | 'cron';
+  | 'cron'
+  | 'continuous-attention';
 
 export type ChatWorkspaceNavigationEntry =
   | { kind: 'overview' }
@@ -71,7 +67,8 @@ export type ChatWorkspaceNavigationEntry =
   | { kind: 'side-chat-draft'; key: string }
   | { kind: 'project-files' }
   | { kind: 'file'; key: string }
-  | { kind: 'cron' };
+  | { kind: 'cron' }
+  | { kind: 'continuous-attention' };
 
 export type ChatThreadSnapshot = {
   sessionTypeLabel?: string | null;
@@ -79,8 +76,7 @@ export type ChatThreadSnapshot = {
   sessionKey: string | null;
   agentId?: string | null;
   sessionDisplayName?: string;
-  sessionProjectRoot?: string | null;
-  sessionWorkingDir?: string | null;
+  draftProjectRoot: string | null;
   sessionProjectName?: string | null;
   canDeleteSession: boolean;
   isDeletePending: boolean;
@@ -101,12 +97,14 @@ export type ChatThreadSnapshot = {
   closedWorkspaceTabEntries: ChatWorkspaceNavigationEntry[];
   workspaceNavigationHistory: ChatWorkspaceNavigationEntry[];
   workspaceNavigationHistoryIndex: number;
+  workspaceExplorerOpen: boolean;
+  workspaceExplorerWidth: number;
   workspacePanelWidth: number;
   contextWindow?: SessionContextWindowView | null;
 };
 
 const CHAT_THREAD_WORKSPACE_STORAGE_KEY = 'nextclaw.chat.workspace-panel.state';
-const CHAT_THREAD_WORKSPACE_STORAGE_VERSION = 2;
+const CHAT_THREAD_WORKSPACE_STORAGE_VERSION = 3;
 const CHAT_THREAD_MAX_PERSISTED_WORKSPACE_FILE_TABS = 8;
 
 type ChatThreadStore = {
@@ -124,6 +122,8 @@ type PersistedChatThreadStore = {
     closedWorkspaceTabEntries?: unknown;
     workspaceNavigationHistory?: unknown;
     workspaceNavigationHistoryIndex?: unknown;
+    workspaceExplorerOpen?: unknown;
+    workspaceExplorerWidth?: unknown;
     workspacePanelWidth?: unknown;
   };
 };
@@ -138,6 +138,8 @@ type PersistedChatWorkspaceSnapshot = Pick<
   | 'closedWorkspaceTabEntries'
   | 'workspaceNavigationHistory'
   | 'workspaceNavigationHistoryIndex'
+  | 'workspaceExplorerOpen'
+  | 'workspaceExplorerWidth'
   | 'workspacePanelWidth'
 >;
 
@@ -149,8 +151,7 @@ const initialSnapshot: ChatThreadSnapshot = {
   sessionKey: null,
   agentId: null,
   sessionDisplayName: undefined,
-  sessionProjectRoot: null,
-  sessionWorkingDir: null,
+  draftProjectRoot: null,
   sessionProjectName: null,
   canDeleteSession: false,
   isDeletePending: false,
@@ -171,8 +172,10 @@ const initialSnapshot: ChatThreadSnapshot = {
   closedWorkspaceTabEntries: [],
   workspaceNavigationHistory: [],
   workspaceNavigationHistoryIndex: 0,
+  workspaceExplorerOpen: false,
+  workspaceExplorerWidth: CHAT_WORKSPACE_EXPLORER_DEFAULT_WIDTH,
   workspacePanelWidth: CHAT_WORKSPACE_PANEL_DEFAULT_WIDTH,
-  contextWindow: null
+  contextWindow: null,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -180,20 +183,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function normalizeOptionalString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0
-    ? value.trim()
-    : null;
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 function normalizeHistoryIndex(value: unknown, maxIndex: number): number {
-  return typeof value === 'number' && Number.isInteger(value)
-    ? Math.min(Math.max(0, value), maxIndex)
-    : maxIndex;
+  return typeof value === 'number' && Number.isInteger(value) ? Math.min(Math.max(0, value), maxIndex) : maxIndex;
 }
 
-function isWorkspacePanelKind(
-  value: unknown,
-): value is PersistedWorkspacePanelKind {
+function isWorkspacePanelKind(value: unknown): value is PersistedWorkspacePanelKind {
   return (
     value === 'overview' ||
     value === 'child-sessions' ||
@@ -204,9 +201,7 @@ function isWorkspacePanelKind(
   );
 }
 
-function normalizePersistedWorkspaceNavigationEntry(
-  value: unknown,
-): ChatWorkspaceNavigationEntry | null {
+function normalizePersistedWorkspaceNavigationEntry(value: unknown): ChatWorkspaceNavigationEntry | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -214,7 +209,8 @@ function normalizePersistedWorkspaceNavigationEntry(
     value.kind === 'overview' ||
     value.kind === 'child-sessions' ||
     value.kind === 'project-files' ||
-    value.kind === 'cron'
+    value.kind === 'cron' ||
+    value.kind === 'continuous-attention'
   ) {
     return { kind: value.kind };
   }
@@ -228,9 +224,7 @@ function normalizePersistedWorkspaceNavigationEntry(
   };
 }
 
-function normalizePersistedWorkspaceSnapshot(
-  value: unknown,
-): PersistedChatWorkspaceSnapshot | null {
+function normalizePersistedWorkspaceSnapshot(value: unknown): PersistedChatWorkspaceSnapshot | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -238,35 +232,29 @@ function normalizePersistedWorkspaceSnapshot(
   const activeWorkspaceFileKey = normalizeOptionalString(value.activeWorkspaceFileKey);
   const normalizedWorkspaceFileTabs = Array.isArray(value.workspaceFileTabs)
     ? value.workspaceFileTabs
-      .map(normalizePersistedWorkspaceFileTab)
-      .filter((tab): tab is ChatWorkspaceFileTab => tab !== null)
+        .map(normalizePersistedWorkspaceFileTab)
+        .filter((tab): tab is ChatWorkspaceFileTab => tab !== null)
     : [];
   const workspaceFileTabs = retainWorkspaceFileTabs(
     normalizedWorkspaceFileTabs,
     activeWorkspaceFileKey,
     CHAT_THREAD_MAX_PERSISTED_WORKSPACE_FILE_TABS,
   );
-  const sessionWorkspaceFileTabs = workspaceFileTabs.filter(
-    (tab) => tab.parentSessionKey === workspacePanelParentKey,
-  );
+  const sessionWorkspaceFileTabs = workspaceFileTabs.filter((tab) => tab.parentSessionKey === workspacePanelParentKey);
   const resolvedActiveWorkspaceFileKey =
     activeWorkspaceFileKey && sessionWorkspaceFileTabs.some((tab) => tab.key === activeWorkspaceFileKey)
       ? activeWorkspaceFileKey
-      : sessionWorkspaceFileTabs[0]?.key ?? null;
+      : (sessionWorkspaceFileTabs[0]?.key ?? null);
   const activeWorkspacePanelKind = isWorkspacePanelKind(value.activeWorkspacePanelKind)
     ? value.activeWorkspacePanelKind
     : null;
   const resolvedActiveWorkspacePanelKind =
-    activeWorkspacePanelKind === 'file' && !resolvedActiveWorkspaceFileKey
-      ? null
-      : activeWorkspacePanelKind;
+    activeWorkspacePanelKind === 'file' && !resolvedActiveWorkspaceFileKey ? null : activeWorkspacePanelKind;
   const activeChildSessionKey = normalizeOptionalString(value.activeChildSessionKey);
   const closedWorkspaceTabEntries = Array.isArray(value.closedWorkspaceTabEntries)
     ? value.closedWorkspaceTabEntries
-      .map(normalizePersistedWorkspaceNavigationEntry)
-      .filter((entry): entry is ChatWorkspaceNavigationEntry =>
-        entry !== null && entry.kind !== 'overview',
-      )
+        .map(normalizePersistedWorkspaceNavigationEntry)
+        .filter((entry): entry is ChatWorkspaceNavigationEntry => entry !== null && entry.kind !== 'overview')
     : [];
   const fallbackHistoryEntry = createWorkspaceNavigationEntryFromSnapshot({
     activeWorkspacePanelKind: resolvedActiveWorkspacePanelKind,
@@ -276,11 +264,9 @@ function normalizePersistedWorkspaceSnapshot(
   });
   const normalizedNavigationHistory = Array.isArray(value.workspaceNavigationHistory)
     ? value.workspaceNavigationHistory
-      .map(normalizePersistedWorkspaceNavigationEntry)
-      .filter((entry): entry is ChatWorkspaceNavigationEntry => entry !== null)
-      .filter((entry) =>
-        entry.kind !== 'file' || workspaceFileTabs.some((tab) => tab.key === entry.key),
-      )
+        .map(normalizePersistedWorkspaceNavigationEntry)
+        .filter((entry): entry is ChatWorkspaceNavigationEntry => entry !== null)
+        .filter((entry) => entry.kind !== 'file' || workspaceFileTabs.some((tab) => tab.key === entry.key))
     : [];
   const workspaceNavigationHistory =
     normalizedNavigationHistory.length > 0
@@ -290,10 +276,7 @@ function normalizePersistedWorkspaceSnapshot(
         : [];
   const workspaceNavigationHistoryIndex =
     workspaceNavigationHistory.length > 0
-      ? normalizeHistoryIndex(
-        value.workspaceNavigationHistoryIndex,
-        workspaceNavigationHistory.length - 1,
-      )
+      ? normalizeHistoryIndex(value.workspaceNavigationHistoryIndex, workspaceNavigationHistory.length - 1)
       : 0;
 
   return {
@@ -305,9 +288,9 @@ function normalizePersistedWorkspaceSnapshot(
     closedWorkspaceTabEntries,
     workspaceNavigationHistory,
     workspaceNavigationHistoryIndex,
-    workspacePanelWidth: normalizeChatWorkspacePanelWidth(
-      value.workspacePanelWidth,
-    ),
+    workspaceExplorerOpen: value.workspaceExplorerOpen === true,
+    workspaceExplorerWidth: normalizeChatWorkspaceExplorerWidth(value.workspaceExplorerWidth),
+    workspacePanelWidth: normalizeChatWorkspacePanelWidth(value.workspacePanelWidth),
   };
 }
 
@@ -319,23 +302,21 @@ export const useChatThreadStore = create<ChatThreadStore>()(
         set((state) => ({
           snapshot: {
             ...state.snapshot,
-            ...patch
-          }
-        }))
+            ...patch,
+          },
+        })),
     }),
     {
       name: CHAT_THREAD_WORKSPACE_STORAGE_KEY,
       version: CHAT_THREAD_WORKSPACE_STORAGE_VERSION,
       storage: createJSONStorage(() => window.localStorage),
       partialize: (state): PersistedChatThreadStore => {
-        const workspaceNavigationHistory = state.snapshot.workspaceNavigationHistory
-          .filter((entry) => entry.kind !== 'side-chat-draft');
+        const workspaceNavigationHistory = state.snapshot.workspaceNavigationHistory.filter(
+          (entry) => entry.kind !== 'side-chat-draft',
+        );
         const workspaceNavigationHistoryIndex =
           workspaceNavigationHistory.length > 0
-            ? Math.min(
-              state.snapshot.workspaceNavigationHistoryIndex,
-              workspaceNavigationHistory.length - 1,
-            )
+            ? Math.min(state.snapshot.workspaceNavigationHistoryIndex, workspaceNavigationHistory.length - 1)
             : 0;
         return {
           snapshot: {
@@ -349,23 +330,22 @@ export const useChatThreadStore = create<ChatThreadStore>()(
               state.snapshot.workspaceFileTabs,
               state.snapshot.activeWorkspaceFileKey,
               CHAT_THREAD_MAX_PERSISTED_WORKSPACE_FILE_TABS,
-            )
-              .map(toPersistedWorkspaceFileTab),
+            ).map(toPersistedWorkspaceFileTab),
             activeWorkspaceFileKey: state.snapshot.activeWorkspaceFileKey,
-            closedWorkspaceTabEntries: state.snapshot.closedWorkspaceTabEntries
-              .filter((entry) => entry.kind !== 'overview' && entry.kind !== 'side-chat-draft'),
+            closedWorkspaceTabEntries: state.snapshot.closedWorkspaceTabEntries.filter(
+              (entry) => entry.kind !== 'overview' && entry.kind !== 'side-chat-draft',
+            ),
             workspaceNavigationHistory,
             workspaceNavigationHistoryIndex,
+            workspaceExplorerOpen: state.snapshot.workspaceExplorerOpen,
+            workspaceExplorerWidth: state.snapshot.workspaceExplorerWidth,
             workspacePanelWidth: state.snapshot.workspacePanelWidth,
-          }
+          },
         };
       },
       merge: (persistedState, currentState) => {
-        const persistedSnapshot = isRecord(persistedState)
-          ? persistedState.snapshot
-          : null;
-        const workspaceSnapshot =
-          normalizePersistedWorkspaceSnapshot(persistedSnapshot);
+        const persistedSnapshot = isRecord(persistedState) ? persistedState.snapshot : null;
+        const workspaceSnapshot = normalizePersistedWorkspaceSnapshot(persistedSnapshot);
         if (!workspaceSnapshot) {
           return currentState;
         }
@@ -373,10 +353,10 @@ export const useChatThreadStore = create<ChatThreadStore>()(
           ...currentState,
           snapshot: {
             ...currentState.snapshot,
-            ...workspaceSnapshot
-          }
+            ...workspaceSnapshot,
+          },
         };
-      }
-    }
-  )
+      },
+    },
+  ),
 );

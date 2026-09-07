@@ -23,7 +23,9 @@ describe("AnthropicMessagesProvider", () => {
           stop_reason: "end_turn",
           usage: {
             input_tokens: 10,
-            output_tokens: 4
+            output_tokens: 4,
+            cache_read_input_tokens: 6,
+            cache_creation_input_tokens: 2
           }
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
@@ -65,7 +67,10 @@ describe("AnthropicMessagesProvider", () => {
       usage: {
         input_tokens: 10,
         output_tokens: 4,
-        total_tokens: 14
+        prompt_tokens: 18,
+        total_tokens: 22,
+        cache_read_input_tokens: 6,
+        cache_creation_input_tokens: 2
       }
     });
   });
@@ -122,6 +127,32 @@ describe("AnthropicMessagesProvider", () => {
         total_tokens: 9
       },
       reasoningContent: null
+    });
+  });
+
+  it("preserves the complete raw provider error response", async () => {
+    const responseText = JSON.stringify({
+      type: "error",
+      error: {
+        type: "invalid_request_error",
+        message: `provider detail ${"x".repeat(240)} END_OF_PROVIDER_ERROR`,
+      },
+    });
+    globalThis.fetch = vi.fn(async () => new Response(responseText, {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    })) as unknown as typeof globalThis.fetch;
+    const provider = new AnthropicMessagesProvider({
+      apiKey: "anthropic-secret",
+      apiBase: "https://api.anthropic.com/v1",
+      defaultModel: "claude-test",
+    });
+
+    await expect(provider.chat({
+      messages: [{ role: "user", content: "ping" }],
+    })).rejects.toMatchObject({
+      message: responseText,
+      status: 400,
     });
   });
 });

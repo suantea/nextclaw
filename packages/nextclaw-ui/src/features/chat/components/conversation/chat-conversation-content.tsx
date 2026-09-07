@@ -13,52 +13,83 @@ import {
 } from "@/features/chat/features/message/components/chat-message-list.container";
 import { ChatConversationTrack } from "@/features/chat/components/conversation/chat-conversation-track";
 import { IconActionButton } from "@/shared/components/ui/actions/icon-action-button";
+import { SCROLL_BOTTOM_EDGE_FADE_CLASS } from "@/shared/components/ui/scroll-area";
 import { t } from "@/shared/lib/i18n";
+import { useScrollRestoration } from "@/shared/hooks/use-scroll-restoration";
+import type { SessionMessageToolPayloadState } from "@/features/chat/features/ncp/hooks/use-ncp-session-message-history";
 
 type ChatConversationContentProps = {
   bottomSlot?: ReactNode;
-  isAwaitingAssistantOutput: boolean;
+  canContinue?: boolean;
   isHistoryLoading: boolean;
   hasPreviousMessages: boolean;
   historyError: Error | null;
   isLoadingPreviousMessages: boolean;
   isContextCompacting?: boolean;
   isSending: boolean;
+  messageActionsDisabled?: boolean;
   messages: readonly NcpMessage[];
+  messageDetailStates?: Readonly<Record<string, SessionMessageToolPayloadState>>;
   sessionKey: string | null;
   showWelcome: boolean;
   onLoadPreviousMessages: () => Promise<void>;
+  onLoadMessageDetails?: (messageId: string) => Promise<void>;
+  onContinueRun?: () => Promise<void> | void;
+  onEditMessage?: (payload: {
+    readonly message: NcpMessage;
+    readonly messageId: string;
+  }) => Promise<void> | void;
   welcomeSlot?: ReactNode;
 };
 
+function createConversationScrollRestorationKey(
+  sessionKey: string | null,
+  showWelcome: boolean,
+): string | null {
+  return sessionKey && !showWelcome ? `chat-conversation:${sessionKey}` : null;
+}
+
 export function ChatConversationContent({
   bottomSlot,
-  isAwaitingAssistantOutput,
+  canContinue = false,
   isHistoryLoading,
   hasPreviousMessages,
   historyError,
   isLoadingPreviousMessages,
   isContextCompacting = false,
   isSending,
+  messageActionsDisabled = false,
   messages,
+  messageDetailStates,
   sessionKey,
   showWelcome,
   onLoadPreviousMessages,
+  onLoadMessageDetails,
+  onContinueRun,
+  onEditMessage,
   welcomeSlot,
 }: ChatConversationContentProps) {
-  const threadRef = useRef<HTMLDivElement | null>(null);
-  const contentRef = useRef<HTMLDivElement | null>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const hasConversationContent = messages.length > 0 || isSending;
+  const scrollRestoration = useScrollRestoration({
+    restorationKey: createConversationScrollRestorationKey(sessionKey, showWelcome),
+    scrollRef: threadRef,
+    isEnabled: !showWelcome,
+  });
+  const { onScroll: onScrollPositionSave } = scrollRestoration;
   const { isAtBottom, onScroll, scrollToBottom } = useStickyBottomScroll({
     contentRef,
     scrollRef: threadRef,
     resetKey: sessionKey,
     isLoading: isHistoryLoading,
-    hasContent: messages.length > 0,
-    contentVersion: messages[messages.length - 1] ?? null,
+    hasContent: hasConversationContent,
+    contentVersion: messages[messages.length - 1] ?? isSending,
   });
   const hasMessages = messages.length > 0;
   const handleScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
+      onScrollPositionSave(event);
       onScroll();
       if (
         event.currentTarget.scrollTop <= 320 &&
@@ -73,6 +104,7 @@ export function ChatConversationContent({
       isLoadingPreviousMessages,
       onLoadPreviousMessages,
       onScroll,
+      onScrollPositionSave,
     ],
   );
   return (
@@ -81,14 +113,14 @@ export function ChatConversationContent({
         ref={threadRef}
         onScroll={handleScroll}
         data-chat-scroll-container="true"
-        className="h-full overflow-y-auto custom-scrollbar"
+        className={showWelcome ? "h-full overflow-y-auto custom-scrollbar" : `h-full overflow-y-auto custom-scrollbar ${SCROLL_BOTTOM_EDGE_FADE_CLASS}`}
         style={{ overflowAnchor: "none" }}
       >
         {showWelcome ? (
           (welcomeSlot ?? null)
         ) : (
-          <div ref={contentRef}>
-            {hasMessages ? (
+          <div ref={contentRef} className="pb-7">
+            {hasConversationContent ? (
               <ChatConversationTrack className="relative py-4 sm:py-5">
                 {historyError ? (
                   <div role="alert" className="flex h-8 justify-center">
@@ -108,10 +140,14 @@ export function ChatConversationContent({
                   />
                 ) : null}
                 <ChatMessageListContainer
+                  canContinue={canContinue}
                   messages={messages}
-                  isSending={
-                    hasMessages && isSending && isAwaitingAssistantOutput
-                  }
+                  messageDetailStates={messageDetailStates}
+                  isSending={isSending}
+                  messageActionsDisabled={messageActionsDisabled}
+                  onContinueRun={onContinueRun}
+                  onEditMessage={onEditMessage}
+                  onLoadMessageDetails={onLoadMessageDetails}
                   scrollRef={threadRef}
                   sessionKey={sessionKey}
                 />
@@ -132,7 +168,7 @@ export function ChatConversationContent({
           label={t("chatScrollToBottom")}
           onClick={scrollToBottom}
           tooltipSide="top"
-          className="absolute bottom-4 left-1/2 z-10 h-9 w-9 -translate-x-1/2 rounded-full border border-border bg-background/90 text-foreground shadow-lg backdrop-blur hover:bg-accent hover:text-accent-foreground"
+          className="absolute bottom-4 left-1/2 z-10 h-9 w-9 -translate-x-1/2 rounded-full border border-border bg-background/90 text-foreground shadow-lg backdrop-blur hover:bg-[var(--interaction-hover)] hover:text-accent-foreground"
         />
       ) : null}
     </div>

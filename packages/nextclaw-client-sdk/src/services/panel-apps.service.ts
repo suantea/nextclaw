@@ -18,6 +18,7 @@ const PANEL_BRIDGE_SESSION_HEADER = "x-nextclaw-panel-bridge-session";
 
 type PanelAppPreferencesUpdateView = {
   favorite?: boolean;
+  mainSidebar?: boolean;
 };
 
 type BridgeRequestOptions = {
@@ -33,6 +34,12 @@ export class PanelAppsClientService {
 
   readonly listPanelApps = async (): Promise<PanelAppListView> => {
     return await this.requestService.get<PanelAppListView>("/api/panel-apps");
+  };
+
+  readonly getPanelApp = async (id: string): Promise<PanelAppEntryView> => {
+    return await this.requestService.get<PanelAppEntryView>(
+      `/api/panel-apps/${encodeURIComponent(id)}`,
+    );
   };
 
   readonly updatePanelAppPreferences = async (

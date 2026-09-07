@@ -1,5 +1,146 @@
 # @nextclaw/channel-extension-weixin
 
+## 0.2.33
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.5.3
+
+## 0.2.32
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.5.2
+- @nextclaw/ncp-toolkit@0.6.23
+
+## 0.2.32-beta.0
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.5.2-beta.0
+
+## 0.2.31
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.5.1
+
+## 0.2.30
+
+### Patch Changes
+
+- Updated dependencies [f80df69]
+  - @nextclaw/extension-sdk@0.5.0
+
+## 0.2.29
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/ncp@0.10.0
+  - @nextclaw/ncp-toolkit@0.6.23
+  - @nextclaw/extension-sdk@0.4.1
+
+## 0.2.28
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/extension-sdk@0.4.0
+  - @nextclaw/ncp@0.9.0
+  - @nextclaw/ncp-toolkit@0.6.22
+
+## 0.2.28-beta.0
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/extension-sdk@0.4.0-beta.0
+  - @nextclaw/ncp@0.9.0-beta.0
+  - @nextclaw/ncp-toolkit@0.6.22-beta.0
+
+## 0.2.27
+
+### Patch Changes
+
+- Updated dependencies [7cc703c]
+  - @nextclaw/ncp@0.8.1
+  - @nextclaw/ncp-toolkit@0.6.21
+  - @nextclaw/extension-sdk@0.3.26
+
+## 0.2.26
+
+### Patch Changes
+
+- Updated dependencies [c10dcaa]
+  - @nextclaw/extension-sdk@0.3.25
+
+## 0.2.25
+
+### Patch Changes
+
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+  - @nextclaw/ncp@0.8.0
+  - @nextclaw/ncp-toolkit@0.6.20
+  - @nextclaw/extension-sdk@0.3.24
+
+## 0.2.24
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.3.23
+
+## 0.2.23
+
+### Patch Changes
+
+- @nextclaw/extension-sdk@0.3.22
+
+## 0.2.22
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+  - @nextclaw/ncp@0.7.17
+  - @nextclaw/ncp-toolkit@0.6.19
+  - @nextclaw/extension-sdk@0.3.21
+
+## 0.2.21
+
+### Patch Changes
+
+- 4ab158d: 渠道扩展改为按需启动：未启用渠道不再常驻独立 Node 进程，运行中启用或禁用渠道会自动创建或回收对应扩展；同时增加 ready/generation 隔离、鉴权会话租约、有限故障恢复和扩展进程内存诊断。
+
+  在 ARM64 Linux、2 vCPU / 2 GiB 限制和无活跃任务的空配置基准中，三轮平均 working set 从旧版本约 865～885 MiB 降至 164.94 MiB，下降约 81%。活跃 Agent runtime、浏览器、MCP、本地模型和已启用渠道仍会按实际工作增加内存占用。
+
+- Updated dependencies [4ab158d]
+  - @nextclaw/extension-sdk@0.3.20
+
+## 0.2.20
+
+### Patch Changes
+
+- Updated dependencies [ae21568]
+- Updated dependencies [98c5b7f]
+- Updated dependencies [8e53d92]
+  - @nextclaw/ncp-toolkit@0.6.18
+  - @nextclaw/ncp@0.7.16
+  - @nextclaw/extension-sdk@0.3.19
+
+## 0.2.19
+
+### Patch Changes
+
+- Updated dependencies [dbececb]
+  - @nextclaw/ncp-toolkit@0.6.17
+  - @nextclaw/extension-sdk@0.3.18
+
 ## 0.2.18
 
 ### Patch Changes

@@ -44,6 +44,9 @@ type ChatSessionWorkspacePanelProps = {
   workspaceNavigationHistoryIndex?: number;
   activePanelKind?: ChatWorkspacePanelKind | null;
   sessionCronJobs?: readonly CronJobView[];
+  sessionCronJobsError?: boolean;
+  sessionCronJobsLoading?: boolean;
+  onRetrySessionCronJobs?: () => void;
   sessionProjectRoot: string | null;
   sessionWorkingDir: string | null;
   workspacePanelWidth?: number;
@@ -62,6 +65,9 @@ export function ChatSessionWorkspacePanel({
   workspaceNavigationHistoryIndex = 0,
   activePanelKind,
   sessionCronJobs = [],
+  sessionCronJobsError = false,
+  sessionCronJobsLoading = false,
+  onRetrySessionCronJobs,
   sessionProjectRoot,
   sessionWorkingDir,
   workspacePanelWidth = CHAT_WORKSPACE_PANEL_DEFAULT_WIDTH,
@@ -95,12 +101,21 @@ export function ChatSessionWorkspacePanel({
   const workspaceTabs = useMemo<WorkspaceTabViewModel[]>(
     () =>
       buildWorkspaceTabsViewModel({
+        hasSession: Boolean(sessionKey),
         resolvedChildTabs,
         activeSideChatDraft,
         closedWorkspaceTabEntries,
         workspaceFileTabs,
         activeSelection,
         optimisticReadAtBySessionKey,
+        sessionProjectRoot: sessionProjectRoot ?? sessionWorkingDir,
+        onAddFileToChat: ({ label, tokenKey }) => {
+          presenter.chatComposerIntentManager.requestFileReference({
+            targetSessionKey: sessionKey,
+            tokenKey,
+            label,
+          });
+        },
         onSelectSession: presenter.chatThreadManager.selectChildSessionDetail,
         onSelectFile: presenter.chatThreadManager.selectWorkspaceFile,
         onOpenFileViewer: presenter.chatThreadManager.openWorkspaceFileViewer,
@@ -114,12 +129,15 @@ export function ChatSessionWorkspacePanel({
             presenter.chatThreadManager.openChildSessions(sessionKey);
         },
         onSelectProjectFiles: () => {
-          if (sessionKey)
-            presenter.chatThreadManager.openProjectFiles(sessionKey);
+          presenter.chatThreadManager.openProjectFiles(sessionKey);
         },
         onSelectCronJobs: () => {
           if (sessionKey)
             presenter.chatThreadManager.openSessionCronPanel(sessionKey);
+        },
+        onSelectContinuousAttention: () => {
+          if (sessionKey)
+            presenter.chatThreadManager.openContinuousAttention(sessionKey);
         },
       }),
     [
@@ -128,8 +146,11 @@ export function ChatSessionWorkspacePanel({
       closedWorkspaceTabEntries,
       optimisticReadAtBySessionKey,
       presenter.chatThreadManager,
+      presenter.chatComposerIntentManager,
       resolvedChildTabs,
       sessionKey,
+      sessionProjectRoot,
+      sessionWorkingDir,
       workspaceFileTabs,
     ],
   );
@@ -166,6 +187,7 @@ export function ChatSessionWorkspacePanel({
   return (
     <ResizableRightPanel
       data-testid="chat-session-workspace-panel"
+      data-theme-surface="workspace-panel"
       className={cn(
         isOverlayPanel
           ? "bg-white"
@@ -203,6 +225,9 @@ export function ChatSessionWorkspacePanel({
           filePreviewRefreshVersion={filePreviewRefreshVersion}
           sessionKey={sessionKey}
           sessionCronJobs={sessionCronJobs}
+          sessionCronJobsError={sessionCronJobsError}
+          sessionCronJobsLoading={sessionCronJobsLoading}
+          onRetrySessionCronJobs={onRetrySessionCronJobs}
           sessionProjectRoot={sessionProjectRoot}
           sessionWorkingDir={sessionWorkingDir}
         />

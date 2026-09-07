@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AdminMetricCard,
   AdminMetricGrid,
@@ -6,11 +7,20 @@ import {
   AdminSection,
   AdminSurface
 } from '@/components/admin/admin-page';
+import { Button } from '@/components/ui/button';
+import { DistributionAdoptionOverviewPanel } from '@/features/admin-overview/components/distribution-adoption-overview-panel';
 import {
   fetchAdminMarketplaceSkills,
   fetchAdminOverview
 } from '@/api/client';
 import { AdminRemoteQuotaApiService } from '@/features/admin-overview/services/remote-quota-api.service';
+import { AdminProductActivityApiService } from '@/features/admin-overview/services/product-activity-api.service';
+import { AdminDistributionAdoptionApiService } from '@/features/admin-overview/services/distribution-adoption-api.service';
+import type {
+  AdminProductActivityOverview,
+  ProductActivityAudience
+} from '@/features/admin-overview/types/product-activity.types';
+import type { AdminDistributionAssetListQuery } from '@/features/admin-overview/types/distribution-adoption.types';
 import type { AdminRemoteQuotaSummary } from '@/features/admin-overview/types/remote-quota.types';
 import { formatUsd } from '@/lib/utils';
 import { GatewayBusinessLoopSection } from '@/pages/admin-gateway-business-loop';
@@ -20,7 +30,20 @@ type Props = {
 };
 
 export function AdminOverviewPage({ token }: Props): JSX.Element {
+  const [productActivityAudience, setProductActivityAudience] = useState<ProductActivityAudience>('external');
+  const [distributionAssetListQuery, setDistributionAssetListQuery] = useState<AdminDistributionAssetListQuery>({
+    page: 1,
+    pageSize: 10,
+    query: '',
+    artifactKind: null,
+    platform: null,
+    sortBy: 'default',
+    sortDirection: 'desc'
+  });
+  const queryClient = useQueryClient();
   const remoteQuotaApi = new AdminRemoteQuotaApiService(token);
+  const productActivityApi = new AdminProductActivityApiService(token);
+  const distributionAdoptionApi = new AdminDistributionAdoptionApiService(token);
   const overviewQuery = useQuery({
     queryKey: ['admin-overview'],
     queryFn: async () => await fetchAdminOverview(token)
@@ -28,6 +51,21 @@ export function AdminOverviewPage({ token }: Props): JSX.Element {
   const remoteQuotaQuery = useQuery({
     queryKey: ['admin-remote-quota'],
     queryFn: remoteQuotaApi.fetchSummary
+  });
+  const productActivityQuery = useQuery({
+    queryKey: ['admin-product-activity', productActivityAudience, 'production', 'stable', 30],
+    queryFn: async () => await productActivityApi.fetchOverview(productActivityAudience)
+  });
+  const distributionAdoptionQuery = useQuery({
+    queryKey: ['admin-distribution-adoption', distributionAssetListQuery],
+    queryFn: async () => await distributionAdoptionApi.fetchOverview(distributionAssetListQuery),
+    placeholderData: keepPreviousData
+  });
+  const refreshDistributionMutation = useMutation({
+    mutationFn: distributionAdoptionApi.refresh,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin-distribution-adoption'] });
+    }
   });
   const marketplaceCountsQuery = useQuery({
     queryKey: ['admin-marketplace-skills', 'pending', '', 1, 'overview-counts'],
@@ -51,6 +89,62 @@ export function AdminOverviewPage({ token }: Props): JSX.Element {
       </AdminMetricGrid>
 
       <AdminSection
+        title="产品活跃"
+        description="统计默认开启的匿名活跃安装回执。默认只看外部用户、生产环境和稳定版。"
+        actions={(
+          <label className="flex items-center gap-2 text-sm text-[#656561]" htmlFor="product-activity-audience">
+            <span>统计人群</span>
+            <select
+              id="product-activity-audience"
+              aria-label="统计人群"
+              className="rounded-lg border border-[#d8d3c8] bg-white px-3 py-2 text-sm font-medium text-[#1f1f1d] outline-none focus-visible:ring-2 focus-visible:ring-[#2f6fed]/30"
+              value={productActivityAudience}
+              onChange={(event) => setProductActivityAudience(event.target.value as ProductActivityAudience)}
+            >
+              <option value="external">外部用户</option>
+              <option value="internal">团队 / 自用</option>
+              <option value="qa">QA 测试</option>
+            </select>
+          </label>
+        )}
+      >
+        <ProductActivityOverviewPanel
+          overview={productActivityQuery.data}
+          isLoading={productActivityQuery.isLoading}
+          errorMessage={productActivityQuery.error instanceof Error ? productActivityQuery.error.message : null}
+        />
+      </AdminSection>
+
+      <AdminSection
+        title="发行与采用"
+        description="GitHub Release 资产与 npm 包的公开聚合下载数据。下载不等于独立用户、安装成功或产品活跃。"
+        actions={(
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-9 shrink-0 px-3"
+            disabled={refreshDistributionMutation.isPending}
+            onClick={() => refreshDistributionMutation.mutate()}
+          >
+            {refreshDistributionMutation.isPending ? '刷新中…' : '刷新实时数据'}
+          </Button>
+        )}
+      >
+        <DistributionAdoptionOverviewPanel
+          overview={distributionAdoptionQuery.data}
+          assetListQuery={distributionAssetListQuery}
+          isLoading={distributionAdoptionQuery.isLoading}
+          isRefreshing={distributionAdoptionQuery.isFetching}
+          errorMessage={distributionAdoptionQuery.error instanceof Error
+            ? distributionAdoptionQuery.error.message
+            : refreshDistributionMutation.error instanceof Error
+              ? refreshDistributionMutation.error.message
+              : null}
+          onAssetListQueryChange={setDistributionAssetListQuery}
+        />
+      </AdminSection>
+
+      <AdminSection
         title="Remote 额度总览"
         description="按 Cloudflare 真实请求事件展示平台日预算、已发生用量、连接预留与近期趋势。"
       >
@@ -69,6 +163,84 @@ export function AdminOverviewPage({ token }: Props): JSX.Element {
       </AdminSection>
     </AdminPage>
   );
+}
+
+function ProductActivityOverviewPanel(props: {
+  overview: AdminProductActivityOverview | undefined;
+  isLoading: boolean;
+  errorMessage: string | null;
+}): JSX.Element {
+  if (props.isLoading) {
+    return <AdminSurface className="p-5 text-sm text-[#8f8a7d]">正在加载产品活跃数据...</AdminSurface>;
+  }
+  if (props.errorMessage) {
+    return <AdminSurface className="p-5 text-sm text-rose-600">{props.errorMessage}</AdminSurface>;
+  }
+  if (!props.overview) {
+    return <AdminSurface className="p-5 text-sm text-[#8f8a7d]">暂无产品活跃数据。</AdminSurface>;
+  }
+
+  const { metrics, trend } = props.overview;
+  return (
+    <div className="space-y-4">
+      <AdminMetricGrid>
+        <AdminMetricCard label="核心 DAU" value={formatCount(metrics.dau)} hint="今天提交过请求" />
+        <AdminMetricCard label="核心 WAU" value={formatCount(metrics.wau)} hint="本自然周活跃安装" />
+        <AdminMetricCard label="核心 MAU" value={formatCount(metrics.mau)} hint="本自然月活跃安装" />
+        <AdminMetricCard label="日成功活跃" value={formatCount(metrics.successfulDau)} hint="今天至少成功一次" />
+        <AdminMetricCard label="周成功活跃" value={formatCount(metrics.successfulWau)} hint="本自然周至少成功一次" />
+        <AdminMetricCard label="月成功活跃" value={formatCount(metrics.successfulMau)} hint="本自然月至少成功一次" />
+        <AdminMetricCard label="统计日期" value={props.overview.asOfDate} hint="Asia/Shanghai" />
+      </AdminMetricGrid>
+
+      <AdminSurface className="space-y-4 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-[#1f1f1d]">最近 30 日趋势</p>
+            <p className="mt-1 text-sm text-[#656561]">蓝色为提交过请求，绿色为至少成功一次。</p>
+          </div>
+          <p className="text-xs leading-5 text-[#8f8a7d]">回执不含账号或长期设备标识；活跃安装不等于精确人数。</p>
+        </div>
+        <ProductActivityTrend trend={trend} />
+      </AdminSurface>
+    </div>
+  );
+}
+
+function ProductActivityTrend(props: {
+  trend: AdminProductActivityOverview['trend'];
+}): JSX.Element {
+  const maximum = Math.max(1, ...props.trend.flatMap((item) => [item.active, item.successful]));
+  return (
+    <div className="overflow-x-auto pb-1">
+      <ol className="flex h-44 min-w-[720px] items-end gap-1" aria-label="最近 30 日产品活跃趋势">
+        {props.trend.map((item) => (
+          <li
+            key={item.date}
+            className="flex min-w-0 flex-1 flex-col items-center gap-2"
+            title={`${item.date}：活跃 ${item.active}，成功 ${item.successful}`}
+          >
+            <div className="flex h-32 w-full items-end justify-center gap-px rounded-t bg-[#f5f3ee] px-px" aria-hidden="true">
+              <div
+                className="w-1/2 rounded-t bg-[#4f7ee8]"
+                style={{ height: `${(item.active / maximum) * 100}%`, minHeight: item.active > 0 ? 3 : 0 }}
+              />
+              <div
+                className="w-1/2 rounded-t bg-[#39a36d]"
+                style={{ height: `${(item.successful / maximum) * 100}%`, minHeight: item.successful > 0 ? 3 : 0 }}
+              />
+            </div>
+            <span className="text-[10px] text-[#8f8a7d]">{item.date.slice(8)}</span>
+            <span className="sr-only">{item.date}：活跃 {item.active}，成功 {item.successful}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat().format(value);
 }
 
 function RemoteQuotaOverviewCard(props: {

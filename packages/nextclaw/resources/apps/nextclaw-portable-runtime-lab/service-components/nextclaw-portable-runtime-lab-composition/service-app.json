@@ -1,0 +1,39 @@
+{
+  "id": "nextclaw-portable-runtime-lab-composition",
+  "title": "Portable Composition Consumer",
+  "description": "通过宿主受控 component-call 调用 manifest 声明的 Provider。",
+  "protocol": "wasi-component",
+  "component": {
+    "entry": "service.wasm"
+  },
+  "requires": {
+    "capabilities": [{
+      "id": "nextclaw.contacts.normalize",
+      "version": "1",
+      "provider": "nextclaw-portable-runtime-lab-provider",
+      "wit": {
+        "package": "nextclaw:portable-service",
+        "interface": "host",
+        "version": "^0.1.0"
+      }
+    }]
+  },
+  "actions": {
+    "compose_contact": {
+      "risk": "write",
+      "title": "组合联系人工作流",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "email": { "type": "string", "minLength": 3 },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["name", "email"],
+        "additionalProperties": false
+      }
+    },
+    "provider_denied": { "risk": "read", "title": "验证 Provider 拒绝" },
+    "runtime_info": { "risk": "read", "title": "查看 Consumer 宿主" }
+  }
+}

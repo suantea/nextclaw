@@ -76,8 +76,6 @@ export function getPageTitle(route: PageRoute, copy: LandingCopy): string {
   switch (route) {
     case 'download':
       return copy.downloadTitle;
-    case 'install':
-      return copy.installTitle;
     case 'useCases':
       return copy.useCasesPageTitle;
     case 'integrations':
@@ -94,8 +92,6 @@ export function getPageSubtitle(route: PageRoute, copy: LandingCopy): string {
   switch (route) {
     case 'download':
       return copy.downloadSubtitle;
-    case 'install':
-      return copy.installSubtitle;
     case 'useCases':
       return copy.useCasesPageSubtitle;
     case 'integrations':
@@ -106,6 +102,73 @@ export function getPageSubtitle(route: PageRoute, copy: LandingCopy): string {
     default:
       return copy.heroDescription;
   }
+}
+
+export function renderHomeHeroActions(
+  copy: LandingCopy,
+  downloadRoute: string,
+  useCasesRoute: string
+): string {
+  return `
+    <div class="landing-hero__conversion animate-slide-up opacity-0" style="animation-delay: 0.4s">
+      <div class="landing-hero__actions">
+        <a href="${downloadRoute}" class="inline-flex items-center justify-center gap-2 h-12 px-6 rounded-lg font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-md shadow-primary/20 focus:ring-2 focus:ring-primary focus:outline-none text-base">
+          <i data-lucide="download" class="w-5 h-5"></i>
+          ${copy.heroDownloadButton}
+        </a>
+        <a href="${useCasesRoute}" class="inline-flex items-center justify-center gap-2 h-12 px-6 rounded-lg font-semibold bg-background/85 text-foreground border border-border hover:bg-secondary transition-colors shadow-sm focus:ring-2 focus:ring-foreground focus:outline-none text-base">
+          ${copy.heroSecondaryButton}
+          <i data-lucide="arrow-right" class="w-5 h-5"></i>
+        </a>
+      </div>
+      <p class="landing-hero__install-note max-w-3xl text-sm text-muted-foreground">
+        ${copy.heroInstallDescription}
+        <a href="${downloadRoute}#install-methods" class="landing-hero__install-link">${copy.heroInstallLink}<span aria-hidden="true"> →</span></a>
+      </p>
+    </div>
+  `;
+}
+
+export function renderLandingHomeHero(
+  copy: LandingCopy,
+  downloadRoute: string,
+  useCasesRoute: string
+): string {
+  const title = getPageTitle('home', copy);
+  const titleMatch = title.match(/^(NextClaw[，,])\s*(.+)$/);
+  const titleLead = titleMatch?.[1] ?? 'NextClaw';
+  const titleRest = titleMatch?.[2] ?? title;
+  return `
+    <section class="landing-hero">
+      <div class="landing-hero__copy">
+        <h1 class="landing-hero__title animate-slide-up opacity-0" style="animation-delay: 0.2s">
+          <span class="landing-hero__title-lead">${titleLead}</span>
+          <span class="landing-hero__title-rest">${titleRest}</span>
+        </h1>
+        <p class="landing-hero__description text-muted-foreground animate-slide-up opacity-0" style="animation-delay: 0.3s">
+          ${getPageSubtitle('home', copy)}
+        </p>
+        ${renderHomeHeroActions(copy, downloadRoute, useCasesRoute)}
+      </div>
+      <figure class="landing-hero__product animate-slide-up opacity-0" style="animation-delay: 0.48s">
+        <img src="${copy.screenshotChatSrc}" alt="${copy.heroScreenshotAlt}" class="landing-hero__product-image" loading="eager" />
+      </figure>
+    </section>
+  `;
+}
+
+export function renderLandingRouteHero(route: PageRoute, copy: LandingCopy): string {
+  return `
+    <section class="landing-route-hero">
+      <p class="landing-route-hero__eyebrow">NextClaw</p>
+      <h1 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold tracking-normal max-w-6xl mb-6 animate-slide-up opacity-0" style="animation-delay: 0.2s">
+        <span class="hero-brand">${getPageTitle(route, copy)}</span>
+      </h1>
+      <p class="text-lg md:text-xl text-muted-foreground max-w-4xl mx-auto mb-10 animate-slide-up opacity-0" style="animation-delay: 0.3s">
+        ${getPageSubtitle(route, copy)}
+      </p>
+    </section>
+  `;
 }
 
 export function renderFeatureCards(items: FeatureItem[]): string {
@@ -199,7 +262,7 @@ export function renderComparisonSection(copy: LandingCopy): string {
 
 export function renderLandingFooter(copy: LandingCopy, docsLink: string, releasesRoute: string): string {
   return `
-    <footer class="w-full border-t border-border/40 py-10 z-10 bg-background/50 backdrop-blur-sm mt-auto">
+    <footer class="landing-footer w-full border-t border-border/40 py-10 z-10 bg-background/50 backdrop-blur-sm mt-auto">
       <div class="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6">
         <div class="flex items-center gap-2 opacity-80">
           <img src="/logo-phoenix.svg" alt="NextClaw" class="w-6 h-6" />
@@ -211,7 +274,6 @@ export function renderLandingFooter(copy: LandingCopy, docsLink: string, release
           <a href="${releasesRoute}" class="text-muted-foreground hover:text-foreground transition-colors">${copy.footerReleases}</a>
           <a href="${LINKS.github}" target="_blank" rel="noopener noreferrer" class="text-muted-foreground hover:text-foreground transition-colors">GitHub</a>
           <a href="${LINKS.npm}" target="_blank" rel="noopener noreferrer" class="text-muted-foreground hover:text-foreground transition-colors">${copy.footerNpm}</a>
-          <a href="${LINKS.discord}" target="_blank" rel="noopener noreferrer" class="text-muted-foreground hover:text-foreground transition-colors">${copy.footerDiscord}</a>
           <a href="${LINKS.wechatGroupImage}" target="_blank" rel="noopener noreferrer" class="text-muted-foreground hover:text-foreground transition-colors" title="${copy.footerWechatGroup}">${copy.footerWechatGroup}</a>
         </div>
       </div>
@@ -219,7 +281,7 @@ export function renderLandingFooter(copy: LandingCopy, docsLink: string, release
   `;
 }
 
-export function renderIntegrationsPage(copy: LandingCopy, installRoute: string, docsLink: string): string {
+export function renderIntegrationsPage(copy: LandingCopy, downloadRoute: string, docsLink: string): string {
   return `
     <section class="w-full max-w-7xl mx-auto text-left animate-slide-up opacity-0" style="animation-delay: 0.35s">
       <div class="integration-showcase-grid">
@@ -239,7 +301,7 @@ export function renderIntegrationsPage(copy: LandingCopy, installRoute: string, 
           <i data-lucide="book-open" class="h-4 w-4"></i>
           ${copy.integrationsDocsButton}
         </a>
-        <a href="${installRoute}" class="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-sm font-semibold text-foreground hover:bg-secondary transition-colors">
+        <a href="${downloadRoute}#install-methods" class="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-sm font-semibold text-foreground hover:bg-secondary transition-colors">
           <i data-lucide="terminal" class="h-4 w-4"></i>
           ${copy.integrationsInstallButton}
         </a>

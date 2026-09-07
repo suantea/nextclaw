@@ -258,7 +258,7 @@ test("allows hook files without extra .hook suffix when they still use use-* nam
 
 test("skips role-boundary enforcement for script support paths", () => {
   assert.equal(inspectFileRoleBoundaryEntry({
-    filePath: ".agents/skills/post-edit-maintainability-guard/scripts/check-maintainability.mjs",
+    filePath: ".agents/skills/development-review/scripts/check-maintainability.mjs",
     status: "M"
   }), null);
 
@@ -272,6 +272,13 @@ test("skips generated VitePress data files", () => {
   assert.equal(inspectFileRoleBoundaryEntry({
     filePath: "apps/docs/.vitepress/data/project-pulse.generated.mjs",
     status: "M"
+  }), null);
+});
+
+test("skips generated assets inside a kebab-case Panel App package", () => {
+  assert.equal(inspectFileRoleBoundaryEntry({
+    filePath: "packages/nextclaw/resources/apps/personal-organizer/panels/personal-organizer-todos.panel/assets/app.js",
+    status: "A"
   }), null);
 });
 

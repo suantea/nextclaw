@@ -1,78 +1,108 @@
 import {
+  classifyDiagnosticError,
   eventKeys,
   ingressKeys,
+  type AgentRunContinueIngressPayload,
+  type AgentRunEditMessageIngressPayload,
   type AgentRunSendIngressPayload,
   type AgentRunSessionMessageRequestPayload,
   type EventBus,
   type Ingress,
   type IngressEnvelope,
+  type IngressContext,
 } from "@nextclaw/shared";
 import {
-  NcpEventType,
   type NcpEndpointEvent,
   type NcpMessage,
   type NcpMessageAbortPayload,
   type NcpRunHandle,
 } from "@nextclaw/ncp";
-import { catchError, filter, from, lastValueFrom, tap } from "rxjs";
-import type { AgentManager } from "@kernel/managers/agent.manager.js";
-import type { ConfigManager } from "@kernel/managers/config.manager.js";
 import type {
-  AgentRuntime,
-  AgentRuntimeManager,
-  AgentRuntimeRunOptions,
-} from "./agent-runtime.manager.js";
-import type { ContextProviderManager } from "./context-provider.manager.js";
+  DiagnosticRuntime,
+  LocalExecutionClaimHandle,
+  LocalExecutionClaimService,
+} from "@nextclaw/core";
+import { DIAGNOSTIC_CORRELATION_METADATA_KEY } from "@nextclaw/core";
+import type { AgentManager } from "@kernel/managers/agent.manager.js";
+import type { AgentContextWindowManager } from "@kernel/managers/agent-context-window.manager.js";
+import type { ConfigManager } from "@kernel/managers/config.manager.js";
+import type { AgentRuntimeManager } from "./agent-runtime.manager.js";
+import { AgentRunSessionCommandManager } from "./agent-run-session-command.manager.js";
 import type {
   SessionRun,
   SessionRunActiveRequest,
   SessionRunManager,
-  SessionRunQueuedRequest,
 } from "./session-run.manager.js";
-import type { ToolProviderManager } from "./tool-provider.manager.js";
+import { AgentRunInputDeliveryService } from "@kernel/services/agent-run-input-delivery.service.js";
+import { AgentRunRequestIdempotencyService } from "@kernel/services/agent-run-request-idempotency.service.js";
+import { AgentRuntimeRunObserverService } from "@kernel/services/agent-runtime-run-observer.service.js";
 import type { SessionManager } from "@kernel/managers/session.manager.js";
 import type {
   AgentRunAbortRequest,
   AgentRunAccepted,
   AgentRunRequest,
   AgentRunSpec,
-  SessionQueuedInput,
 } from "@kernel/types/agent-run.types.js";
 import type { AgentRunSession } from "@kernel/types/session.types.js";
-import {
-  createUnavailableAiExecutionMetadataEvent,
-  hasAiExecutionMetadata,
-  readAgentRunStartedAt,
-} from "@kernel/utils/agent-run-execution-metadata.utils.js";
+import { createUnavailableAiExecutionMetadataEvent } from "@kernel/utils/agent-run-execution-metadata.utils.js";
 import {
   attachRunSpecMetadata,
-  createCompletedAssistantMessageEvent,
   createMessageSentEvent,
   createSyntheticRunErrorEvent,
-  findCompletedAssistantMessage,
   readMessageTask,
   readSessionMaterialization,
   resolveRunSpec,
   toAgentRunRequest,
   toRunHandle,
 } from "@kernel/utils/agent-run-request.utils.js";
+import {
+  createIngressRunTriggerInput,
+  createRunTriggerMetadataEvent,
+  resolveRunTriggerMetadata,
+} from "@kernel/utils/agent-run-trigger.utils.js";
 
 export class AgentRunRequestManager {
   readonly cleanups: Array<() => void> = [];
   private readonly observedSessionRuns = new Set<SessionRun>();
+  private readonly sessionCommandManager: AgentRunSessionCommandManager;
+  private readonly idempotency: AgentRunRequestIdempotencyService;
+  private readonly runtimeRuns: AgentRuntimeRunObserverService;
+  readonly pendingInputs: AgentRunInputDeliveryService;
   private started = false;
 
   constructor(
     private readonly agentRuntimeManager: AgentRuntimeManager,
     private readonly agentManager: AgentManager,
     private readonly configManager: ConfigManager,
-    private readonly contextProviderManager: ContextProviderManager,
+    private readonly agentContextWindowManager: AgentContextWindowManager,
     private readonly eventBus: EventBus,
     private readonly ingress: Ingress,
     private readonly sessionManager: SessionManager,
     private readonly sessionRunManager: SessionRunManager,
-    private readonly toolProviderManager: ToolProviderManager,
-  ) {}
+    private readonly diagnostics?: Pick<DiagnosticRuntime, "record">,
+    private readonly executionClaims?: LocalExecutionClaimService,
+  ) {
+    this.pendingInputs = new AgentRunInputDeliveryService(
+      agentRuntimeManager,
+      sessionManager,
+      sessionRunManager,
+      this.publishRunQueueUpdated,
+    );
+    this.idempotency = new AgentRunRequestIdempotencyService(
+      sessionManager,
+      sessionRunManager,
+    );
+    this.runtimeRuns = new AgentRuntimeRunObserverService({
+      agentRuntimeManager,
+      diagnostics,
+      eventBus,
+    });
+    this.sessionCommandManager = new AgentRunSessionCommandManager(
+      sessionManager,
+      sessionRunManager,
+      this.send,
+    );
+  }
 
   start = (): void => {
     if (this.started) {
@@ -89,6 +119,14 @@ export class AgentRunRequestManager {
         this.handleAbortRequest,
       ),
       this.ingress.addHandler(
+        ingressKeys.agentRun.editMessage,
+        this.handleEditMessageRequest,
+      ),
+      this.ingress.addHandler(
+        ingressKeys.agentRun.continue,
+        this.handleContinueRequest,
+      ),
+      this.ingress.addHandler(
         ingressKeys.agentRun.sessionMessageRequest,
         this.handleSessionMessageRequest,
       ),
@@ -100,34 +138,24 @@ export class AgentRunRequestManager {
       this.cleanups.pop()?.();
     }
     this.observedSessionRuns.clear();
+    this.idempotency.dispose();
+    this.sessionCommandManager.dispose();
     this.started = false;
-  };
-
-  listQueuedInputs = (sessionId: string): readonly SessionQueuedInput[] => {
-    const sessionRun = this.sessionRunManager.getSessionRun(sessionId);
-    return sessionRun?.listQueuedRequests().map(this.toQueuedInput) ?? [];
-  };
-
-  removeQueuedInput = (
-    sessionId: string,
-    queuedInputId: string,
-  ): SessionQueuedInput | null => {
-    const sessionRun = this.sessionRunManager.getSessionRun(sessionId);
-    const removed = sessionRun?.removeQueuedRequest(queuedInputId) ?? null;
-    if (!removed) {
-      return null;
-    }
-    this.publishRunQueueUpdated(sessionId);
-    return this.toQueuedInput(removed);
   };
 
   private handleSendRequest = async (
     envelope: IngressEnvelope<AgentRunSendIngressPayload>,
+    context: IngressContext,
   ): Promise<NcpRunHandle> => {
     if (!envelope.payload) {
       throw new Error("Invalid agent run send request.");
     }
-    return toRunHandle(await this.send(toAgentRunRequest(envelope.payload)));
+    const request = toAgentRunRequest(envelope.payload);
+    request.trigger = createIngressRunTriggerInput({
+      request,
+      source: context.source,
+    });
+    return toRunHandle(await this.send(request));
   };
 
   private handleAbortRequest = async (
@@ -144,6 +172,28 @@ export class AgentRunRequestManager {
     });
   };
 
+  private handleEditMessageRequest = async (
+    envelope: IngressEnvelope<AgentRunEditMessageIngressPayload>,
+  ): Promise<NcpRunHandle> => {
+    if (!envelope.payload) {
+      throw new Error("Invalid agent run edit-message request.");
+    }
+    return toRunHandle(
+      await this.sessionCommandManager.editMessage(envelope.payload),
+    );
+  };
+
+  private handleContinueRequest = async (
+    envelope: IngressEnvelope<AgentRunContinueIngressPayload>,
+  ): Promise<NcpRunHandle> => {
+    if (!envelope.payload) {
+      throw new Error("Invalid agent run continue request.");
+    }
+    return toRunHandle(
+      await this.sessionCommandManager.continueRun(envelope.payload),
+    );
+  };
+
   private handleSessionMessageRequest = async (
     envelope: IngressEnvelope<AgentRunSessionMessageRequestPayload>,
   ): Promise<NcpRunHandle> => {
@@ -158,11 +208,15 @@ export class AgentRunRequestManager {
           sessionId: envelope.payload.sessionId,
         },
         correlationId: envelope.payload.requestId,
+        trigger: structuredClone(envelope.payload.trigger),
       }),
     );
   };
 
-  private send = async (
+  private send = async (request: AgentRunRequest): Promise<AgentRunAccepted> =>
+    await this.idempotency.accept(request, this.sendOnce);
+
+  private sendOnce = async (
     request: AgentRunRequest,
   ): Promise<AgentRunAccepted> => {
     const session = await this.getOrCreateSessionForRequest(request);
@@ -174,24 +228,47 @@ export class AgentRunRequestManager {
       ...request.message,
       sessionId: session.sessionId,
     };
-    const queuedRequest = sessionRun.enqueueRequest({
+    const normalizedRequest: AgentRunRequest = {
       ...request,
       sessionId: session.sessionId,
       message: baseMessage,
-    }, session);
+    };
+    const queuedRequest = sessionRun.enqueueRequest(normalizedRequest, session);
+    const steeringRequest =
+      request.delivery === "prefer-steer" && sessionRun.isRunning()
+        ? this.pendingInputs.promotePreferredSteeringInput(
+            sessionRun,
+            queuedRequest.id,
+            session,
+          )
+        : null;
+    if (steeringRequest) {
+      this.publishRunQueueUpdated(session.sessionId);
+      return {
+        sessionId: session.sessionId,
+        userMessageId: steeringRequest.request.message.id,
+        runId: steeringRequest.intendedRunId,
+        correlationId: request.correlationId,
+        delivery: "steered",
+      };
+    }
     const activeRequest = sessionRun.beginNextRun();
     this.publishRunQueueUpdated(session.sessionId);
     if (activeRequest?.id === queuedRequest.id) {
       await this.startQueuedRun(sessionRun, activeRequest);
     } else if (activeRequest) {
-      void this.startQueuedRun(sessionRun, activeRequest).catch(() => undefined);
+      void this.startQueuedRun(sessionRun, activeRequest).catch(
+        () => undefined,
+      );
     }
 
     return {
       sessionId: session.sessionId,
       userMessageId: queuedRequest.request.message.id,
-      runId: activeRequest?.id === queuedRequest.id ? activeRequest.runId : null,
+      runId:
+        activeRequest?.id === queuedRequest.id ? activeRequest.runId : null,
       correlationId: request.correlationId,
+      delivery: activeRequest?.id === queuedRequest.id ? "started" : "queued",
     };
   };
 
@@ -201,14 +278,16 @@ export class AgentRunRequestManager {
   ): Promise<void> => {
     const { request, session } = activeRequest;
     const requestRunStartedAt = new Date().toISOString();
-    const model = request.model ?? session.model ?? this.configManager.getDefaultModel();
-    const { modelSource, spec } = resolveRunSpec({
-      defaultAgentId: this.agentManager.getDefaultAgentId(),
-      model,
-      modelMaxTokens: this.configManager.getModelMaxTokens(model),
+    const { modelSource, spec } = this.resolveQueuedRunSpec(activeRequest);
+    const trigger = resolveRunTriggerMetadata({
       request,
-      runId: activeRequest.runId,
-      session,
+      spec,
+      startedAt: requestRunStartedAt,
+    });
+    const executionClaim = await this.claimSessionExecutionOrFail({
+      requestRunStartedAt,
+      sessionRun,
+      spec,
     });
     const message = attachRunSpecMetadata({
       message: {
@@ -221,32 +300,57 @@ export class AgentRunRequestManager {
       session,
       spec,
       startedAt: requestRunStartedAt,
+      trigger,
     });
     const providerRequest: AgentRunRequest = {
       ...request,
+      agentId: spec.agentId,
       sessionId: session.sessionId,
       message,
     };
+    const correlationId = request.correlationId ?? activeRequest.runId;
+    const parentCorrelationId =
+      typeof request.metadata?.[DIAGNOSTIC_CORRELATION_METADATA_KEY] ===
+      "string"
+        ? request.metadata[DIAGNOSTIC_CORRELATION_METADATA_KEY]
+        : undefined;
+    this.diagnostics?.record({
+      domain: "agent.run",
+      event: "run.started",
+      component: "kernel.agent-run-request",
+      outcome: "started",
+      correlationId,
+      parentCorrelationId,
+      facts: {
+        source: request.channel ? "channel" : "direct",
+        ...(request.channel ? { channel: request.channel } : {}),
+      },
+    });
     const messageSentEvent = createMessageSentEvent({
       sessionId: session.sessionId,
       message,
       correlationId: request.correlationId,
     });
-    await sessionRun.applyEvents([messageSentEvent]);
-    this.publishNcpEvent(messageSentEvent);
+    const triggerEvent = createRunTriggerMetadataEvent({
+      sessionId: session.sessionId,
+      spec,
+      trigger,
+    });
     try {
+      await sessionRun.applyEvents([messageSentEvent, triggerEvent]);
+      this.publishNcpEvent(messageSentEvent);
+      this.publishNcpEvent(triggerEvent);
       const runtime = this.agentRuntimeManager.getOrCreate({
         agentRuntimeId: session.agentRuntimeId,
         session,
         sessionRun,
       });
-      const contextBlocks =
-        await this.contextProviderManager.buildContext(providerRequest);
-      const tools = await this.toolProviderManager.buildTools(providerRequest);
-      sessionRun.inbox.enqueue(message);
+      const { contextBlocks, tools } =
+        await this.agentContextWindowManager.resolveRunSurface(providerRequest);
       this.startRuntimeRun({
         options: {
           contextBlocks,
+          initialMessages: [message],
           session,
           sessionRun,
           signal: activeRequest.signal,
@@ -255,8 +359,30 @@ export class AgentRunRequestManager {
         requestRunStartedAt,
         runtime,
         spec,
+        parentCorrelationId,
+        executionClaim,
       });
     } catch (error) {
+      this.releaseExecutionClaim(executionClaim);
+      const classification = classifyDiagnosticError(
+        error,
+        activeRequest.signal,
+      );
+      this.diagnostics?.record({
+        domain: "agent.run",
+        event:
+          classification.outcome === "cancelled"
+            ? "run.start.cancelled"
+            : "run.start.failed",
+        component: "kernel.agent-run-request",
+        outcome: classification.outcome,
+        correlationId,
+        parentCorrelationId,
+        durationMs: Date.now() - Date.parse(requestRunStartedAt),
+        reasonCode: classification.reasonCode,
+        providerCode: classification.providerCode,
+        facts: classification.facts,
+      });
       await this.publishRunStartupFailure({
         error,
         requestRunStartedAt,
@@ -268,90 +394,71 @@ export class AgentRunRequestManager {
     }
   };
 
-  private startRuntimeRun = (params: {
-    options: AgentRuntimeRunOptions;
-    requestRunStartedAt: string;
-    runtime: AgentRuntime;
-    spec: AgentRunSpec;
-  }): void => {
-    const { options, requestRunStartedAt, runtime, spec } = params;
-    const { session, sessionRun } = options;
-    let messageCompletedSeen = false;
-    let executionMetadataSeen = false;
-    let runtimeFailed = false;
-    let runStartedAt = requestRunStartedAt;
-    void lastValueFrom(
-      from(
-        runtime.run(spec, options),
-      ).pipe(
-        filter((event) => event.type !== NcpEventType.MessageSent),
-        tap((event) => {
-          const eventsToPublish: NcpEndpointEvent[] = [];
-          if (event.type === NcpEventType.RunError) {
-            runtimeFailed = true;
-          }
-          if (hasAiExecutionMetadata(event)) {
-            executionMetadataSeen = true;
-          }
-          runStartedAt = readAgentRunStartedAt(event, runStartedAt);
-          if (event.type === NcpEventType.MessageCompleted) {
-            messageCompletedSeen = true;
-          }
-          if (
-            event.type === NcpEventType.RunFinished &&
-            !messageCompletedSeen
-          ) {
-            const message = findCompletedAssistantMessage(
-              sessionRun.getSnapshot().messages,
-              event.payload.messageId,
-            );
-            if (!message) {
-              throw new Error(
-                `Run finished without a final assistant message for session "${session.sessionId}".`,
-              );
-            }
-            eventsToPublish.push(createCompletedAssistantMessageEvent({
-              sessionId: event.payload.sessionId ?? session.sessionId,
-              message,
-              correlationId: event.payload.correlationId,
-            }));
-            messageCompletedSeen = true;
-          }
-          eventsToPublish.push(event);
-          eventsToPublish.forEach(this.publishNcpEvent);
-        }),
-        catchError(async (error) => {
-          runtimeFailed = true;
-          if (!executionMetadataSeen) {
-            const metadataEvent = createUnavailableAiExecutionMetadataEvent({
-              spec,
-              sessionId: session.sessionId,
-            });
-            await sessionRun.applyEvents([metadataEvent]);
-            this.publishNcpEvent(metadataEvent);
-          }
-          const event = createSyntheticRunErrorEvent({
-            error,
-            runId: spec.runId,
-            sessionId: session.sessionId,
-            correlationId: spec.correlationId,
-            startedAt: runStartedAt,
-          });
-          await sessionRun.applyEvents([event]);
-          this.publishNcpEvent(event);
-        }),
-      ),
-      { defaultValue: undefined },
-    ).finally(async () => {
-      if (runtimeFailed) {
-        await this.agentRuntimeManager.disposeRuntime({
-          agentRuntimeId: session.agentRuntimeId,
-          session,
-          sessionRun,
-        }).catch(() => undefined);
-      }
-      this.startNextQueuedRun(sessionRun);
+  private resolveQueuedRunSpec = (
+    activeRequest: SessionRunActiveRequest,
+  ): ReturnType<typeof resolveRunSpec> => {
+    const { request, session } = activeRequest;
+    const model =
+      request.model ?? session.model ?? this.configManager.getDefaultModel();
+    const defaultAgentId = this.agentManager.getDefaultAgentId();
+    return resolveRunSpec({
+      defaultAgentId,
+      model,
+      modelMaxTokens: this.configManager.getModelMaxTokens(model),
+      request,
+      runId: activeRequest.runId,
+      session,
     });
+  };
+
+  private claimSessionExecutionOrFail = async (params: {
+    requestRunStartedAt: string;
+    sessionRun: SessionRun;
+    spec: AgentRunSpec;
+  }): Promise<LocalExecutionClaimHandle<void> | undefined> => {
+    const { requestRunStartedAt, sessionRun, spec } = params;
+    const acquired = this.executionClaims?.tryAcquire<void>(
+      `session:${sessionRun.sessionId}`,
+    );
+    if (!acquired || acquired.acquired) {
+      return acquired?.claim;
+    }
+    const error = new Error(
+      `Session already has an active run owned by another NextClaw process: ${sessionRun.sessionId}`,
+    );
+    await this.publishRunStartupFailure({
+      error,
+      requestRunStartedAt,
+      sessionRun,
+      spec,
+    });
+    this.startNextQueuedRun(sessionRun);
+    throw error;
+  };
+
+  private startRuntimeRun = (
+    params: Omit<
+      Parameters<AgentRuntimeRunObserverService["start"]>[0],
+      "onSettled"
+    > & { executionClaim?: LocalExecutionClaimHandle<void> },
+  ): void => {
+    const { executionClaim, ...runtimeParams } = params;
+    this.runtimeRuns.start({
+      ...runtimeParams,
+      onSettled: (sessionRun) => {
+        this.releaseExecutionClaim(executionClaim);
+        this.startNextQueuedRun(sessionRun);
+      },
+    });
+  };
+
+  private releaseExecutionClaim = (
+    claim?: LocalExecutionClaimHandle<void>,
+  ): void => {
+    if (!claim) {
+      return;
+    }
+    claim.release();
   };
 
   private publishRunStartupFailure = async (params: {
@@ -360,12 +467,7 @@ export class AgentRunRequestManager {
     sessionRun: SessionRun;
     spec: AgentRunSpec;
   }): Promise<void> => {
-    const {
-      error,
-      requestRunStartedAt,
-      sessionRun,
-      spec,
-    } = params;
+    const { error, requestRunStartedAt, sessionRun, spec } = params;
     const metadataEvent = createUnavailableAiExecutionMetadataEvent({
       spec,
       sessionId: sessionRun.sessionId,
@@ -397,13 +499,17 @@ export class AgentRunRequestManager {
     }
     this.observedSessionRuns.add(sessionRun);
     const stop = sessionRun.onStatusChange((status) => {
-      this.eventBus.emit(eventKeys.sessionRunStatus, {
-        sessionKey: sessionRun.sessionId,
-        status,
-      }, {
-        emittedAt: new Date().toISOString(),
-        source: "agent-run-request",
-      });
+      this.eventBus.emit(
+        eventKeys.sessionRunStatus,
+        {
+          sessionKey: sessionRun.sessionId,
+          status,
+        },
+        {
+          emittedAt: new Date().toISOString(),
+          source: "agent-run-request",
+        },
+      );
     });
     this.cleanups.push(() => {
       stop();
@@ -412,12 +518,16 @@ export class AgentRunRequestManager {
   };
 
   private publishRunQueueUpdated = (sessionId: string): void => {
-    this.eventBus.emit(eventKeys.sessionRunQueueUpdated, {
-      sessionKey: sessionId,
-    }, {
-      emittedAt: new Date().toISOString(),
-      source: "agent-run-request",
-    });
+    this.eventBus.emit(
+      eventKeys.sessionRunQueueUpdated,
+      {
+        sessionKey: sessionId,
+      },
+      {
+        emittedAt: new Date().toISOString(),
+        source: "agent-run-request",
+      },
+    );
   };
 
   private publishNcpEvent = (event: NcpEndpointEvent): void => {
@@ -427,16 +537,6 @@ export class AgentRunRequestManager {
     });
   };
 
-  private toQueuedInput = (
-    queuedRequest: Pick<SessionRunQueuedRequest, "id" | "enqueuedAt" | "request">,
-  ): SessionQueuedInput => ({
-    id: queuedRequest.id,
-    sessionId: queuedRequest.request.message.sessionId,
-    enqueuedAt: queuedRequest.enqueuedAt,
-    message: structuredClone(queuedRequest.request.message),
-    metadata: structuredClone(queuedRequest.request.metadata ?? {}),
-  });
-
   private getOrCreateSessionForRequest = async (
     request: AgentRunRequest,
   ): Promise<AgentRunSession> => {
@@ -444,7 +544,9 @@ export class AgentRunRequestManager {
       request.metadata ?? {},
     );
     if (sessionMaterialization && (request.sessionId || request.peerId)) {
-      throw new Error("session_materialization requires a new session request.");
+      throw new Error(
+        "session_materialization requires a new session request.",
+      );
     }
     return await this.sessionManager.getOrCreateAgentRunSession({
       sessionId: request.sessionId,
@@ -452,9 +554,7 @@ export class AgentRunRequestManager {
       agentId: request.agentId,
       agentRuntimeId: request.agentRuntimeId,
       channel: request.channel,
-      contextInheritance: sessionMaterialization
-        ? {}
-        : undefined,
+      contextInheritance: sessionMaterialization ? {} : undefined,
       metadata: request.metadata,
       model: request.model,
       parentSessionId: sessionMaterialization?.parentSessionId,
@@ -467,6 +567,16 @@ export class AgentRunRequestManager {
 
   private abort = async (request: AgentRunAbortRequest): Promise<void> => {
     const sessionRun = this.sessionRunManager.getSessionRun(request.sessionId);
-    sessionRun?.abortRun(request.runId, request.reason);
+    const aborted =
+      sessionRun?.abortRun(request.runId, request.reason) ?? false;
+    this.diagnostics?.record({
+      domain: "agent.run",
+      event: "abort.requested",
+      component: "kernel.agent-run-request",
+      outcome: aborted ? "accepted" : "rejected",
+      correlationId: request.runId ?? request.correlationId,
+      parentCorrelationId: request.correlationId,
+      reasonCode: aborted ? undefined : "active_run_not_found",
+    });
   };
 }

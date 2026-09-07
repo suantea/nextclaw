@@ -1,10 +1,11 @@
 export { NextClawExtension } from "./services/extension-client.service.js";
 export {
-  ChannelTypingController,
-} from "./services/channel-typing-controller.service.js";
-export type {
-  ChannelTypingControllerOptions,
-} from "./services/channel-typing-controller.service.js";
+  DIAGNOSTIC_CORRELATION_METADATA_KEY,
+  classifyDiagnosticError,
+} from "@nextclaw/shared";
+export type { DiagnosticErrorClassification } from "@nextclaw/shared";
+export { ChannelTypingController } from "./services/channel-typing-controller.service.js";
+export type { ChannelTypingControllerOptions } from "./services/channel-typing-controller.service.js";
 export {
   ExtensionChannelController,
   startBusChannelExtension,
@@ -23,6 +24,9 @@ export type {
   ExtensionChannelAdapter,
 } from "./services/extension-channel-controller.service.js";
 export type {
+  DesktopHost,
+  DesktopHostEvent,
+  DesktopHostInvokeInput,
   ChannelConfigGetRequest,
   ChannelConfigGetResponse,
   ChannelCommandExecuteRequest,
@@ -39,11 +43,15 @@ export type {
   ChannelSubmittedAttachment,
   ChannelTextContent,
   ExtensionCapabilities,
+  ExtensionObservations,
+  ExtensionObservationHandlers,
+  ExtensionObservationEmitInput,
   ExtensionCapabilityHandler,
   ExtensionCapabilityPayload,
   ExtensionChannel,
   ExtensionChannelCommands,
   ExtensionChannelConfig,
+  ExtensionDiagnostics,
   ExtensionChannels,
   ExtensionRequest,
   ExtensionRequestHandler,

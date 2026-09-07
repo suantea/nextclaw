@@ -1,12 +1,18 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { URLSearchParams } from "node:url";
 import { createContext, runInContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigSchema, saveConfig } from "@nextclaw/core";
 import { NcpEventType } from "@nextclaw/ncp";
 import { ConfigManager } from "@kernel/managers/config.manager.js";
 import { PanelAppManager } from "@kernel/managers/panel-app.manager.js";
+import {
+  CapabilityGrantManager,
+  createPanelAppAgentGrantRequest,
+  createPanelAppClientGrantRequest,
+} from "@kernel/features/capability-grants/index.js";
 import { PanelAppAssetTokenService } from "@kernel/services/panel-app-asset-token.service.js";
 import type { PanelAppError } from "@kernel/types/panel-app.types.js";
 import { STRUCTURED_RESULT_TOOL_NAME } from "@kernel/tools/structured-result.tools.js";
@@ -31,6 +37,7 @@ function createPanelAppManager(
   workspacePath: string,
   options: {
     agentRunClient?: ConstructorParameters<typeof PanelAppManager>[0]["agentRunClient"];
+    capabilityGrantManager?: CapabilityGrantManager;
   } = {},
 ): PanelAppManager {
   const configPath = join(createTempDir(), "config.json");
@@ -54,35 +61,53 @@ function createPanelAppManager(
       load: vi.fn(),
     } as never,
   });
-  return new PanelAppManager({ configManager, agentRunClient: options.agentRunClient });
+  return new PanelAppManager({
+    configManager,
+    agentRunClient: options.agentRunClient,
+    capabilityGrantManager: options.capabilityGrantManager ?? new CapabilityGrantManager(
+      join(createTempDir(), "capability-grants.json"),
+    ),
+  });
 }
 
 async function runBridgeRequest<T>(
   call: (nextclaw: BridgeApi) => Promise<T>,
   data: unknown,
 ): Promise<T> {
-  let listener: ((event: { data: unknown }) => void) | undefined;
+  const listeners: Array<(event: { data: unknown }) => void> = [];
   let requestId = "";
   const windowLike = {
     addEventListener: (_type: string, handler: (event: { data: unknown }) => void) => {
-      listener = handler;
+      listeners.push(handler);
     },
     parent: {
       postMessage: (message: { requestId: string }) => {
         requestId = message.requestId;
       },
     },
+    location: {
+      search: "",
+    },
+    document: {
+      addEventListener: () => undefined,
+    },
   };
-  runInContext(getPanelAppBridgeScript(), createContext({ window: windowLike }));
+  runInContext(
+    getPanelAppBridgeScript(),
+    createContext({ URLSearchParams, window: windowLike }),
+  );
   const promise = call((windowLike as unknown as { nextclaw: BridgeApi }).nextclaw);
-  listener?.({
+  const responseEvent = {
     data: {
       data,
       ok: true,
       requestId,
       type: "nextclaw:panel-app-service-actions:response",
     },
-  });
+  };
+  for (const listener of listeners) {
+    listener(responseEvent);
+  }
   return await promise;
 }
 
@@ -160,7 +185,8 @@ describe("PanelAppManager listing", () => {
     writeFileSync(join(panelsPath, "notes.html"), "<h1>Notes</h1>");
     writeFileSync(join(panelsPath, "nested", "deep.panel.html"), "<h1>Deep</h1>");
 
-    const list = await createPanelAppManager(workspacePath).listPanelApps();
+    const manager = createPanelAppManager(workspacePath);
+    const list = await manager.listPanelApps();
 
     expect(list.workspacePath).toBe(workspacePath);
     expect(list.panelsPath).toBe(panelsPath);
@@ -171,6 +197,9 @@ describe("PanelAppManager listing", () => {
         title: "daily board",
         contentPath: expect.stringMatching(/^\/api\/panel-apps\/.+\/content$/),
       }),
+    );
+    await expect(manager.getPanelApp(list.entries[0]!.appId)).resolves.toEqual(
+      expect.objectContaining({ appId: list.entries[0]!.appId }),
     );
   });
 
@@ -474,6 +503,43 @@ describe("PanelAppManager assets", () => {
 });
 
 describe("PanelAppManager runtime sessions", () => {
+  it("matches persisted grants only while the current Panel manifest still declares them", async () => {
+    const workspacePath = createTempDir();
+    const appPath = join(workspacePath, "panels", "grant-owner.panel");
+    mkdirSync(appPath, { recursive: true });
+    writeFileSync(
+      join(appPath, "panel-app.json"),
+      JSON.stringify({
+        id: "grant-owner",
+        title: "Grant Owner",
+        entry: "index.html",
+        client: true,
+        capabilities: ["agent:send"],
+      }),
+    );
+    writeFileSync(join(appPath, "index.html"), "<p>Grant owner</p>");
+    const manager = createPanelAppManager(workspacePath);
+
+    await expect(manager.matchesCapabilityGrant({
+      ...createPanelAppClientGrantRequest("grant-owner"),
+      grantedAt: "2026-08-01T00:00:00.000Z",
+    })).resolves.toBe(true);
+    await expect(manager.matchesCapabilityGrant({
+      ...createPanelAppAgentGrantRequest(
+        { surface: "panel-app", appId: "grant-owner" },
+        "agent:send",
+      ),
+      grantedAt: "2026-08-01T00:00:00.000Z",
+    })).resolves.toBe(true);
+    await expect(manager.matchesCapabilityGrant({
+      ...createPanelAppAgentGrantRequest(
+        { surface: "panel-app", appId: "grant-owner" },
+        "agent:generateObject",
+      ),
+      grantedAt: "2026-08-01T00:00:00.000Z",
+    })).resolves.toBe(false);
+  });
+
   it("creates bridge sessions with declared service actions and agent capabilities", async () => {
     const workspacePath = createTempDir();
     const panelsPath = join(workspacePath, "panels");
@@ -757,60 +823,6 @@ describe("PanelAppManager metadata and state", () => {
     }));
   });
 
-  it("deletes panel app files and clears launcher state", async () => {
-    const workspacePath = createTempDir();
-    const panelsPath = join(workspacePath, "panels");
-    const filePath = join(panelsPath, "delete-me.panel.html");
-    mkdirSync(panelsPath, { recursive: true });
-    writeFileSync(filePath, "<h1>Delete Me</h1>");
-    const manager = createPanelAppManager(workspacePath);
-    const [entry] = (await manager.listPanelApps()).entries;
-
-    await manager.updatePanelAppPreferences(entry.id, { favorite: true });
-    const result = await manager.deletePanelApp(entry.id);
-
-    expect(result).toEqual({
-      deleted: true,
-      fileName: "delete-me.panel.html",
-      id: entry.id,
-    });
-    expect(existsSync(filePath)).toBe(false);
-    await expect(manager.listPanelApps()).resolves.toEqual({
-      workspacePath,
-      panelsPath,
-      entries: [],
-    });
-  });
-
-  it("deletes folder panel apps and clears launcher state", async () => {
-    const workspacePath = createTempDir();
-    const panelsPath = join(workspacePath, "panels");
-    const appPath = join(panelsPath, "delete-folder.panel");
-    mkdirSync(appPath, { recursive: true });
-    writeFileSync(
-      join(appPath, "panel-app.json"),
-      JSON.stringify({ id: "delete-folder", title: "Delete Folder", entry: "index.html" }),
-    );
-    writeFileSync(join(appPath, "index.html"), "<!doctype html>");
-    const manager = createPanelAppManager(workspacePath);
-    const [entry] = (await manager.listPanelApps()).entries;
-
-    await manager.updatePanelAppPreferences(entry.id, { favorite: true });
-    const result = await manager.deletePanelApp(entry.id);
-
-    expect(result).toEqual({
-      deleted: true,
-      fileName: "delete-folder.panel",
-      id: entry.id,
-    });
-    expect(existsSync(appPath)).toBe(false);
-    await expect(manager.listPanelApps()).resolves.toEqual({
-      workspacePath,
-      panelsPath,
-      entries: [],
-    });
-  });
-
   it("surfaces invalid folder manifests clearly", async () => {
     const workspacePath = createTempDir();
     const panelsPath = join(workspacePath, "panels");
@@ -823,12 +835,12 @@ describe("PanelAppManager metadata and state", () => {
     } satisfies Partial<PanelAppError>);
   });
 
-  it("rejects invalid ids before reading from disk", async () => {
+  it("reports an unknown stable app id as not found", async () => {
     const workspacePath = createTempDir();
     const manager = createPanelAppManager(workspacePath);
 
     await expect(manager.getPanelAppContent("not-a-valid-id")).rejects.toMatchObject({
-      code: "PANEL_APP_INVALID_ID",
+      code: "PANEL_APP_NOT_FOUND",
     } satisfies Partial<PanelAppError>);
   });
 
@@ -839,6 +851,7 @@ describe("PanelAppManager metadata and state", () => {
       workspacePath,
       panelsPath: join(workspacePath, "panels"),
       entries: [],
+      unavailablePackages: [],
     });
   });
 });

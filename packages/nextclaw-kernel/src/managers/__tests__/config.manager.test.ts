@@ -66,4 +66,78 @@ describe("ConfigManager", () => {
       start: false,
     });
   });
+
+  it("restores the previous runtime hook when an installed hook is disposed", async () => {
+    const channels = {
+      load: vi.fn(),
+      reload: vi.fn(async () => undefined),
+    };
+    const manager = new ConfigManager({
+      configPath: join(createTempDir(), "config.json"),
+      channels: channels as never,
+      providerManager: { load: vi.fn() } as never,
+    });
+    manager.installRuntimeHooks({
+      resolveChannelConfig: (config) => ({
+        ...config,
+        channels: { original: { enabled: true } } as Config["channels"],
+      }),
+    });
+    const dispose = manager.installRuntimeHooks({
+      resolveChannelConfig: (config) => ({
+        ...config,
+        channels: { temporary: { enabled: true } } as Config["channels"],
+      }),
+    });
+
+    dispose();
+    await manager.rebuildChannels(manager.config, { start: false });
+
+    expect(channels.reload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelConfig: expect.objectContaining({
+          channels: { original: { enabled: true } },
+        }),
+      }),
+    );
+  });
+
+  it("reconciles extension demand before rebuilding channels on channel config changes", async () => {
+    const callOrder: string[] = [];
+    const channels = {
+      load: vi.fn(),
+      reload: vi.fn(async () => {
+        callOrder.push("channels");
+      }),
+    };
+    const manager = new ConfigManager({
+      configPath: join(createTempDir(), "config.json"),
+      channels: channels as never,
+      providerManager: {
+        load: vi.fn(),
+      } as never,
+    });
+    const reloadExtensions = vi.fn(async () => {
+      callOrder.push("extensions");
+    });
+    manager.installRuntimeHooks({ reloadExtensions });
+    const nextConfig: Config = {
+      ...manager.config,
+      channels: {
+        ...manager.config.channels,
+        weixin: {
+          ...manager.config.channels.weixin,
+          enabled: true,
+        },
+      },
+    };
+
+    await manager.applyReloadPlan(nextConfig);
+
+    expect(reloadExtensions).toHaveBeenCalledWith({
+      config: nextConfig,
+      changedPaths: ["channels.weixin.enabled"],
+    });
+    expect(callOrder).toEqual(["extensions", "channels"]);
+  });
 });

@@ -31,9 +31,9 @@ export class NpmRuntimeUpdateCommandService {
     const source = new NpmRuntimeUpdateSourceService({
       packagedPublicKeyPath: distribution.runtimeUpdatePublicKeyPath,
     });
-    const launcherVersion = distribution.version;
+    const launcherVersion = distribution.launcherVersion;
     const channel = source.resolveChannel(opts.channel, launcherVersion);
-    const manifestUrl = source.resolveManifestUrl(channel, opts.manifestUrl);
+    const manifestUrls = source.resolveManifestUrls(channel, opts.manifestUrl);
     const layout = new NpmRuntimeBundleLayoutStore();
     const stateStore = new NpmRuntimeUpdateStateStore(layout.getStatePath(), {
       defaultChannel: channel
@@ -54,7 +54,7 @@ export class NpmRuntimeUpdateCommandService {
       stateStore,
       bundleService,
       updateService,
-      resolveManifestUrl: () => manifestUrl,
+      resolveManifestUrls: () => manifestUrls,
       launcherVersion,
       channel
     });
@@ -98,7 +98,7 @@ export class NpmRuntimeUpdateCommandService {
       return;
     }
     if (snapshot.status === "restart-required") {
-      console.log(`Runtime update applied: ${snapshot.currentVersion}`);
+      console.log(`Runtime update applied: ${snapshot.targetVersion ?? "unknown"}`);
       console.log("Restart the running NextClaw service or start a new CLI process to use it.");
       return;
     }

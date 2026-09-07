@@ -2,6 +2,7 @@ import type {
   ChatComposerNode,
   ChatComposerSelection,
   ChatComposerTokenKind,
+  ChatComposerTokenData,
   ChatInputSurfaceItem,
   ChatInputSurfaceTriggerSpec,
   ChatSkillPickerOption,
@@ -25,14 +26,16 @@ function getDocumentLength(nodes: ChatComposerNode[]): number {
 }
 
 function insertToken(params: {
+  data?: ChatComposerTokenData;
   label: string;
   nodes: ChatComposerNode[];
+  previewUrl?: string;
   selection: ChatComposerSelection | null;
   tokenKey: string;
   tokenKind: ChatComposerTokenKind;
   trigger?: { end: number; query: string; start: number } | null;
 }): ChatComposerEditorSnapshot {
-  const { label, nodes, selection, tokenKey, tokenKind, trigger } = params;
+  const { data, label, nodes, previewUrl, selection, tokenKey, tokenKind, trigger } = params;
   const documentLength = getDocumentLength(nodes);
   const [selectionStart, selectionEnd] = selection ? [Math.min(selection.start, selection.end), Math.max(selection.start, selection.end)] : [documentLength, documentLength];
   const replaceStart = trigger?.start ?? selectionStart;
@@ -46,6 +49,8 @@ function insertToken(params: {
       [
         createChatComposerTokenNode({
           label,
+          data,
+          previewUrl,
           tokenKey,
           tokenKind,
         }),
@@ -59,6 +64,7 @@ function insertToken(params: {
 }
 
 export function insertChatComposerTokenIntoChatComposer(params: {
+  data?: ChatComposerTokenData;
   label: string;
   nodes: ChatComposerNode[];
   selection: ChatComposerSelection | null;
@@ -66,7 +72,7 @@ export function insertChatComposerTokenIntoChatComposer(params: {
   tokenKind: ChatComposerTokenKind;
   triggerSpecs?: readonly ChatInputSurfaceTriggerSpec[];
 }): ChatComposerEditorSnapshot {
-  const { label, nodes, selection, tokenKey, tokenKind, triggerSpecs } = params;
+  const { data, label, nodes, selection, tokenKey, tokenKind, triggerSpecs } = params;
 
   if (extractChatComposerTokenKeys(nodes, tokenKind).includes(tokenKey)) {
     return {
@@ -77,6 +83,7 @@ export function insertChatComposerTokenIntoChatComposer(params: {
 
   return insertToken({
     label,
+    data,
     nodes,
     selection,
     tokenKey,
@@ -122,6 +129,7 @@ export function insertInputSurfaceItemIntoChatComposer(params: {
   }
 
   return insertChatComposerTokenIntoChatComposer({
+    data: item.data,
     label: item.title,
     nodes,
     selection,
@@ -136,7 +144,7 @@ export function getChatComposerNodesSignature(nodes: ChatComposerNode[]): string
     .map((node) =>
       node.type === 'text'
         ? `text:${node.text}`
-        : `token:${node.tokenKind}:${node.tokenKey}:${node.label}`,
+        : `token:${node.tokenKind}:${node.tokenKey}:${node.label}:${node.previewUrl ?? ''}:${JSON.stringify(node.data ?? null)}`,
     )
     .join('\u001f');
 }
@@ -168,13 +176,15 @@ export function replaceChatComposerSelectionWithText(params: {
 export function insertFileTokenIntoChatComposer(params: {
   label: string;
   nodes: ChatComposerNode[];
+  previewUrl?: string;
   selection: ChatComposerSelection | null;
   tokenKey: string;
 }): ChatComposerEditorSnapshot {
-  const { label, nodes, selection, tokenKey } = params;
+  const { label, nodes, previewUrl, selection, tokenKey } = params;
   return insertToken({
     label,
     nodes,
+    previewUrl,
     selection,
     tokenKey,
     tokenKind: 'file',

@@ -3,13 +3,14 @@ import type { DocBrowserContextValue } from '@/shared/components/doc-browser/doc
 import type { DocBrowserCustomTabRenderers } from '@/shared/components/doc-browser/doc-browser-renderer.types';
 import { getPresenter } from '@/app/presenters/app.presenter';
 import { AppsPanel, type AppsPanelTab } from '@/features/apps';
-import { PanelAppToolbar } from '@/features/panel-apps/components/panel-app-toolbar';
+import { PanelAppDocBrowserToolbar } from '@/features/panel-apps/components/panel-app-toolbar';
 import {
   createPanelAppRightPanelResourceTarget,
   RIGHT_PANEL_APPS_TAB_KIND,
   RIGHT_PANEL_APPS_URL,
   RIGHT_PANEL_HOME_TAB_KIND,
   RIGHT_PANEL_PANEL_APP_TAB_KIND,
+  RIGHT_PANEL_PANEL_APPS_URL,
   RIGHT_PANEL_SERVICE_APPS_URL,
   RightPanelResourceHomePage,
 } from '@/features/right-panel-resources';
@@ -18,14 +19,16 @@ import { PANEL_APP_IFRAME_SANDBOX, focusPanelAppIframe } from './panel-app-ifram
 
 export const APPS_TAB_KIND = RIGHT_PANEL_APPS_TAB_KIND;
 export const PANEL_APP_TAB_KIND = RIGHT_PANEL_PANEL_APP_TAB_KIND;
-const DEFAULT_APPS_PANEL_TAB: AppsPanelTab = 'panel-apps';
+const DEFAULT_APPS_PANEL_TAB: AppsPanelTab = 'apps';
 
 function isAppsPanelTab(value: unknown): value is AppsPanelTab {
-  return value === 'panel-apps' || value === 'service-apps';
+  return value === 'apps' || value === 'panel-apps' || value === 'service-apps';
 }
 
 export function createAppsPanelUrl(tab: AppsPanelTab = DEFAULT_APPS_PANEL_TAB): string {
-  return tab === DEFAULT_APPS_PANEL_TAB ? RIGHT_PANEL_APPS_URL : RIGHT_PANEL_SERVICE_APPS_URL;
+  if (tab === 'panel-apps') return RIGHT_PANEL_PANEL_APPS_URL;
+  if (tab === 'service-apps') return RIGHT_PANEL_SERVICE_APPS_URL;
+  return RIGHT_PANEL_APPS_URL;
 }
 
 export function getAppsPanelTabFromUrl(url: string): AppsPanelTab {
@@ -72,12 +75,14 @@ export const PANEL_APPS_DOC_BROWSER_RENDERERS: DocBrowserCustomTabRenderers = {
     onIframeMessage: (params) => getPresenter().panelAppBridgeManager.handleIframeMessage(params),
     onIframePointerOver: (event) => focusPanelAppIframe(event.currentTarget),
     renderIcon: () => <AppWindow className="w-4 h-4 text-primary shrink-0" />,
-    renderToolbar: ({ open, refreshIframe, tab }) => (
-      <PanelAppToolbar
+    renderToolbar: ({ refreshIframe, tab }) => (
+      <PanelAppDocBrowserToolbar
         appTitle={tab.title || t('panelAppsTitle')}
-        onOpenApps={() => openApps({ open })}
+        currentUrl={tab.currentUrl}
         onRefresh={refreshIframe}
+        resourceUri={tab.resourceUri}
       />
     ),
+    supportsScrollRestoration: true,
   },
 };

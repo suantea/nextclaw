@@ -13,15 +13,46 @@ import {
   CHAT_INLINE_TOKENS_METADATA_KEY,
   CHAT_INLINE_TOKENS_SCHEMA_VERSION,
   CHAT_PROJECT_TOKEN_KIND,
+  CHAT_WORKSPACE_EXCERPT_TOKEN_KIND,
   CHAT_WORKSPACE_FILE_TOKEN_KIND,
   EventBus,
 } from "@nextclaw/shared";
 import { ContextProviderContribution } from "@kernel/contributions/context-provider/index.js";
+import {
+  createCliQuickReferenceContextProvider,
+  createMessagingContextProvider,
+  createSelfUpdateContextProvider,
+  createSilentRepliesContextProvider,
+} from "@kernel/contributions/context-provider/providers/native-static-context.provider.js";
 import { ContextProviderManager } from "@kernel/managers/context-provider.manager.js";
 import { createShowContentTools } from "@kernel/tools/show-content.tools.js";
 import type { AgentRunRequest } from "@kernel/types/agent-run.types.js";
 
 const tempWorkspaces: string[] = [];
+const NATIVE_CONTEXT_SECTION_ORDER = [
+  "You are a personal assistant running inside nextclaw.",
+  "## Tooling",
+  "## Tool Call Style",
+  "## Chat Composer Tokens",
+  "## Safety",
+  "## nextclaw CLI Quick Reference",
+  "## nextclaw Self-Update",
+  "## Workspace",
+  "## Reply Tags",
+  "## Messaging",
+  "## Memory Recall",
+  "## Silent Replies",
+  "## Runtime",
+  "## nextclaw Self-Management Guide",
+  "# Project Context",
+  "# Agent Bootstrap Context",
+  "## Skills",
+  "# Skill Learning Loop",
+  "## Session Orchestration",
+  "## Tool Use Enforcement",
+  "## Current Session",
+  "## Agent Output & Reply Formatting Contract",
+] as const;
 
 function createWorkspace(): string {
   const workspace = mkdtempSync(join(tmpdir(), "nextclaw-context-provider-"));
@@ -34,13 +65,12 @@ function createConfig(workspace: string) {
     agents: {
       defaults: {
         workspace,
-        model: "openai/gpt-5",
+        model: "minimax/MiniMax-M3",
         engine: "native",
         engineConfig: {},
         thinkingDefault: "off",
         models: {},
         contextTokens: 200000,
-        maxToolIterations: 1000,
       },
       context: {
         bootstrap: {
@@ -92,7 +122,7 @@ function createRequest(
   };
 }
 
-function assertOrder(text: string, markers: string[]): void {
+function assertOrder(text: string, markers: readonly string[]): void {
   let cursor = -1;
   for (const marker of markers) {
     const next = text.indexOf(marker);
@@ -105,6 +135,45 @@ afterEach(() => {
   while (tempWorkspaces.length > 0) {
     rmSync(tempWorkspaces.pop()!, { recursive: true, force: true });
   }
+});
+
+describe("Messaging context delivery policy", () => {
+  it("prefers the inbox for durable content without an external route", async () => {
+    const workspace = createWorkspace();
+    const [context] = await createMessagingContextProvider().provide(createRequest(workspace));
+
+    expect(context).toContain("Durable reading material with no explicit external destination");
+    expect(context).toContain("collected news, briefings, reports, recommendations, and articles");
+    expect(context).toContain('Wording such as "send it to me" alone does not name a chat channel');
+    expect(context).toContain("do not infer Weixin or another channel");
+  });
+
+  it("requires the silent marker without escaped or leading newlines", async () => {
+    const workspace = createWorkspace();
+    const [context] = await createSilentRepliesContextProvider().provide(createRequest(workspace));
+
+    expect(context).toContain("respond with EXACTLY <noreply/>");
+    expect(context).toContain("Only an entire reply matching <noreply/> is silent");
+    expect(context).toContain('✅ Right: "<noreply/>"');
+    expect(context).not.toContain("two blank lines");
+    expect(context).not.toContain("\\n\\n<noreply/>");
+  });
+});
+
+describe("NextClaw lifecycle command context", () => {
+  it("uses top-level service commands and delegates restart to an external terminal", async () => {
+    const workspace = createWorkspace();
+    const [quickReference] = await createCliQuickReferenceContextProvider().provide(createRequest(workspace));
+    const [selfUpdate] = await createSelfUpdateContextProvider().provide(createRequest(workspace));
+    const context = `${quickReference}\n${selfUpdate}`;
+
+    expect(context).toContain("nextclaw status");
+    expect(context).toContain("nextclaw start");
+    expect(context).toContain("nextclaw restart");
+    expect(context).toContain("nextclaw stop");
+    expect(context).toContain("run `nextclaw restart` in an external terminal");
+    expect(context).not.toContain("nextclaw gateway restart");
+  });
 });
 
 describe("ContextProviderContribution native prompt contract", () => {
@@ -152,12 +221,13 @@ describe("ContextProviderContribution native prompt contract", () => {
           default: true,
           displayName: "Main",
           id: "main",
-          model: "openai/gpt-5",
+          model: "minimax/MiniMax-M3",
           reservedContextTokens: 0,
           workspace: hostWorkspace,
         }),
       },
       sessionManager: {
+        getSessionRecord: async () => null,
         getAgentRunSession: async () => ({
           sessionId: "session-1",
           agentId: "main",
@@ -189,11 +259,10 @@ describe("ContextProviderContribution native prompt contract", () => {
         ],
       },
     } as never);
-    contribution.start();
+    await contribution.start();
 
     const blocks = await contextProviderManager.buildContext(
       createRequest(projectRoot, {
-        requested_skill_refs: [`project:${projectSkillDir}`],
         [CHAT_INLINE_TOKENS_METADATA_KEY]: {
           schemaVersion: CHAT_INLINE_TOKENS_SCHEMA_VERSION,
           items: [
@@ -202,6 +271,16 @@ describe("ContextProviderContribution native prompt contract", () => {
               key: "reference.ts",
               label: "reference.ts",
               rawText: "@file:reference.ts",
+            },
+            {
+              kind: CHAT_WORKSPACE_EXCERPT_TOKEN_KIND,
+              key: "reference.ts#excerpt-contract",
+              path: "reference.ts",
+              label: "reference.ts",
+              excerpt: "selected contract snapshot",
+              startLine: 3,
+              endLine: 4,
+              rawText: "@excerpt:reference.ts%23excerpt-contract",
             },
             {
               kind: CHAT_PROJECT_TOKEN_KIND,
@@ -220,30 +299,12 @@ describe("ContextProviderContribution native prompt contract", () => {
 
     for (const expected of [
       "You are a personal assistant running inside nextclaw.",
-      "- read_file: Read file contents",
-      "- show_panel_app:",
-      "side-panel only",
-      "weather card",
-      "Do not make every UI an inline card",
-      "card-first",
-      "landscape composition",
-      "wider than it is tall",
-      "no reliance on document-level internal scrolling",
-      "nextclawDisplayMode=card",
-      "show_panel_app",
-      "Markdown-only",
-      "Supported targets are `panel_app`, `json`, `file`, and `url`",
-      "non-clickable placeholders",
-      "inert JSON snapshots",
-      "Never call `show_panel_app` for inline display",
-      "nextclaw-inline",
-      "show_file",
-      "`view_image` is only for giving the model visual input",
-      'viewer="rendered"',
-      'viewer="source"',
+      "provider tool schemas are the complete policy-filtered tool catalog",
       "# Project Context",
       "## Explicit Workspace References",
       "export const referenced = true;",
+      '<workspace_excerpt path="reference.ts" start_line="3" end_line="4">',
+      "selected contract snapshot",
       `<project_reference name="Referenced" root_path="${referencedProjectRoot}">`,
       "PROJECT.md",
       "# Agent Bootstrap Context",
@@ -253,46 +314,43 @@ describe("ContextProviderContribution native prompt contract", () => {
       "## AGENTS.md\n\nNextClaw workspace rules.",
       "## Skill Sources",
       `${join(projectRoot, ".agents", "skills")}/<skill-name>/SKILL.md`,
-      '<skill_group scope="project" source="project">',
-      '<skill_group scope="workspace" source="workspace">',
-      "# Active Skills",
-      `<ref>project:${projectSkillDir}</ref>`,
-      "<name>demo-skill</name>",
-      "<name>visualize-output</name>",
+      "# Always-on Skills",
+      "### project skills",
+      `Root: \`${join(projectRoot, ".agents", "skills")}\``,
+      "- project-review — Project review instructions",
+      "### workspace skills",
+      "- demo-skill — Demo skill for routing tests",
+      "### builtin skills",
+      "- visualize-output —",
       "## Session Orchestration",
       "## Tool Use Enforcement",
       "## OpenAI/Codex Execution Discipline",
-      "## Current Session",
+      "## Current Session\nChannel: ui\nChat ID: web-ui\nSession: session-1\nModel: openai/gpt-5",
       "## Agent Output & Reply Formatting Contract",
-      "Content after the last tool call remains directly visible",
+      "After that call, always write a concise, self-contained final response",
       "fenced `mermaid` block",
-      "MUST read the built-in `visualize-output` SKILL.md",
-      "infer the appropriate medium without requiring the user to name it",
-      "before any visualization tool call",
-      "follow its data-fidelity rules",
-      "State only facts and mathematical relationships directly supported by the user's input",
-      "calculate every derived number with a tool",
-      "stop at what the data shows rather than why it happened or what to do",
-      "`nextclaw-inline` `file` target",
-      "never represent generated local HTML as a URL",
-      "duplicate the visual with a second table/list",
-      "your FIRST tool call MUST be `read_file`",
-      "regardless of whether the user explicitly said inline",
+      "FIRST tool call MUST be `read_file`",
+      "built-in `visualize-output` SKILL.md",
+      "use only supported facts and mathematics",
+      "calculate derived values with a tool",
+      "For summary-only requests, stop at what the data shows",
+      "use a `nextclaw-inline` `file` target",
       "must contain only the fenced `nextclaw-inline` declaration",
-      "the declaration's closing fence must be the final content",
-      "Persistent visualization assets:",
+      "Visualization assets:",
       ["assets", "visualizations", "session-1"].join(sep),
-      "emit its absolute `file` payload path",
       "Inline display:",
       "display-only",
     ]) {
       expect(context).toContain(expected);
     }
-    const activeSkillsContext = context.slice(
-      context.indexOf("# Active Skills"),
-      context.indexOf("## Skills (mandatory)"),
+    expect(context).not.toContain("- read_file: Read file contents");
+    expect(context).not.toContain("<skill_group");
+    expect(context).not.toContain("<location>");
+    const alwaysOnSkillsContext = context.slice(
+      context.indexOf("# Always-on Skills"),
+      context.indexOf("## Skills"),
     );
-    expect(activeSkillsContext).toContain(`<ref>project:${projectSkillDir}</ref>`);
+    expect(alwaysOnSkillsContext).not.toContain("- project-review — Project review instructions");
     for (const forbidden of [
       'placement="inline"',
       'placement="side_panel"',
@@ -301,31 +359,8 @@ describe("ContextProviderContribution native prompt contract", () => {
     ]) {
       expect(context).not.toContain(forbidden);
     }
-    assertOrder(context, [
-      "You are a personal assistant running inside nextclaw.",
-      "## Tooling",
-      "## Tool Call Style",
-      "## Chat Composer Tokens",
-      "## Safety",
-      "## nextclaw CLI Quick Reference",
-      "## nextclaw Self-Update",
-      "## Workspace",
-      "## Reply Tags",
-      "## Messaging",
-      "## Memory Recall",
-      "## Silent Replies",
-      "## Runtime",
-      "## nextclaw Self-Management Guide",
-      "# Project Context",
-      "# Agent Bootstrap Context",
-      "## Skills (mandatory)",
-      "# Skill Learning Loop",
-      "## Session Orchestration",
-      "## Tool Use Enforcement",
-      "## Current Session",
-      "## Agent Output & Reply Formatting Contract",
-    ]);
+    assertOrder(context, NATIVE_CONTEXT_SECTION_ORDER);
 
-    contribution.dispose();
+    await contribution.dispose();
   });
 });

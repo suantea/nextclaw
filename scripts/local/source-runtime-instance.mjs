@@ -268,7 +268,8 @@ class SourceRuntimeInstanceHarness {
   };
 
   buildCli = () => {
-    console.log("[source-runtime] Building current source for nextclaw...");
+    console.log("[source-runtime] Resolving cached Portable Runtime and building current NextClaw source...");
+    runCommand(binName("pnpm"), ["portable-runtime:build"]);
     runCommand(binName("pnpm"), ["-r", "--filter", "nextclaw...", "build"]);
   };
 

@@ -1,5 +1,8 @@
 import type { Config } from "@nextclaw/core";
-import { createRuntimeChildEnv } from "@nextclaw/core";
+import {
+  createRuntimeChildEnv,
+  resolveRuntimeCommandLaunch,
+} from "@nextclaw/core";
 import { McpServerLifecycleManager } from "@nextclaw/mcp";
 import type { McpServerRecord, McpToolCatalogEntry } from "@nextclaw/mcp";
 import type {
@@ -106,9 +109,13 @@ export class McpServiceAppRuntimeService {
     }
   };
 
-  restart = async (appId: string): Promise<void> => {
+  stop = async (appId: string): Promise<void> => {
     await this.lifecycleManager.closeServer(appId);
     this.states.set(appId, { status: "idle" });
+  };
+
+  restart = async (appId: string): Promise<void> => {
+    await this.stop(appId);
   };
 
   dispose = async (): Promise<void> => {
@@ -119,28 +126,65 @@ export class McpServiceAppRuntimeService {
   private toMcpServerRecord = (
     app: ServiceAppRecord,
     manifest: ServiceAppManifest,
-  ): McpServerRecord => ({
-    name: app.id,
-    definition: {
-      enabled: manifest.enabled,
-      transport: {
-        type: "stdio",
-        command: manifest.command,
-        args: manifest.args,
-        cwd: app.dirPath,
-        env: createRuntimeChildEnv(process.env),
-        stderr: "pipe",
+  ): McpServerRecord => {
+    if (!manifest.command || !manifest.args) {
+      throw new Error(`MCP Service App ${app.id} is missing its launch command.`);
+    }
+    const launch = resolveRuntimeCommandLaunch(manifest.command);
+    return {
+      name: app.id,
+      definition: {
+        enabled: app.enabled,
+        transport: {
+          type: "stdio",
+          command: launch.command,
+          args: manifest.args,
+          cwd: app.dirPath,
+          env: createRuntimeChildEnv(process.env, {
+            ...this.createAppRuntimeEnv(app),
+            ...launch.envPatch,
+          }),
+          stderr: "pipe",
+        },
+        scope: {
+          allAgents: false,
+          agents: [],
+        },
+        policy: {
+          trust: "explicit",
+          start: "eager",
+        },
       },
-      scope: {
-        allAgents: false,
-        agents: [],
-      },
-      policy: {
-        trust: "explicit",
-        start: "eager",
-      },
-    },
-  });
+    };
+  };
+
+  private createAppRuntimeEnv = (app: ServiceAppRecord): NodeJS.ProcessEnv => {
+    const env: NodeJS.ProcessEnv = {};
+    if (app.storage) {
+      env.NEXTCLAW_APP_INSTANCE_ID = app.storage.instanceId;
+      env.NEXTCLAW_APP_COMPONENT_ID = app.id;
+      env.NEXTCLAW_APP_DATA_DIR = app.storage.dataDirectory;
+      env.NEXTCLAW_APP_CONFIG_DIR = app.storage.configDirectory;
+      env.NEXTCLAW_APP_STATE_DIR = app.storage.stateDirectory;
+      env.NEXTCLAW_APP_CACHE_DIR = app.storage.cacheDirectory;
+      env.NEXTCLAW_APP_TMP_DIR = app.storage.temporaryDirectory;
+      env.NEXTCLAW_APP_LOG_DIR = app.storage.logsDirectory;
+    } else if (app.dataDirectory) {
+      env.NEXTCLAW_APP_DATA_DIR = app.dataDirectory;
+    }
+    if (
+      app.sourceKind !== "package" ||
+      !app.packageId ||
+      !app.packageVersion ||
+      !app.packageDirectory
+    ) {
+      return env;
+    }
+    env.NEXTCLAW_APP_ID = app.packageId;
+    env.NEXTCLAW_APP_VERSION = app.packageVersion;
+    env.NEXTCLAW_APP_PACKAGE_DIR = app.packageDirectory;
+    return env;
+  };
 
   private toServiceAction = (
     manifest: ServiceAppManifest,

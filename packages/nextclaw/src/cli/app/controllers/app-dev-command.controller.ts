@@ -9,8 +9,13 @@ export class AppDevCommandController {
   constructor(private readonly serviceAppDevService = new ServiceAppDevService()) {}
 
   dev = async (target: string, options: ServiceAppDevCommandOptions): Promise<void> => {
-    const report = await this.serviceAppDevService.inspect(target);
-    process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : this.format(report));
+    const { component, confirm, json, resetData } = options;
+    const report = await this.serviceAppDevService.inspect(target, {
+      componentId: component,
+      resetData,
+      confirmAppId: confirm,
+    });
+    process.stdout.write(json ? `${JSON.stringify(report, null, 2)}\n` : this.format(report));
     if (!report.ok) {
       process.exitCode = 1;
     }

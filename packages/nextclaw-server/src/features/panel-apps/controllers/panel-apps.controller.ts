@@ -64,15 +64,35 @@ export class PanelAppsRoutesController {
     return c.json(ok(payload));
   };
 
+  readonly get = async (c: Context) => {
+    try {
+      return c.json(ok(await this.panelAppManager.getPanelApp(c.req.param("id"))));
+    } catch (error) {
+      if (isPanelAppError(error)) {
+        return c.json(
+          err(error.code, error.message),
+          statusForPanelAppError(error.code),
+        );
+      }
+      throw error;
+    }
+  };
+
   readonly updatePanelAppPreferences = async (c: Context) => {
     const body = await readJson<unknown>(c.req.raw);
     if (!body.ok || !isRecord(body.data)) {
       return c.json(err("INVALID_PANEL_APP_PREFERENCES", "invalid panel app preferences"), 400);
     }
+    if (body.data.mainSidebar !== undefined && typeof body.data.mainSidebar !== "boolean") {
+      return c.json(err("INVALID_PANEL_APP_PREFERENCES", "mainSidebar must be boolean"), 400);
+    }
     try {
-      const preferences = typeof body.data.favorite === "boolean"
-        ? { favorite: body.data.favorite }
-        : {};
+      const preferences = {
+        ...(typeof body.data.favorite === "boolean" ? { favorite: body.data.favorite } : {}),
+        ...(typeof body.data.mainSidebar === "boolean"
+          ? { mainSidebar: body.data.mainSidebar }
+          : {}),
+      };
       const payload = await this.panelAppManager.updatePanelAppPreferences(
         c.req.param("id"),
         preferences,

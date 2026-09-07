@@ -32,8 +32,9 @@ export type ChatSelectedItem = {
   key: string;
   label: string;
 };
-
 export type ChatComposerTokenKind = "skill" | "file" | "panel_app" | (string & {});
+
+export type ChatComposerTokenData = Record<string, unknown>;
 
 export type ChatComposerTextNode = {
   id: string;
@@ -47,6 +48,8 @@ export type ChatComposerTokenNode = {
   tokenKind: ChatComposerTokenKind;
   tokenKey: string;
   label: string;
+  previewUrl?: string;
+  data?: ChatComposerTokenData;
 };
 
 export type ChatComposerNode = ChatComposerTextNode | ChatComposerTokenNode;
@@ -57,8 +60,6 @@ export type ChatComposerSelection = {
 };
 
 export type ChatToolbarIcon = "sparkles" | "brain";
-
-export type ChatToolbarAccessoryIcon = ChatToolbarIcon | "paperclip";
 
 export type ChatToolbarSelectOption = {
   value: string;
@@ -85,6 +86,23 @@ export type ChatToolbarSelectOptionAction = {
   onToggle: (value: string, active: boolean) => void;
 };
 
+export type ChatToolbarSelectDiscovery = {
+  summaryLabel: string;
+  viewLabel: string;
+  groupLabel: string;
+  allGroupLabel: string;
+  actionLabel: string;
+  addedLabel: string;
+  dismissLabel: string;
+  doneLabel: string;
+  closeLabel: string;
+  searchPlaceholder: string;
+  searchEmptyLabel: string;
+  groups: ChatToolbarSelectGroup[];
+  onDismiss: () => void;
+  onSelect: (value: string) => Promise<void> | void;
+};
+
 export type ChatToolbarSelect = {
   key: string;
   value?: string;
@@ -98,16 +116,20 @@ export type ChatToolbarSelect = {
   emptyLabel?: string;
   search?: ChatToolbarSelectSearch;
   optionAction?: ChatToolbarSelectOptionAction;
+  discovery?: ChatToolbarSelectDiscovery;
+  manageLabel?: string;
+  manageHref?: string;
+  onOpen?: () => void;
   onValueChange: (value: string) => void;
 };
+
+export type ChatToolbarAccessoryIcon = "paperclip";
 
 export type ChatToolbarAccessory = {
   key: string;
   label: string;
   icon?: ChatToolbarAccessoryIcon;
-  iconOnly?: boolean;
   disabled?: boolean;
-  tooltip?: string;
   onClick?: () => void;
 };
 
@@ -126,7 +148,6 @@ export type ChatSkillPickerOptionGroup = {
 
 export type ChatSkillPickerProps = {
   title: string;
-  allGroupsLabel: string;
   searchPlaceholder: string;
   emptyLabel: string;
   loadingLabel: string;
@@ -146,9 +167,12 @@ export type ChatInputBarActionsProps = {
   stopDisabled: boolean;
   stopHint: string;
   sendButtonLabel: string;
+  sendIcon?: "send" | "continue";
   stopButtonLabel: string;
   contextWindow?: ChatContextWindowIndicator | null;
   onSend: () => Promise<void> | void;
+  /** Alternate keyboard-only send, used for next-step steering. */
+  onAlternateSend?: () => Promise<void> | void;
   onStop: () => Promise<void> | void;
 };
 
@@ -157,10 +181,11 @@ export type ChatContextWindowIndicator = {
   percentLabel: string;
   ratio: number;
   tone: "neutral" | "warning" | "danger";
-  details: Array<{ label: string; value: string }>;
+  details: Array<{ label: string; value: string; dividerBefore?: boolean }>;
 };
 
 export type ChatInputBarToolbarProps = {
+  addMenuLabel?: string;
   selects: ChatToolbarSelect[];
   trailingSelects?: ChatToolbarSelect[];
   accessories?: ChatToolbarAccessory[];
@@ -200,6 +225,8 @@ export type ChatInputBarProps = {
   composer: {
     nodes: ChatComposerNode[];
     placeholder: string;
+    excerptCharacterCountTemplate?: string;
+    removeTokenLabel?: string;
     disabled: boolean;
     onNodesChange: (nodes: ChatComposerNode[]) => void;
     onFilesAdd?: (files: File[]) => Promise<void> | void;
@@ -376,12 +403,19 @@ export type ChatInlineDisplayViewModel = {
 export type ChatToolPartViewModel = {
   kind: "call" | "result";
   toolName: string;
+  toolCallId?: string;
   agentId?: string;
   summary?: string;
   inputLabel?: string;
   input?: string;
+  inputData?: unknown;
   output?: string;
   outputData?: unknown;
+  execution?: {
+    startedAt?: string;
+    endedAt?: string;
+    durationMs?: number;
+  };
   hasResult: boolean;
   statusTone: "running" | "success" | "error" | "cancelled";
   statusLabel: string;
@@ -403,6 +437,25 @@ export type ChatInlineTokenViewModel =
       source: "builtin" | "global" | "project" | "workspace" | null;
       path: string | null;
       label: string;
+      rawText: string;
+    }
+  | {
+      kind: "workspace_excerpt";
+      key: string;
+      path: string;
+      label: string;
+      excerpt: string;
+      startLine: number | null;
+      endLine: number | null;
+      rawText: string;
+    }
+  | {
+      kind: "conversation_excerpt";
+      key: string;
+      messageId: string;
+      role: "assistant" | "user";
+      label: string;
+      excerpt: string;
       rawText: string;
     }
   | {
@@ -438,6 +491,13 @@ export type ChatMessagePartViewModel =
       };
     }
   | {
+      type: "custom";
+      id: string;
+      customType: string;
+      data: unknown;
+      process?: boolean;
+    }
+  | {
       type: "unknown";
       label: string;
       rawType: string;
@@ -447,6 +507,8 @@ export type ChatMessagePartViewModel =
 export type ChatMessageProcessSummaryViewModel = {
   label: string;
 };
+
+export type ChatMessageToolPayloadState = "summary" | "loading" | "ready" | "error";
 
 export type ChatMessageDetailActionViewModel = {
   key: string;
@@ -464,6 +526,13 @@ export type ChatMessageMoreActionsViewModel = {
   items: ChatMessageDetailActionViewModel[];
 };
 
+export type ChatMessageActionViewModel = {
+  disabled?: boolean;
+  icon: "continue" | "edit";
+  key: string;
+  label: string;
+};
+
 export type ChatMessageViewModel = {
   id: string;
   role: ChatMessageRole;
@@ -473,6 +542,7 @@ export type ChatMessageViewModel = {
   status?: string;
   processSummary?: ChatMessageProcessSummaryViewModel;
   executionSummaryLabel?: string;
+  actions?: ChatMessageActionViewModel[];
   moreActions?: ChatMessageMoreActionsViewModel;
 };
 
@@ -501,15 +571,22 @@ export type ChatBuiltInToolStatusKind =
   | "display";
 
 export type ChatMessageTexts = {
+  addSelectionToChatLabel?: string;
+  selectionTooLongLabel?: string;
   copyCodeLabel: string;
   copiedCodeLabel: string;
   copyMessageLabel: string;
   copiedMessageLabel: string;
   typingLabel: string;
+  pendingInputLabel?: string;
+  excerptCharacterCountTemplate?: string;
   mermaidDiagramLabel?: string;
   mermaidExpandLabel?: string;
   mermaidLoadingLabel?: string;
   mermaidRenderErrorLabel?: string;
+  previewZoomInLabel?: string;
+  previewZoomOutLabel?: string;
+  previewResetZoomLabel?: string;
   attachmentOpenLabel?: string;
   attachmentAttachedLabel?: string;
   attachmentExpandLabel?: string;
@@ -528,6 +605,9 @@ export type ChatMessageTexts = {
   };
   toolActivityFailedLabel?: string;
   toolActivityCancelledLabel?: string;
+  toolPayloadLoadingLabel?: string;
+  toolPayloadLoadFailedLabel?: string;
+  toolActivityShowMoreTemplate?: string;
   reasoningCharacterCountTemplates?: {
     inProgress: string;
     completed: string;

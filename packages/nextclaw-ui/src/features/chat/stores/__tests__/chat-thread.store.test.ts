@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { useChatThreadStore } from '@/features/chat/stores/chat-thread.store';
 import {
-  useChatThreadStore,
-} from '@/features/chat/stores/chat-thread.store';
-import { CHAT_WORKSPACE_PANEL_DEFAULT_WIDTH } from '@/features/chat/features/workspace/utils/chat-workspace-panel-layout.utils';
+  CHAT_WORKSPACE_EXPLORER_DEFAULT_WIDTH,
+  CHAT_WORKSPACE_PANEL_DEFAULT_WIDTH,
+} from '@/features/chat/features/workspace/utils/chat-workspace-panel-layout.utils';
 
 const chatThreadWorkspaceStorageKey = 'nextclaw.chat.workspace-panel.state';
 
@@ -10,7 +11,7 @@ function createLocalStoragePersistStorage() {
   return {
     getItem: (name: string) => JSON.parse(window.localStorage.getItem(name) ?? 'null'),
     setItem: (name: string, value: unknown) => window.localStorage.setItem(name, JSON.stringify(value)),
-    removeItem: (name: string) => window.localStorage.removeItem(name)
+    removeItem: (name: string) => window.localStorage.removeItem(name),
   };
 }
 
@@ -31,6 +32,8 @@ function resetChatThreadStore() {
       closedWorkspaceTabEntries: [],
       workspaceNavigationHistory: [],
       workspaceNavigationHistoryIndex: 0,
+      workspaceExplorerOpen: false,
+      workspaceExplorerWidth: CHAT_WORKSPACE_EXPLORER_DEFAULT_WIDTH,
       workspacePanelWidth: CHAT_WORKSPACE_PANEL_DEFAULT_WIDTH,
     },
   });
@@ -66,34 +69,28 @@ describe('chat thread workspace panel persistence', () => {
         },
       ],
       activeWorkspaceFileKey: 'session-1::preview::README.md',
-      closedWorkspaceTabEntries: [
-        { kind: 'project-files' },
-        { kind: 'child-session', key: 'child-session-2' },
-      ],
+      closedWorkspaceTabEntries: [{ kind: 'project-files' }, { kind: 'child-session', key: 'child-session-2' }],
       workspaceNavigationHistory: [
         { kind: 'child-session', key: 'child-session-1' },
         { kind: 'file', key: 'session-1::preview::README.md' },
       ],
       workspaceNavigationHistoryIndex: 1,
+      workspaceExplorerOpen: true,
     });
 
-    const persisted = JSON.parse(
-      window.localStorage.getItem(chatThreadWorkspaceStorageKey) ?? '{}',
-    );
+    const persisted = JSON.parse(window.localStorage.getItem(chatThreadWorkspaceStorageKey) ?? '{}');
 
     expect(persisted.state.snapshot).toMatchObject({
       workspacePanelParentKey: 'session-1',
       activeWorkspacePanelKind: 'file',
       activeWorkspaceFileKey: 'session-1::preview::README.md',
-      closedWorkspaceTabEntries: [
-        { kind: 'project-files' },
-        { kind: 'child-session', key: 'child-session-2' },
-      ],
+      closedWorkspaceTabEntries: [{ kind: 'project-files' }, { kind: 'child-session', key: 'child-session-2' }],
       workspaceNavigationHistory: [
         { kind: 'child-session', key: 'child-session-1' },
         { kind: 'file', key: 'session-1::preview::README.md' },
       ],
       workspaceNavigationHistoryIndex: 1,
+      workspaceExplorerOpen: true,
     });
     expect(persisted.state.snapshot.sessionKey).toBeUndefined();
     expect(persisted.state.snapshot.isSending).toBeUndefined();
@@ -120,16 +117,12 @@ describe('chat thread workspace panel persistence', () => {
       workspaceNavigationHistoryIndex: 1,
     });
 
-    const persisted = JSON.parse(
-      window.localStorage.getItem(chatThreadWorkspaceStorageKey) ?? '{}',
-    );
+    const persisted = JSON.parse(window.localStorage.getItem(chatThreadWorkspaceStorageKey) ?? '{}');
 
     expect(persisted.state.snapshot).toMatchObject({
       workspacePanelParentKey: 'session-1',
       activeWorkspacePanelKind: null,
-      workspaceNavigationHistory: [
-        { kind: 'child-session', key: 'child-session-1' },
-      ],
+      workspaceNavigationHistory: [{ kind: 'child-session', key: 'child-session-1' }],
       workspaceNavigationHistoryIndex: 0,
     });
     expect(persisted.state.snapshot.activeSideChatDraft).toBeUndefined();
@@ -139,12 +132,10 @@ describe('chat thread workspace panel persistence', () => {
     useChatThreadStore.getState().setSnapshot({
       workspacePanelParentKey: 'session-1',
       activeWorkspacePanelKind: 'project-files',
-      workspaceNavigationHistory: [
-        { kind: 'overview' },
-        { kind: 'child-sessions' },
-        { kind: 'project-files' },
-      ],
+      workspaceNavigationHistory: [{ kind: 'overview' }, { kind: 'child-sessions' }, { kind: 'project-files' }],
       workspaceNavigationHistoryIndex: 2,
+      workspaceExplorerOpen: true,
+      workspaceExplorerWidth: 318,
       workspacePanelWidth: 620,
     });
 
@@ -158,12 +149,10 @@ describe('chat thread workspace panel persistence', () => {
     expect(useChatThreadStore.getState().snapshot).toMatchObject({
       workspacePanelParentKey: 'session-1',
       activeWorkspacePanelKind: 'project-files',
-      workspaceNavigationHistory: [
-        { kind: 'overview' },
-        { kind: 'child-sessions' },
-        { kind: 'project-files' },
-      ],
+      workspaceNavigationHistory: [{ kind: 'overview' }, { kind: 'child-sessions' }, { kind: 'project-files' }],
       workspaceNavigationHistoryIndex: 2,
+      workspaceExplorerOpen: true,
+      workspaceExplorerWidth: 318,
       workspacePanelWidth: 620,
     });
   });
@@ -182,9 +171,7 @@ describe('chat thread workspace panel persistence', () => {
       activeWorkspacePanelKind: 'file',
       workspaceFileTabs,
       activeWorkspaceFileKey,
-      workspaceNavigationHistory: [
-        { kind: 'file', key: activeWorkspaceFileKey },
-      ],
+      workspaceNavigationHistory: [{ kind: 'file', key: activeWorkspaceFileKey }],
       workspaceNavigationHistoryIndex: 0,
     });
 
@@ -202,9 +189,7 @@ describe('chat thread workspace panel persistence', () => {
     });
     expect(useChatThreadStore.getState().snapshot.workspaceFileTabs).toHaveLength(8);
     expect(
-      useChatThreadStore.getState().snapshot.workspaceFileTabs.some(
-        (tab) => tab.key === activeWorkspaceFileKey,
-      ),
+      useChatThreadStore.getState().snapshot.workspaceFileTabs.some((tab) => tab.key === activeWorkspaceFileKey),
     ).toBe(true);
   });
 
@@ -223,6 +208,7 @@ describe('chat thread workspace panel persistence', () => {
               { kind: 'file', key: 'session-1::preview::README.md' },
             ],
             workspaceNavigationHistoryIndex: 1,
+            workspaceExplorerWidth: 999,
             workspaceFileTabs: [
               {
                 key: 'session-1::preview::README.md',
@@ -252,10 +238,10 @@ describe('chat thread workspace panel persistence', () => {
       workspacePanelParentKey: 'session-1',
       activeWorkspacePanelKind: 'file',
       activeWorkspaceFileKey: 'session-1::preview::README.md',
+      workspaceExplorerWidth: 400,
+      workspaceExplorerOpen: false,
       activeChildSessionKey: 'child-session-1',
-      workspaceNavigationHistory: [
-        { kind: 'file', key: 'session-1::preview::README.md' },
-      ],
+      workspaceNavigationHistory: [{ kind: 'file', key: 'session-1::preview::README.md' }],
       workspaceNavigationHistoryIndex: 0,
       workspaceFileTabs: [
         {

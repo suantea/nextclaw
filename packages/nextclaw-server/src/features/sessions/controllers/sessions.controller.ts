@@ -4,7 +4,10 @@ import type {
   SessionPatchUpdate,
   UiNcpSessionListView,
   UiNcpSessionQueuedInputsView,
+  UiNcpSessionPendingInputsView,
+  UiNcpSessionTokenUsageView,
 } from "@nextclaw-server/shared/types/server-api.types.js";
+import type { UiNcpSessionObservationsView } from "@nextclaw-server/features/sessions/types/session-observation-api.types.js";
 import type { NcpSessionSummary } from "@nextclaw/ncp";
 import {
   isProjectError,
@@ -13,13 +16,19 @@ import {
   isSessionSettingsError,
 } from "@nextclaw/kernel";
 import { SessionSkillsViewBuilder } from "@nextclaw-server/features/sessions/services/session-skills-view.service.js";
+import {
+  buildSessionMessageHistoryPayloadView,
+  compactSessionMessageHistoryPayloadView,
+} from "@nextclaw-server/features/sessions/utils/session-message-history-payload.utils.js";
 import { err, ok, readJson } from "@nextclaw-server/shared/utils/http-response.utils.js";
 import type { UiRouterOptions } from "@nextclaw-server/app/types/router-options.types.js";
+import { buildSessionObservationsView } from "@nextclaw-server/features/sessions/utils/session-observation-view.utils.js";
+import type { ObservationRef } from "@nextclaw/kernel";
 
-const INTERRUPTED_SESSION_STATUS_TEXT =
-  "Run interrupted: no completion or error event was recorded. Please send the message again.";
-const DEFAULT_SESSION_MESSAGE_PAGE_SIZE = 80;
+const DEFAULT_SESSION_MESSAGE_PAGE_SIZE = 40;
 const MAX_SESSION_MESSAGE_PAGE_SIZE = 200;
+const DEFAULT_SESSION_LIST_PAGE_SIZE = 100;
+const MAX_SESSION_LIST_PAGE_SIZE = 200;
 
 function sessionProjectError(error: { code: string; message: string }): {
   code: string;
@@ -91,7 +100,8 @@ function normalizeSessionActivityPreview(session: NcpSessionSummary): NcpSession
       last_activity_preview: {
         ...preview,
         state,
-        statusText: state === "failed" ? INTERRUPTED_SESSION_STATUS_TEXT : preview.statusText
+        statusKind: state === "failed" ? "run-interrupted" : undefined,
+        statusText: undefined
       }
     }
   };
@@ -118,13 +128,37 @@ export class NcpSessionRoutesController {
 
   readonly listSessions = async (c: Context) => {
     const sessionManager = this.options.kernel.sessionManager;
-    const sessions = await sessionManager.listSessions({
-      limit: readPositiveInt(c.req.query("limit")),
-      peerId: c.req.query("peerId")
+    const page = readPositiveInt(c.req.query("page")) ?? 1;
+    const pageSize = Math.min(
+      readPositiveInt(c.req.query("pageSize")) ??
+        readPositiveInt(c.req.query("limit")) ??
+        DEFAULT_SESSION_LIST_PAGE_SIZE,
+      MAX_SESSION_LIST_PAGE_SIZE,
+    );
+    const rawQuery = c.req.query("query")?.trim();
+    const peerId = c.req.query("peerId")?.trim();
+    if (peerId) {
+      const sessions = await sessionManager.listSessions({ limit: pageSize, peerId });
+      const payload: UiNcpSessionListView = {
+        sessions: sessions.map(this.withRuntimeStatus),
+        total: sessions.length,
+        page: 1,
+        pageSize,
+        hasMore: false,
+      };
+      return c.json(ok(payload));
+    }
+    const result = await sessionManager.listSessionPage({
+      page,
+      pageSize,
+      ...(rawQuery ? { query: rawQuery } : {}),
     });
     const payload: UiNcpSessionListView = {
-      sessions: sessions.map(this.withRuntimeStatus),
-      total: sessions.length
+      sessions: result.sessions.map(this.withRuntimeStatus),
+      total: result.total,
+      page,
+      pageSize,
+      hasMore: page * pageSize < result.total,
     };
     return c.json(ok(payload));
   };
@@ -158,15 +192,94 @@ export class NcpSessionRoutesController {
     if (!page) {
       return c.json(err("NOT_FOUND", `ncp session not found: ${sessionId}`), 404);
     }
+    const useSummaryPayload = c.req.query("toolPayload") === "summary";
+    const historyPayload = useSummaryPayload
+      ? buildSessionMessageHistoryPayloadView({
+          messages: page.messages,
+          messageDetailCursors: page.messageDetailCursors,
+        })
+      : { messages: page.messages, deferredToolPayloads: {} };
+    const compactHistoryPayload = useSummaryPayload &&
+      !c.req.query("cursor") &&
+      c.req.query("initialPayload") === "compact"
+      ? compactSessionMessageHistoryPayloadView({ view: historyPayload })
+      : { ...historyPayload, startIndex: 0 };
+    const compactStartCursor = compactHistoryPayload.startIndex > 0
+      ? page.messageDetailCursors[page.messages[compactHistoryPayload.startIndex - 1]?.id ?? ""]
+        ?? page.pageInfo.startCursor
+      : page.pageInfo.startCursor;
     const payload = {
       sessionId,
       status: this.options.kernel.isSessionRunning(sessionId) ? ("running" as const) : ("idle" as const),
-      messages: page.messages,
+      messages: compactHistoryPayload.messages,
+      ...(Object.keys(compactHistoryPayload.deferredToolPayloads).length > 0
+        ? { deferredToolPayloads: compactHistoryPayload.deferredToolPayloads }
+        : {}),
       ...(page.contextWindow ? { contextWindow: page.contextWindow } : {}),
       total: page.total,
-      pageInfo: page.pageInfo
+      pageInfo: {
+        startCursor: compactStartCursor,
+        hasPreviousPage: page.pageInfo.hasPreviousPage || compactHistoryPayload.startIndex > 0,
+      }
     };
     return c.json(ok(payload));
+  };
+
+  readonly getSessionTokenUsage = async (c: Context) => {
+    const sessionId = decodeURIComponent(c.req.param("sessionId"));
+    const payload: UiNcpSessionTokenUsageView | null =
+      await this.options.kernel.sessionManager.getSessionTokenUsage(sessionId);
+    if (!payload) {
+      return c.json(err("NOT_FOUND", `ncp session not found: ${sessionId}`), 404);
+    }
+    return c.json(ok(payload));
+  };
+
+  readonly listSessionObservations = async (c: Context) => {
+    const sessionId = decodeURIComponent(c.req.param("sessionId"));
+    const existing = await this.options.kernel.sessionManager.getSession(sessionId);
+    if (!existing) {
+      return c.json(err("NOT_FOUND", `ncp session not found: ${sessionId}`), 404);
+    }
+    const state = await this.options.kernel.observations.listObservations(sessionId);
+    const payload: UiNcpSessionObservationsView = buildSessionObservationsView({
+      sessionId,
+      ...state,
+      descriptors: this.options.kernel.observations.discoverObservations(),
+    });
+    return c.json(ok(payload));
+  };
+
+  readonly updateSessionObservation = async (c: Context) => {
+    const sessionId = decodeURIComponent(c.req.param("sessionId"));
+    const kind = c.req.param("kind");
+    const id = decodeURIComponent(c.req.param("id"));
+    const existingSession = await this.options.kernel.sessionManager.getSession(sessionId);
+    if (!existingSession) {
+      return c.json(err("NOT_FOUND", `ncp session not found: ${sessionId}`), 404);
+    }
+    const body = await readJson<Record<string, unknown>>(c.req.raw);
+    const action = body.ok && body.data?.action;
+    if (action !== "pause" && action !== "resume" && action !== "remove") {
+      return c.json(err("INVALID_BODY", "action must be pause, resume, or remove"), 400);
+    }
+    if (kind !== "context" && kind !== "events") {
+      return c.json(err("NOT_FOUND", `observation kind not found: ${kind}`), 404);
+    }
+    const ref: ObservationRef = kind === "context"
+      ? { kind: "context_binding", id }
+      : { kind: "event_subscription", id };
+    const observation = await this.options.kernel.observations.getObservation(ref);
+    if (!observation || observation.target.sessionId !== sessionId) {
+      return c.json(err("NOT_FOUND", `observation not found in session: ${sessionId}`), 404);
+    }
+    await this.options.kernel.observations.updateObservation(action, ref);
+    const state = await this.options.kernel.observations.listObservations(sessionId);
+    return c.json(ok(buildSessionObservationsView({
+      sessionId,
+      ...state,
+      descriptors: this.options.kernel.observations.discoverObservations(),
+    })));
   };
 
   readonly getSessionSkills = async (c: Context) => {
@@ -213,9 +326,45 @@ export class NcpSessionRoutesController {
     }
     const payload: UiNcpSessionQueuedInputsView = {
       sessionId,
-      inputs: [...this.options.kernel.agentRunRequestManager.listQueuedInputs(sessionId)],
+      inputs: [...this.options.kernel.agentRunRequestManager.pendingInputs.listQueuedInputs(sessionId)],
     };
     return c.json(ok(payload));
+  };
+
+  readonly listSessionPendingInputs = async (c: Context) => {
+    const sessionId = decodeURIComponent(c.req.param("sessionId"));
+    const existing = await this.options.kernel.sessionManager.getSession(sessionId);
+    if (!existing) {
+      return c.json(err("NOT_FOUND", `ncp session not found: ${sessionId}`), 404);
+    }
+    const payload: UiNcpSessionPendingInputsView = {
+      sessionId,
+      inputs: [...this.options.kernel.agentRunRequestManager.pendingInputs.listPendingInputs(sessionId)],
+    };
+    return c.json(ok(payload));
+  };
+
+  readonly steerSessionQueuedInput = async (c: Context) => {
+    const sessionId = decodeURIComponent(c.req.param("sessionId"));
+    const queuedInputId = decodeURIComponent(c.req.param("queuedInputId"));
+    const existing = await this.options.kernel.sessionManager.getSession(sessionId);
+    if (!existing) {
+      return c.json(err("NOT_FOUND", `ncp session not found: ${sessionId}`), 404);
+    }
+    const result = await this.options.kernel.agentRunRequestManager.pendingInputs.steerQueuedInput(
+      sessionId,
+      queuedInputId,
+    );
+    if (!result.ok) {
+      if (result.reason === "not-found") {
+        return c.json(err("NOT_FOUND", `queued input not found in session ${sessionId}: ${queuedInputId}`), 404);
+      }
+      return c.json(err(
+        "STEER_UNAVAILABLE",
+        "The active runtime cannot accept this input at the next safe step.",
+      ), 409);
+    }
+    return c.json(ok(result.input));
   };
 
   readonly deleteSessionQueuedInput = async (c: Context) => {
@@ -225,7 +374,7 @@ export class NcpSessionRoutesController {
     if (!existing) {
       return c.json(err("NOT_FOUND", `ncp session not found: ${sessionId}`), 404);
     }
-    const removed = this.options.kernel.agentRunRequestManager.removeQueuedInput(
+    const removed = this.options.kernel.agentRunRequestManager.pendingInputs.removeQueuedInput(
       sessionId,
       queuedInputId,
     );

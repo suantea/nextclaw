@@ -1,5 +1,100 @@
 # @nextclaw/ncp-agent-runtime-next
 
+## 0.1.24
+
+### Patch Changes
+
+- Updated dependencies [862dbf2]
+  - @nextclaw/ncp-agent-runtime@0.4.22
+
+## 0.1.24-beta.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/ncp-agent-runtime@0.4.22-beta.0
+
+## 0.1.23
+
+### Patch Changes
+
+- 51fac6a: 修复旧实例在第 20 次工具调用后突然中止 Agent 任务的问题：废弃并移除可配置的工具调用上限，旧配置文件中的相关值不再参与运行；NextClaw native runtime 统一使用固定的 1000 次工具调用安全预算，设置页、Agent 详情和 API 也不再暴露该配置。
+
+## 0.1.22
+
+### Patch Changes
+
+- 7d2b9f8: 修复长时间运行的 Agent 任务可能异常消耗额度的问题：共享同一数据目录的进程不再重复执行同一会话或定时任务，工具调用次数现在严格遵守 Agent 配置上限，上下文压缩也按真实模型输入估算而不再重复计算工具结果。
+
+## 0.1.21
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/ncp@0.10.0
+  - @nextclaw/ncp-agent-runtime@0.4.21
+
+## 0.1.20
+
+### Patch Changes
+
+- 2c7ce8c: 新增持久化的 Agent Observation 能力：Agent 可绑定持续刷新的 Context、订阅带过滤与预算的事件源，并通过现有 started/queued/steered 输入链路可靠接收事件。Context 会作为低权限数据固定追加到模型输入尾部，订阅关系、cursor 与待投递事件可在重启后恢复，重复投递由幂等合同拦截。
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0
+  - @nextclaw/ncp-agent-runtime@0.4.20
+
+## 0.1.20-beta.0
+
+### Patch Changes
+
+- 2c7ce8c: 新增持久化的 Agent Observation 能力：Agent 可绑定持续刷新的 Context、订阅带过滤与预算的事件源，并通过现有 started/queued/steered 输入链路可靠接收事件。Context 会作为低权限数据固定追加到模型输入尾部，订阅关系、cursor 与待投递事件可在重启后恢复，重复投递由幂等合同拦截。
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0-beta.0
+  - @nextclaw/ncp-agent-runtime@0.4.20-beta.0
+
+## 0.1.19
+
+### Patch Changes
+
+- 7cc703c: 新增会话插话能力：AI 运行中普通发送继续自动排队，使用 Command/Ctrl + Enter 可在下一安全步骤插入完整消息；排队内容也可直接转为插话，并以独立用户消息和后续 AI 消息呈现在会话中。排队区域会保留并展示图片缩略图和文件摘要，编辑时仍可完整恢复富内容。
+- Updated dependencies [7cc703c]
+  - @nextclaw/ncp@0.8.1
+  - @nextclaw/ncp-agent-runtime@0.4.19
+
+## 0.1.18
+
+### Patch Changes
+
+- aa08a3f: 命令工具卡新增实时执行计时：命令真正开始后持续显示已运行时长，并在成功、失败或取消后冻结并保留耗时；刷新会话后仍可从标准 NCP 执行时间恢复。内置命令运行时与 Codex command execution 统一使用同一条计时协议，不再把排队或参数生成时间算作命令执行耗时。
+- 004d51f: 增强会话工作台：概览底部新增当前会话的 Token 用量，支持按模型查看输入、输出、缓存输入、总量与缓存命中率；子会话管理页新增“新建子会话”入口，并复用侧边对话的上下文继承链路。
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+  - @nextclaw/ncp@0.8.0
+  - @nextclaw/ncp-agent-runtime@0.4.18
+
+## 0.1.17
+
+### Patch Changes
+
+- c783019: Native 会话现在会并行执行同一轮中的只读文件、图片、网页和记忆查询，同时让写入、命令和未明确声明安全的工具继续独占执行；多个查询可以更快返回，工具结果仍按原调用位置回填，后续模型回复不会因完成顺序不同而错位。
+- Updated dependencies [c783019]
+  - @nextclaw/ncp@0.7.17
+  - @nextclaw/ncp-agent-runtime@0.4.17
+
+## 0.1.16
+
+### Patch Changes
+
+- 8e53d92: Native 会话会在同一次长任务的工具调用轮次之间自动压缩上下文；压缩输入、输出和最终 checkpoint 使用包含工具 schema 与输出预留的同一动态预算，压缩后除完整摘要外还会按 token 预算保留最近的真实用户原文。上下文指示器会按完整输入显示系统与工具、会话内容、自动压缩线和输出预留。Agent 配置会按当前指令与全量工具动态拒绝不可用的小窗口；send、继续运行和编辑重跑共享同一运行状态入口，进程中断统一恢复为可继续的中性终态。运行中压缩与 continuation 前压缩会稳定显示在对应助手过程位置，刷新后不再堆到消息末尾。
+- Updated dependencies [8e53d92]
+  - @nextclaw/ncp@0.7.16
+  - @nextclaw/ncp-agent-runtime@0.4.16
+
 ## 0.1.15
 
 ### Patch Changes

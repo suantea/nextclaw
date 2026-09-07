@@ -1,5 +1,6 @@
 import type { ChatMessageTexts } from "@nextclaw/agent-chat-ui";
 import type { ChatMessageExecutionPresentationLabels } from "./chat-message-execution-summary.utils";
+import type { ChatMessageTriggerDetailsLabels } from "./chat-message-trigger-details.utils";
 import type { ChatMessageAdapterTexts } from "@/features/chat/features/message/utils/chat-message.utils";
 import { t } from "@/shared/lib/i18n";
 
@@ -140,20 +141,62 @@ export function buildChatMessageExecutionLabels(
   };
 }
 
+export function buildChatMessageTriggerLabels(
+  language: string,
+): ChatMessageTriggerDetailsLabels {
+  void language;
+  return {
+    moreActions: t("chatMessageMoreActions"),
+    viewTrigger: t("chatRunTriggerView"),
+    title: t("chatRunTriggerTitle"),
+    description: t("chatRunTriggerDescription"),
+    close: t("chatRunTriggerClose"),
+    notAvailable: t("chatAiExecutionNotAvailable"),
+    fields: {
+      actor: t("chatRunTriggerActor"),
+      source: t("chatRunTriggerSource"),
+      triggeredAt: t("chatRunTriggerTime"),
+      targetRunId: t("chatRunTriggerTargetRun"),
+      sourceSessionId: t("chatRunTriggerSourceSession"),
+      sourceMessageId: t("chatRunTriggerSourceMessage"),
+      sourceRunId: t("chatRunTriggerSourceRun"),
+      sourceToolCallId: t("chatRunTriggerSourceToolCall"),
+      sourceRequestId: t("chatRunTriggerSourceRequest"),
+      sourceModel: t("chatRunTriggerSourceModel"),
+      targetModel: t("chatRunTriggerTargetModel"),
+      sourceContext: t("chatRunTriggerSourceContext"),
+      raw: t("chatRunTriggerRaw"),
+    },
+    actors: {
+      human: t("chatRunTriggerActorHuman"),
+      agent: t("chatRunTriggerActorAgent"),
+      automation: t("chatRunTriggerActorAutomation"),
+      system: t("chatRunTriggerActorSystem"),
+    },
+  };
+}
+
 export function buildChatMessageTexts(
   language: string,
 ): ChatMessageTexts {
   void language;
   return {
+    addSelectionToChatLabel: t("chatWorkspaceAddToChat"),
+    selectionTooLongLabel: t("chatWorkspaceExcerptSelectionTooLong"),
     copyCodeLabel: t("chatCodeCopy"),
     copiedCodeLabel: t("chatCodeCopied"),
     copyMessageLabel: t("chatMessageCopy"),
     copiedMessageLabel: t("chatMessageCopied"),
+    excerptCharacterCountTemplate: t("chatWorkspaceExcerptCharacterCount"),
     mermaidDiagramLabel: t("chatMermaidDiagram"),
     mermaidExpandLabel: t("chatMermaidExpand"),
     mermaidLoadingLabel: t("chatMermaidLoading"),
     mermaidRenderErrorLabel: t("chatMermaidRenderError"),
+    previewZoomInLabel: t("chatPreviewZoomIn"),
+    previewZoomOutLabel: t("chatPreviewZoomOut"),
+    previewResetZoomLabel: t("chatPreviewResetZoom"),
     typingLabel: t("chatTyping"),
+    pendingInputLabel: t("chatSteeringPending"),
     reasoningCharacterCountTemplates: {
       inProgress: t("chatReasoningInProgressCharacterCount"),
       completed: t("chatReasoningCompletedCharacterCount"),
@@ -241,5 +284,8 @@ export function buildChatMessageTexts(
     },
     toolActivityFailedLabel: t("chatProcessSummaryFailed"),
     toolActivityCancelledLabel: t("chatProcessSummaryCancelled"),
+    toolPayloadLoadingLabel: t("chatToolPayloadLoading"),
+    toolPayloadLoadFailedLabel: t("chatToolPayloadLoadFailed"),
+    toolActivityShowMoreTemplate: t("chatToolActivityShowMore"),
   };
 }

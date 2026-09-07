@@ -1,4 +1,5 @@
 import type { MarketplaceAppPublishInput } from "./app-marketplace.types";
+import type { AppArtifactTarget } from "@nextclaw/app-runtime";
 
 export class MarketplaceAppPersistence {
   constructor(private readonly db: D1Database) {}
@@ -7,12 +8,19 @@ export class MarketplaceAppPersistence {
     itemId: string;
     input: MarketplaceAppPublishInput;
     bundleStorageKey: string;
+    bundleSha256: string;
+    artifacts: Array<{
+      target: AppArtifactTarget;
+      targetKey: string;
+      sha256: string;
+      sizeBytes: number;
+      storageKey: string;
+    }>;
     publishedAt: string;
     updatedAt: string;
   }): Promise<void> => {
-    const { itemId, input, bundleStorageKey, publishedAt, updatedAt } = params;
-    await this.db
-      .prepare(
+    const { artifacts, itemId, input, bundleSha256, bundleStorageKey, publishedAt, updatedAt } = params;
+    const versionStatement = this.db.prepare(
         `
           INSERT INTO marketplace_app_versions (
             item_id,
@@ -35,20 +43,51 @@ export class MarketplaceAppPersistence {
             bundle_storage_key = excluded.bundle_storage_key,
             updated_at = excluded.updated_at
         `,
-      )
-      .bind(
+      ).bind(
         itemId,
         input.version,
         JSON.stringify(input.manifest),
         JSON.stringify(input.permissions ?? {}),
         input.description ?? null,
         input.distributionMode,
-        input.bundleSha256,
+        bundleSha256,
         bundleStorageKey,
         publishedAt,
         updatedAt,
-      )
-      .run();
+      );
+    const statements = [
+      versionStatement,
+      this.db.prepare(
+        "DELETE FROM marketplace_app_artifacts WHERE item_id = ? AND version = ?",
+      ).bind(itemId, input.version),
+      ...artifacts.map((artifact) => this.db.prepare(
+        `
+          INSERT INTO marketplace_app_artifacts (
+            item_id,
+            version,
+            target_key,
+            target_json,
+            bundle_sha256,
+            size_bytes,
+            bundle_storage_key,
+            status,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+        `,
+      ).bind(
+        itemId,
+        input.version,
+        artifact.targetKey,
+        JSON.stringify(artifact.target),
+        artifact.sha256,
+        artifact.sizeBytes,
+        artifact.storageKey,
+        publishedAt,
+        updatedAt,
+      )),
+    ];
+    await this.db.batch(statements);
   };
 
   persistItem = async (params: {
@@ -60,6 +99,10 @@ export class MarketplaceAppPersistence {
     publishStatus: "pending" | "published";
     publishedByType: "admin" | "user";
     latestVersion: string;
+    manifestSchemaVersion: 1 | 2;
+    catalogVisibility: "listed" | "unlisted";
+    iconSha256: string | null;
+    coverSha256: string | null;
     publishedAt: string;
     updatedAt: string;
   }): Promise<void> => {
@@ -72,6 +115,10 @@ export class MarketplaceAppPersistence {
       publishStatus,
       publishedByType,
       latestVersion,
+      manifestSchemaVersion,
+      catalogVisibility,
+      iconSha256,
+      coverSha256,
       publishedAt,
       updatedAt,
     } = params;
@@ -104,12 +151,18 @@ export class MarketplaceAppPersistence {
             publisher_id,
             publisher_name,
             publisher_url,
+            cover_path,
+            accent_color,
+            icon_sha256,
+            cover_sha256,
             latest_version,
+            manifest_schema_version,
+            catalog_visibility,
             manifest_json,
             permissions_json,
             published_at,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(app_id) DO UPDATE SET
             slug = excluded.slug,
             owner_scope = excluded.owner_scope,
@@ -134,7 +187,13 @@ export class MarketplaceAppPersistence {
             publisher_id = excluded.publisher_id,
             publisher_name = excluded.publisher_name,
             publisher_url = excluded.publisher_url,
+            cover_path = excluded.cover_path,
+            accent_color = excluded.accent_color,
+            icon_sha256 = excluded.icon_sha256,
+            cover_sha256 = excluded.cover_sha256,
             latest_version = excluded.latest_version,
+            manifest_schema_version = excluded.manifest_schema_version,
+            catalog_visibility = excluded.catalog_visibility,
             manifest_json = excluded.manifest_json,
             permissions_json = excluded.permissions_json,
             updated_at = excluded.updated_at
@@ -166,7 +225,13 @@ export class MarketplaceAppPersistence {
         input.publisher.id,
         input.publisher.name,
         input.publisher.url ?? null,
+        input.visuals?.cover ?? null,
+        input.visuals?.accentColor ?? null,
+        iconSha256,
+        coverSha256,
         latestVersion,
+        manifestSchemaVersion,
+        catalogVisibility,
         JSON.stringify(input.manifest),
         JSON.stringify(input.permissions ?? {}),
         publishedAt,

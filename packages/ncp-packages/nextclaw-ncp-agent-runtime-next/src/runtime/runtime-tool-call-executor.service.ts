@@ -19,10 +19,46 @@ type RuntimeToolCallDraft = CollectedToolCall & {
 export type RuntimeToolCallExecutorInput = {
   executeToolCall(
     toolCall: CollectedToolCall,
-    publishToolResult: (event: NcpEndpointEvent) => Promise<void>,
+    publishToolEvent: (event: NcpEndpointEvent) => Promise<void>,
   ): Promise<NcpEndpointEvent>;
+  supportsParallelToolCalls(toolCall: CollectedToolCall): boolean;
   toRunErrorEvent(error: unknown): NcpEndpointEvent;
+  toolCallBudget: RuntimeToolCallBudget;
 };
+
+const MAX_PARALLEL_TOOL_CALLS = 8;
+export const FIXED_NATIVE_TOOL_CALL_LIMIT = 1000;
+
+export class RuntimeToolCallLimitError extends Error {
+  constructor(
+    readonly limit: number,
+    readonly startedToolCount: number,
+  ) {
+    super(
+      `Tool call limit reached: fixed maximum ${limit}; ${startedToolCount} tool calls already started.`,
+    );
+    this.name = "RuntimeToolCallLimitError";
+  }
+}
+
+export class RuntimeToolCallBudget {
+  private startedToolCount = 0;
+
+  constructor(readonly limit: number) {
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error(`Tool call limit must be a positive integer; received ${limit}.`);
+    }
+  }
+
+  consume = (): void => {
+    if (this.startedToolCount >= this.limit) {
+      throw new RuntimeToolCallLimitError(this.limit, this.startedToolCount);
+    }
+    this.startedToolCount += 1;
+  };
+
+  getStartedToolCount = (): number => this.startedToolCount;
+}
 
 class RuntimeEventQueue {
   private readonly buffered: RuntimeQueuedEvent[] = [];
@@ -71,8 +107,9 @@ export class RuntimeToolCallExecutor {
   private readonly calls = new Map<string, RuntimeToolCallDraft>();
   private readonly queue = new RuntimeEventQueue();
   private readonly readyToolCalls: CollectedToolCall[] = [];
-  private isRunningTool = false;
   private isCanceled = false;
+  private isRunningExclusiveTool = false;
+  private runningParallelToolCount = 0;
   private startedToolCount = 0;
 
   constructor(private readonly input: RuntimeToolCallExecutorInput) {}
@@ -102,7 +139,7 @@ export class RuntimeToolCallExecutor {
   };
 
   hasPendingEvents = (): boolean =>
-    this.isRunningTool || this.readyToolCalls.length > 0 || this.queue.hasBuffered();
+    this.hasRunningToolCalls() || this.readyToolCalls.length > 0 || this.queue.hasBuffered();
 
   hasStartedToolCalls = (): boolean => this.startedToolCount > 0;
 
@@ -127,6 +164,12 @@ export class RuntimeToolCallExecutor {
   private startToolCall = (toolCallId: string): void => {
     const call = this.calls.get(toolCallId);
     if (!call || call.ended || this.isCanceled) return;
+    try {
+      this.input.toolCallBudget.consume();
+    } catch (error) {
+      this.cancel(error);
+      throw error;
+    }
     call.ended = true;
     this.startedToolCount += 1;
     this.readyToolCalls.push({
@@ -138,23 +181,40 @@ export class RuntimeToolCallExecutor {
   };
 
   private drainReadyToolCalls = (): void => {
-    if (this.isRunningTool || this.isCanceled) return;
-    this.isRunningTool = true;
-    void this.runReadyToolCalls().finally(() => {
-      this.isRunningTool = false;
-      if (!this.isCanceled && this.readyToolCalls.length > 0) {
-        this.drainReadyToolCalls();
+    if (this.isCanceled || this.isRunningExclusiveTool) return;
+
+    while (this.readyToolCalls.length > 0) {
+      const toolCall = this.readyToolCalls[0];
+      if (!toolCall) return;
+      if (!this.input.supportsParallelToolCalls(toolCall)) {
+        if (this.runningParallelToolCount > 0) return;
+        this.readyToolCalls.shift();
+        this.runExclusiveToolCall(toolCall);
+        return;
       }
+      if (this.runningParallelToolCount >= MAX_PARALLEL_TOOL_CALLS) return;
+      this.readyToolCalls.shift();
+      this.runParallelToolCall(toolCall);
+    }
+  };
+
+  private hasRunningToolCalls = (): boolean =>
+    this.isRunningExclusiveTool || this.runningParallelToolCount > 0;
+
+  private runExclusiveToolCall = (toolCall: CollectedToolCall): void => {
+    this.isRunningExclusiveTool = true;
+    void this.runToolCall(toolCall).finally(() => {
+      this.isRunningExclusiveTool = false;
+      this.drainReadyToolCalls();
     });
   };
 
-  private runReadyToolCalls = async (): Promise<void> => {
-    while (!this.isCanceled && this.readyToolCalls.length > 0) {
-      const toolCall = this.readyToolCalls.shift();
-      if (toolCall) {
-        await this.runToolCall(toolCall);
-      }
-    }
+  private runParallelToolCall = (toolCall: CollectedToolCall): void => {
+    this.runningParallelToolCount += 1;
+    void this.runToolCall(toolCall).finally(() => {
+      this.runningParallelToolCount -= 1;
+      this.drainReadyToolCalls();
+    });
   };
 
   private runToolCall = async (toolCall: CollectedToolCall): Promise<void> => {

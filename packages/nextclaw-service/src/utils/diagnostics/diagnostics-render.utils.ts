@@ -18,6 +18,7 @@ export function printStatusReport(params: {
   console.log(`Generated: ${report.generatedAt}`);
   console.log("");
   printProcessSection(report);
+  printExtensionSection(report);
   printEndpointSection(report);
   printProviderSection(report);
   printTextList("Fix actions", report.fixActions);
@@ -31,6 +32,25 @@ export function printStatusReport(params: {
       console.log(line);
     }
   }
+}
+
+function printExtensionSection(report: RuntimeStatusReport): void {
+  console.log(`Extension diagnostics: ${report.extensions.state} (${report.extensions.detail})`);
+  for (const runtime of report.extensions.runtimes) {
+    const memory = runtime.memory
+      ? ` rss=${formatBytes(runtime.memory.rssBytes)} pss=${formatBytes(runtime.memory.pssBytes)}`
+      : "";
+    console.log(
+      `Extension ${runtime.extensionId}: ${runtime.state} pid=${runtime.pid ?? "-"} leases=${runtime.leaseReasons.length}${memory}`
+    );
+  }
+}
+
+function formatBytes(value: number | null): string {
+  if (value === null) {
+    return "n/a";
+  }
+  return `${(value / 1024 / 1024).toFixed(1)}MiB`;
 }
 
 function printProcessSection(report: RuntimeStatusReport): void {
@@ -57,6 +77,10 @@ function printProcessSection(report: RuntimeStatusReport): void {
   console.log(`Managed health: ${report.health.managed.state} (${report.health.managed.detail})`);
   if (!report.process.running) {
     console.log(`Configured health: ${report.health.configured.state} (${report.health.configured.detail})`);
+  }
+  if (report.hostIncident.latest) {
+    const incident = report.hostIncident.latest;
+    console.log(`Latest Desktop incident: ${incident.reasonCode} (${incident.confidence}) at ${incident.observedEndedAt ?? incident.startedAt}`);
   }
 }
 

@@ -1,5 +1,7 @@
 import type { RestartStrategy } from "@nextclaw-service/services/restart/restart-coordinator.service.js";
+import type { ExtensionRuntimeStatus } from "@nextclaw/kernel";
 import type { RemoteRuntimeState } from "@nextclaw/remote";
+import type { HostIncident } from "@nextclaw/core";
 
 export type {
   RemoteConnectCommandOptions,
@@ -273,6 +275,20 @@ export type LogsTailCommandOptions = {
   lines?: string | number;
 };
 
+export type LogsQueryCommandOptions = {
+  since?: string;
+  until?: string;
+  level?: string;
+  scope?: string;
+  domain?: string;
+  event?: string;
+  outcome?: string;
+  reasonCode?: string;
+  correlationId?: string;
+  limit?: string | number;
+  json?: boolean;
+};
+
 export type UsageCommandOptions = {
   json?: boolean;
   history?: boolean;
@@ -329,12 +345,20 @@ export type RuntimeStatusReport = {
     managed: HealthProbe;
     configured: HealthProbe;
   };
+  extensions: {
+    detail: string;
+    runtimes: ExtensionRuntimeStatus[];
+    state: "ok" | "unavailable" | "invalid-response";
+  };
   issues: string[];
   recommendations: string[];
   logTail: string[];
   remote: {
     configuredEnabled: boolean;
     runtime: RemoteRuntimeState | null;
+  };
+  hostIncident: {
+    latest: HostIncident | null;
   };
   level: "healthy" | "degraded" | "stopped";
   exitCode: 0 | 1 | 2;
@@ -345,6 +369,7 @@ export type RequestRestartParams = {
   manualMessage: string;
   strategy?: RestartStrategy;
   delayMs?: number;
+  exitCode?: number;
   silentNotification?: boolean;
   silentOnServiceRestart?: boolean;
   changedPaths?: string[];

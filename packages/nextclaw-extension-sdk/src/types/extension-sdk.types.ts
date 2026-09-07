@@ -1,6 +1,8 @@
 import type { NcpEndpointEvent } from "@nextclaw/ncp";
 import type {
+  DiagnosticOutcome,
   ExtensionChannelCommandExecuteResponse,
+  ExtensionDiagnosticIngressPayload,
   ExtensionChannelCommandSpec,
   ExtensionChannelMessageSubmitIngressPayload,
   Unsubscribe,
@@ -27,6 +29,8 @@ export type NextClawExtensionOptions = {
   endpoint?: string;
   token?: string;
   extensionId?: string;
+  generation?: string;
+  diagnosticTimeoutMs?: number;
   fetch?: typeof fetch;
   webSocketFactory?: (
     url: string,
@@ -49,6 +53,7 @@ export type NextClawExtensionWebSocketLike = {
 export type ExtensionTransportEnvelope<TPayload = unknown> = {
   type: string;
   extensionId: string;
+  generation: string;
   payload: TPayload;
   emittedAt?: string;
   source?: string;
@@ -57,6 +62,7 @@ export type ExtensionTransportEnvelope<TPayload = unknown> = {
 export type ExtensionRequest = {
   requestId: string;
   extensionId: string;
+  generation: string;
   kind: string;
   payload?: Record<string, unknown>;
 };
@@ -89,28 +95,105 @@ export type ExtensionChannelCommands = {
   }) => Promise<ExtensionChannelCommandExecuteResponse | null>;
 };
 
+export type ExtensionDiagnostics = {
+  createTraceId: (providerMessageId?: string) => string;
+  emit: (input: ExtensionDiagnosticIngressPayload) => Promise<boolean>;
+};
+
 export type ExtensionChannel = {
   id: string;
-  submitMessage: (input: Omit<ExtensionChannelMessageSubmitIngressPayload, "channelId">) => Promise<void>;
-  onNcpEvent: (handler: (event: NcpEndpointEvent) => void | Promise<void>) => Unsubscribe;
+  submitMessage: (
+    input: Omit<ExtensionChannelMessageSubmitIngressPayload, "channelId">,
+  ) => Promise<void>;
+  onNcpEvent: (
+    handler: (event: NcpEndpointEvent) => void | Promise<void>,
+  ) => Unsubscribe;
   config: ExtensionChannelConfig;
   commands: ExtensionChannelCommands;
 };
+
+export type { DiagnosticOutcome };
 
 export type ExtensionChannels = {
   use: (channelId: string) => ExtensionChannel;
 };
 
-export type ExtensionRequestHandler = (request: ExtensionRequest) => unknown | Promise<unknown>;
+export type ExtensionRequestHandler = (
+  request: ExtensionRequest,
+) => unknown | Promise<unknown>;
 
 export type ExtensionCapabilityPayload = Record<string, unknown>;
 
-export type ExtensionCapabilityHandler<TPayload extends ExtensionCapabilityPayload = ExtensionCapabilityPayload> = (
+export type ExtensionCapabilityHandler<
+  TPayload extends ExtensionCapabilityPayload = ExtensionCapabilityPayload,
+> = (
   payload: TPayload,
   request: ExtensionRequest,
 ) => unknown | Promise<unknown>;
 
+export type ExtensionObservationEmitInput = {
+  id: string;
+  type: string;
+  occurredAt: string;
+  observedAt?: string;
+  cursor?: string;
+  dedupeKey?: string;
+  payload: unknown;
+  sourceRefs?: string[];
+  causationId?: string;
+  correlationId?: string;
+};
+
+export type ExtensionObservationHandlers = {
+  read?: (input: {
+    config: unknown;
+    signal: AbortSignal;
+  }) => unknown | Promise<unknown>;
+  subscribe?: (input: {
+    subscriptionId: string;
+    config: unknown;
+    cursor?: string;
+    emit: (event: ExtensionObservationEmitInput) => Promise<void>;
+    signal: AbortSignal;
+  }) =>
+    | void
+    | (() => void | Promise<void>)
+    | Promise<void | (() => void | Promise<void>)>;
+  replay?: "supported" | "unsupported";
+};
+
+export type ExtensionObservations = {
+  provide: (handlers: ExtensionObservationHandlers) => Unsubscribe;
+  close: () => Promise<void>;
+};
+
 export type ExtensionCapabilities = {
   provide: (namespace: string, capability: object) => Unsubscribe;
-  provideHandler: (kind: string, handler: ExtensionCapabilityHandler) => Unsubscribe;
+  provideHandler: (
+    kind: string,
+    handler: ExtensionCapabilityHandler,
+  ) => Unsubscribe;
+};
+
+export type DesktopHostInvokeInput = {
+  method: string;
+  payload?: Record<string, unknown>;
+  caller?: {
+    sessionId?: string;
+    agentRunId?: string;
+    subscriptionId?: string;
+  };
+};
+
+export type DesktopHostEvent = {
+  watchId: string;
+  event: unknown;
+};
+
+export type DesktopHost = {
+  invoke: <T = unknown>(input: DesktopHostInvokeInput) => Promise<T>;
+  status: <T = unknown>() => Promise<T>;
+  onEvent: (
+    handler: (event: DesktopHostEvent) => void | Promise<void>,
+  ) => Unsubscribe;
 };

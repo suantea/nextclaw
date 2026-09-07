@@ -1,10 +1,12 @@
 import { appendFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import type { NcpMessage } from "@nextclaw/ncp";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { NcpEventType, type NcpMessage } from "@nextclaw/ncp";
 import { SessionMessageCursorError } from "@kernel/types/session.types.js";
 import { NcpAgentSessionMessageProjectionStore } from "./ncp-agent-session-message-projection.store.js";
+import { NcpAgentSessionJournalStore } from "./ncp-agent-session-journal.store.js";
+import type { NcpAgentSessionMessageProjectionPersistenceStore } from "./ncp-agent-session-message-projection-persistence.store.js";
 
 const sessionId = "session-1";
 
@@ -28,7 +30,61 @@ afterEach(async () => {
   }
 });
 
+describe("NcpAgentSessionMessageProjectionStore synchronization", () => {
+  it("synchronizes a final tool result appended after its assistant message completed", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "nextclaw-message-projection-"));
+    const store = new NcpAgentSessionJournalStore(tempDir);
+    await store.appendSessionEvent({
+      sessionId,
+      event: {
+        type: NcpEventType.MessageCompleted,
+        payload: {
+          sessionId,
+          message: {
+            id: "assistant-1",
+            sessionId,
+            role: "assistant",
+            status: "final",
+            timestamp: "2026-05-14T00:00:02.000Z",
+            parts: [{
+              type: "tool-invocation",
+              toolCallId: "tool-1",
+              toolName: "sessions_spawn",
+              state: "result",
+              args: {},
+              result: { status: "running" },
+            }],
+          },
+        },
+      },
+    });
+    await store.appendSessionEvent({
+      sessionId,
+      event: {
+        type: NcpEventType.MessageToolCallResult,
+        payload: {
+          sessionId,
+          toolCallId: "tool-1",
+          content: { status: "completed" },
+          final: true,
+        },
+      },
+    });
+
+    await store.synchronizeSessionMessageProjection(sessionId);
+
+    const reloaded = new NcpAgentSessionJournalStore(tempDir);
+    expect((await reloaded.getSession(sessionId))?.messages[0]?.parts[0]).toMatchObject({
+      type: "tool-invocation",
+      toolCallId: "tool-1",
+      result: { status: "completed" },
+    });
+  });
+
+});
+
 describe("NcpAgentSessionMessageProjectionStore", () => {
+
   it("reads the newest page and walks backward without overlap", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "nextclaw-message-projection-"));
     const store = new NcpAgentSessionMessageProjectionStore(tempDir);
@@ -65,6 +121,30 @@ describe("NcpAgentSessionMessageProjectionStore", () => {
     });
   });
 
+  it("does not materialize all message ordinals for a stable page without journal tail", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "nextclaw-message-projection-"));
+    const store = new NcpAgentSessionMessageProjectionStore(tempDir);
+    await store.rebuild({
+      sessionId,
+      messages: [1, 2, 3, 4, 5].map((index) => message(index)),
+      projectedJournalOffset: 500,
+    });
+    const restartedStore = new NcpAgentSessionMessageProjectionStore(tempDir);
+    const persistence = (restartedStore as unknown as {
+      persistence: NcpAgentSessionMessageProjectionPersistenceStore;
+    }).persistence;
+    const readMessageOrdinals = vi.spyOn(
+      persistence as unknown as { readMessageOrdinals: (...args: unknown[]) => Promise<Map<string, number>> },
+      "readMessageOrdinals",
+    );
+
+    await expect(restartedStore.readPage({ sessionId, limit: 2 })).resolves.toMatchObject({
+      messages: [{ id: "message-4" }, { id: "message-5" }],
+      total: 5,
+    });
+    expect(readMessageOrdinals).not.toHaveBeenCalled();
+  });
+
   it("updates the latest snapshot and appends new messages without inflating total", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "nextclaw-message-projection-"));
     const store = new NcpAgentSessionMessageProjectionStore(tempDir);
@@ -83,6 +163,59 @@ describe("NcpAgentSessionMessageProjectionStore", () => {
     ).resolves.toBe(true);
 
     expect(await store.readPage({ sessionId, limit: 10 })).toMatchObject({
+      total: 3,
+      messages: [
+        { id: "message-1" },
+        { id: "message-2", parts: [{ text: "complete" }] },
+        { id: "message-3" },
+      ],
+    });
+  });
+
+  it("updates an earlier snapshot by id without appending a duplicate", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "nextclaw-message-projection-"));
+    const store = new NcpAgentSessionMessageProjectionStore(tempDir);
+    await store.rebuild({
+      sessionId,
+      messages: [message(1), message(2, "partial"), message(3)],
+      projectedJournalOffset: 300,
+    });
+    const restartedStore = new NcpAgentSessionMessageProjectionStore(tempDir);
+
+    await expect(
+      restartedStore.synchronize({
+        sessionId,
+        messages: [message(2, "complete")],
+        projectedJournalOffset: 400,
+      }),
+    ).resolves.toBe(true);
+
+    expect(await restartedStore.readPage({ sessionId, limit: 10 })).toMatchObject({
+      total: 3,
+      messages: [
+        { id: "message-1" },
+        { id: "message-2", parts: [{ text: "complete" }] },
+        { id: "message-3" },
+      ],
+    });
+  });
+
+  it("merges an earlier unstable snapshot without returning the id twice", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "nextclaw-message-projection-"));
+    const store = new NcpAgentSessionMessageProjectionStore(tempDir);
+    await store.rebuild({
+      sessionId,
+      messages: [message(1), message(2, "partial"), message(3)],
+      projectedJournalOffset: 300,
+    });
+
+    expect(
+      await store.readPage({
+        sessionId,
+        limit: 10,
+        tailMessages: [message(2, "complete")],
+      }),
+    ).toMatchObject({
       total: 3,
       messages: [
         { id: "message-1" },
@@ -146,4 +279,25 @@ describe("NcpAgentSessionMessageProjectionStore", () => {
 
     await expect(store.readMeta(sessionId)).resolves.toBeNull();
   });
+
+  it("uses independent atomic temp files for concurrent metadata writes", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "nextclaw-message-projection-"));
+    const store = new NcpAgentSessionMessageProjectionStore(tempDir);
+    await store.rebuild({
+      sessionId,
+      messages: [message(1)],
+      projectedJournalOffset: 100,
+    });
+
+    await expect(Promise.all([
+      store.updateContextWindow(sessionId, { usedContextTokens: 10 }),
+      store.updateContextWindow(sessionId, { usedContextTokens: 20 }),
+    ])).resolves.toEqual([undefined, undefined]);
+    await expect(store.readMeta(sessionId)).resolves.toMatchObject({
+      sessionId,
+      total: 1,
+    });
+  });
+
+
 });

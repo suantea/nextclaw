@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { appQueryClient } from '@/app-query-client';
 import { ChatThreadManager } from '@/features/chat/managers/chat-thread.manager';
 import { useChatSessionListStore } from '@/features/chat/stores/chat-session-list.store';
 import { useChatThreadStore } from '@/features/chat/stores/chat-thread.store';
 import type * as SharedApi from '@/shared/lib/api';
 
 const { deleteNcpSessionMock, deleteSummaryMock } = vi.hoisted(() => ({
-  deleteNcpSessionMock: vi.fn(async () => ({ deleted: true, sessionId: 'parent-session-1' })),
+  deleteNcpSessionMock: vi.fn(async () => ({
+    deleted: true,
+    sessionId: 'parent-session-1',
+  })),
   deleteSummaryMock: vi.fn(),
 }));
 const persistStorage = new Map<string, unknown>();
@@ -34,8 +36,12 @@ vi.mock('@/shared/lib/api', async (importOriginal) => {
 
 beforeEach(() => {
   persistStorage.clear();
-  useChatSessionListStore.persist.setOptions({ storage: createPersistStorage() as never });
-  useChatThreadStore.persist.setOptions({ storage: createPersistStorage() as never });
+  useChatSessionListStore.persist.setOptions({
+    storage: createPersistStorage() as never,
+  });
+  useChatThreadStore.persist.setOptions({
+    storage: createPersistStorage() as never,
+  });
   useChatSessionListStore.setState({
     optimisticReadAtBySessionKey: {},
     snapshot: {
@@ -67,9 +73,7 @@ beforeEach(() => {
   });
 });
 
-function createUiManager(
-  overrides: Record<string, unknown> = {},
-): ConstructorParameters<typeof ChatThreadManager>[0] {
+function createUiManager(overrides: Record<string, unknown> = {}): ConstructorParameters<typeof ChatThreadManager>[0] {
   return {
     goToSession: vi.fn(),
     goToChatRoot: vi.fn(),
@@ -90,10 +94,7 @@ describe('ChatThreadManager', () => {
       confirm: vi.fn(),
     } as unknown as ConstructorParameters<typeof ChatThreadManager>[0];
 
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     manager.openChildSessionPanel({
       parentSessionKey: 'parent-session-1',
@@ -119,10 +120,7 @@ describe('ChatThreadManager', () => {
       confirm: vi.fn(),
     } as unknown as ConstructorParameters<typeof ChatThreadManager>[0];
 
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     manager.openChildSessionPanel({
       parentSessionKey: 'parent-session-1',
@@ -140,10 +138,7 @@ describe('ChatThreadManager', () => {
       confirm: vi.fn(),
     } as unknown as ConstructorParameters<typeof ChatThreadManager>[0];
 
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     manager.openSessionCronPanel('parent-session-1');
 
@@ -194,10 +189,7 @@ describe('ChatThreadManager', () => {
     const uiManager = createUiManager({
       goToSession: vi.fn(),
     });
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     manager.openSideChatDraft('parent-session-1');
 
@@ -223,10 +215,7 @@ describe('ChatThreadManager', () => {
   });
 
   it('materializes an active side chat draft into a real child-session tab', () => {
-    const manager = new ChatThreadManager(
-      createUiManager(),
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(createUiManager(), {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     manager.openSideChatDraft('parent-session-1');
     const draftKey = useChatThreadStore.getState().snapshot.activeSideChatDraft?.draftKey;
@@ -256,9 +245,7 @@ describe('ChatThreadManager', () => {
           sessionKey: 'child-session-1',
         },
       ],
-      workspaceNavigationHistory: [
-        { kind: 'child-session', key: 'child-session-side' },
-      ],
+      workspaceNavigationHistory: [{ kind: 'child-session', key: 'child-session-side' }],
       workspaceNavigationHistoryIndex: 0,
     });
   });
@@ -277,10 +264,7 @@ describe('ChatThreadManager', () => {
       confirm: vi.fn(),
     } as unknown as ConstructorParameters<typeof ChatThreadManager>[0];
 
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     manager.openSessionCronPanel('parent-session-1');
 
@@ -295,10 +279,7 @@ describe('ChatThreadManager', () => {
       confirm: vi.fn(),
     } as unknown as ConstructorParameters<typeof ChatThreadManager>[0];
 
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     manager.openFilePreview({
       path: 'chart.html',
@@ -331,39 +312,40 @@ describe('ChatThreadManager', () => {
       ]),
     );
   });
-
 });
 
 describe('ChatThreadManager workspace file tabs', () => {
   it.each([
     { path: 'demo.html', previewViewer: undefined, expectedViewer: 'source' },
-    { path: 'auto.html', previewViewer: 'auto' as const, expectedViewer: 'source' },
+    {
+      path: 'auto.html',
+      previewViewer: 'auto' as const,
+      expectedViewer: 'source',
+    },
     { path: 'README.md', previewViewer: undefined, expectedViewer: 'rendered' },
-    { path: 'report.docx', previewViewer: 'auto' as const, expectedViewer: 'auto' },
+    {
+      path: 'report.docx',
+      previewViewer: 'auto' as const,
+      expectedViewer: 'auto',
+    },
   ])('normalizes the viewer for $path', ({ path, previewViewer, expectedViewer }) => {
-      const manager = new ChatThreadManager(
-        createUiManager(),
-        {} as ConstructorParameters<typeof ChatThreadManager>[1],
-      );
+    const manager = new ChatThreadManager(createUiManager(), {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
-      manager.openFilePreview({
-        path,
-        label: path,
-        viewMode: 'preview',
-        previewViewer,
-      });
+    manager.openFilePreview({
+      path,
+      label: path,
+      viewMode: 'preview',
+      previewViewer,
+    });
 
-      expect(useChatThreadStore.getState().snapshot.workspaceFileTabs[0]).toMatchObject({
-        path,
-        previewViewer: expectedViewer,
-      });
+    expect(useChatThreadStore.getState().snapshot.workspaceFileTabs[0]).toMatchObject({
+      path,
+      previewViewer: expectedViewer,
+    });
   });
 
   it('opens source and rendered previews for the same file as adjacent workspace tabs', () => {
-    const manager = new ChatThreadManager(
-      createUiManager(),
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(createUiManager(), {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     manager.openFilePreview({
       path: 'demo.html',
@@ -403,6 +385,56 @@ describe('ChatThreadManager workspace file tabs', () => {
       ]),
     });
   });
+
+  it('remaps open file tabs and navigation history after a file or folder rename', () => {
+    const manager = new ChatThreadManager(createUiManager(), {} as ConstructorParameters<typeof ChatThreadManager>[1]);
+    manager.openFilePreview({
+      path: '/workspace/docs/guide.md',
+      label: 'guide.md',
+      viewMode: 'preview',
+    });
+    const previousKey = useChatThreadStore.getState().snapshot.activeWorkspaceFileKey!;
+
+    manager.renameWorkspacePath({
+      previousPath: '/workspace/docs',
+      path: '/workspace/designs',
+      label: 'designs',
+    });
+
+    const { snapshot } = useChatThreadStore.getState();
+    expect(snapshot.workspaceFileTabs[0]).toMatchObject({
+      path: '/workspace/designs/guide.md',
+      label: 'guide.md',
+    });
+    expect(snapshot.activeWorkspaceFileKey).toBe('parent-session-1::preview:rendered::/workspace/designs/guide.md');
+    expect(snapshot.workspaceNavigationHistory).toContainEqual({
+      kind: 'file',
+      key: snapshot.activeWorkspaceFileKey,
+    });
+    expect(snapshot.activeWorkspaceFileKey).not.toBe(previousKey);
+  });
+
+  it('closes every open tab below a deleted path and restores the prior file', () => {
+    const manager = new ChatThreadManager(createUiManager(), {} as ConstructorParameters<typeof ChatThreadManager>[1]);
+    manager.openFilePreview({
+      path: '/workspace/README.md',
+      label: 'README.md',
+      viewMode: 'preview',
+    });
+    manager.openFilePreview({
+      path: '/workspace/docs/guide.md',
+      label: 'guide.md',
+      viewMode: 'preview',
+    });
+
+    manager.removeWorkspacePath('/workspace/docs');
+
+    expect(useChatThreadStore.getState().snapshot).toMatchObject({
+      activeWorkspacePanelKind: 'file',
+      activeWorkspaceFileKey: 'parent-session-1::preview:rendered::/workspace/README.md',
+      workspaceFileTabs: [expect.objectContaining({ path: '/workspace/README.md' })],
+    });
+  });
 });
 
 describe('ChatThreadManager workspace navigation', () => {
@@ -413,10 +445,7 @@ describe('ChatThreadManager workspace navigation', () => {
       goToProviders: vi.fn(),
       confirm: vi.fn(),
     } as unknown as ConstructorParameters<typeof ChatThreadManager>[0];
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     manager.openChildSessionPanel({
       parentSessionKey: 'parent-session-1',
@@ -517,9 +546,7 @@ describe('ChatThreadManager workspace navigation', () => {
       activeWorkspacePanelKind: 'child-session',
       activeChildSessionKey: 'child-session-1',
       activeWorkspaceFileKey: null,
-      workspaceNavigationHistory: [
-        { kind: 'child-session', key: 'child-session-1' },
-      ],
+      workspaceNavigationHistory: [{ kind: 'child-session', key: 'child-session-1' }],
       workspaceNavigationHistoryIndex: 0,
     });
   });
@@ -535,10 +562,7 @@ describe('ChatThreadManager tool actions', () => {
     const uiManager = createUiManager({
       goToSession: vi.fn(),
     });
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     await manager.handleToolAction({
       kind: 'open-session',
@@ -562,9 +586,7 @@ describe('ChatThreadManager tool actions', () => {
           agentId: 'verifier-agent',
         },
       ],
-      workspaceNavigationHistory: [
-        { kind: 'child-session', key: 'child-session-9' },
-      ],
+      workspaceNavigationHistory: [{ kind: 'child-session', key: 'child-session-9' }],
     });
     expect(uiManager.goToSession).not.toHaveBeenCalled();
   });
@@ -575,10 +597,7 @@ describe('ChatThreadManager showContent', () => {
     const uiManager = createUiManager({
       goToSession: vi.fn(),
     });
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     await manager.handleToolAction({
       kind: 'show-content',
@@ -652,10 +671,7 @@ describe('ChatThreadManager showContent', () => {
 
   it('shows URL and panel app content through DocBrowser', async () => {
     const uiManager = createUiManager();
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     await manager.handleToolAction({
       kind: 'show-content',
@@ -706,10 +722,7 @@ describe('ChatThreadManager showContent', () => {
 
   it('handles ui.show-content events once through the same owner path', async () => {
     const uiManager = createUiManager();
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     await manager.handleUiShowContentEvent({
       id: 'tool:call-show-content-1:show-content',
@@ -752,10 +765,7 @@ describe('ChatThreadManager showContent', () => {
 
   it('delegates panel app content to the UI manager owner', async () => {
     const uiManager = createUiManager();
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     await manager.handleToolAction({
       kind: 'show-content',
@@ -781,16 +791,12 @@ describe('ChatThreadManager showContent', () => {
       title: 'Reader',
     });
   });
-
 });
 
 describe('ChatThreadManager inline showContent', () => {
   it('does not auto-open inline panel app content outside the message card', async () => {
     const uiManager = createUiManager();
-    const manager = new ChatThreadManager(
-      uiManager,
-      {} as ConstructorParameters<typeof ChatThreadManager>[1],
-    );
+    const manager = new ChatThreadManager(uiManager, {} as ConstructorParameters<typeof ChatThreadManager>[1]);
 
     await manager.handleUiShowContentEvent({
       id: 'tool:call-show-content-inline:show-content',
@@ -832,51 +838,5 @@ describe('ChatThreadManager visible workspace selection', () => {
 
     expect(sessionListManager.markVisibleWorkspaceChildRead).toHaveBeenCalledTimes(1);
     expect(sessionListManager.markVisibleWorkspaceChildRead).toHaveBeenCalledWith(tab);
-  });
-});
-
-describe('ChatThreadManager deletion', () => {
-  it('clears the selected thread state after deleting the current session', async () => {
-    const removeQueries = vi.spyOn(appQueryClient, 'removeQueries').mockImplementation(async () => undefined);
-    const uiManager = {
-      goToSession: vi.fn(),
-      goToChatRoot: vi.fn(),
-      goToProviders: vi.fn(),
-      confirm: vi.fn(async () => true),
-    } as unknown as ConstructorParameters<typeof ChatThreadManager>[0];
-    const sessionListManager = {
-      setSelectedSessionKey: vi.fn((value: string | null) => {
-        useChatSessionListStore.getState().setSnapshot({
-          selectedSessionKey: value,
-        });
-      }),
-    } as unknown as ConstructorParameters<typeof ChatThreadManager>[1];
-    const manager = new ChatThreadManager(
-      uiManager,
-      sessionListManager,
-    );
-
-    await manager.deleteSession();
-
-    expect(sessionListManager.setSelectedSessionKey).toHaveBeenCalledWith(null);
-    expect(useChatSessionListStore.getState().snapshot.selectedSessionKey).toBeNull();
-    expect(useChatThreadStore.getState().snapshot).toMatchObject({
-      sessionKey: null,
-      canDeleteSession: false,
-      workspacePanelParentKey: null,
-      childSessionTabs: [],
-      activeChildSessionKey: null,
-      workspaceFileTabs: [],
-      activeWorkspaceFileKey: null,
-      workspaceNavigationHistory: [],
-      workspaceNavigationHistoryIndex: 0,
-    });
-    expect(deleteSummaryMock).toHaveBeenCalledWith(appQueryClient, 'parent-session-1');
-    expect(removeQueries).toHaveBeenCalledWith({
-      queryKey: ['ncp-session-messages', 'parent-session-1'],
-    });
-    expect(uiManager.goToChatRoot).toHaveBeenCalledWith({ replace: true });
-
-    removeQueries.mockRestore();
   });
 });

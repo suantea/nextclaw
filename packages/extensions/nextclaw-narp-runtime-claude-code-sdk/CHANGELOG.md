@@ -1,5 +1,76 @@
 # @nextclaw/nextclaw-narp-runtime-claude-code-sdk
 
+## 0.2.23
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/ncp@0.10.0
+  - @nextclaw/nextclaw-ncp-runtime-claude-code-sdk@0.2.23
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.22
+
+## 0.2.22
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0
+  - @nextclaw/nextclaw-ncp-runtime-claude-code-sdk@0.2.22
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.21
+
+## 0.2.22-beta.0
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0-beta.0
+  - @nextclaw/nextclaw-ncp-runtime-claude-code-sdk@0.2.22-beta.0
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.21-beta.0
+
+## 0.2.21
+
+### Patch Changes
+
+- Updated dependencies [7cc703c]
+  - @nextclaw/ncp@0.8.1
+  - @nextclaw/nextclaw-ncp-runtime-claude-code-sdk@0.2.21
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.20
+
+## 0.2.20
+
+### Patch Changes
+
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+  - @nextclaw/ncp@0.8.0
+  - @nextclaw/nextclaw-ncp-runtime-claude-code-sdk@0.2.20
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.19
+
+## 0.2.19
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+  - @nextclaw/ncp@0.7.17
+  - @nextclaw/nextclaw-ncp-runtime-claude-code-sdk@0.2.19
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.18
+
+## 0.2.18
+
+### Patch Changes
+
+- Updated dependencies [c3eb33c]
+- Updated dependencies [38e3e98]
+- Updated dependencies [8e53d92]
+  - @nextclaw/nextclaw-ncp-runtime-claude-code-sdk@0.2.18
+  - @nextclaw/nextclaw-narp-stdio-runtime-wrapper@0.3.17
+  - @nextclaw/ncp@0.7.16
+
 ## 0.2.17
 
 ### Patch Changes

@@ -1,5 +1,6 @@
-import { app, dialog, ipcMain, shell, type Event as ElectronEvent } from "electron";
+import { app, crashReporter, dialog, ipcMain, shell, type Event as ElectronEvent } from "electron";
 import { resolveAutomaticUpdateCheckIntervalMs } from "@nextclaw/kernel/automatic-update-check";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import desktopPackageJson from "../package.json";
 import type { RuntimeCommand } from "./runtime-config";
@@ -18,7 +19,6 @@ import { RuntimeServiceProcess } from "./runtime-service";
 import { DesktopRuntimeCommandService } from "./services/desktop-runtime-command.service";
 import {
   createDesktopLogger,
-  installDesktopProcessErrorLogging,
   logDesktopMainEntryLoaded
 } from "./utils/desktop-logging.utils";
 import {
@@ -27,10 +27,11 @@ import {
   resolveDesktopRuntimeHome
 } from "./utils/desktop-paths.utils";
 import { resolveDesktopGitHubPublishTarget } from "./utils/desktop-publish-target.utils";
+import { DesktopHostDiagnosticsService } from "./services/desktop-host-diagnostics.service";
+import { launchDesktopGuardian } from "./launcher/desktop-guardian.utils";
 const installationProfile = setupDesktopInstallationProfile(app);
 const logger = createDesktopLogger();
 
-installDesktopProcessErrorLogging(logger);
 logDesktopMainEntryLoaded(logger, installationProfile);
 class DesktopApplication {
   private runtime: RuntimeServiceProcess | null = null;
@@ -44,6 +45,7 @@ class DesktopApplication {
   private readonly windowManager: DesktopWindowManager;
   private readonly bundleManager: DesktopBundleManager;
   private readonly commandSurfaceManager: DesktopCommandSurfaceManager;
+  private readonly hostDiagnostics: DesktopHostDiagnosticsService;
 
   constructor() {
     this.bundleManager = new DesktopBundleManager({
@@ -54,10 +56,15 @@ class DesktopApplication {
       resourcesPath: process.resourcesPath,
       publishTarget: resolveDesktopGitHubPublishTarget(desktopPackageJson)
     });
+    this.desktopHostCapabilityService = new DesktopHostCapabilityService({
+      ipcMain,
+      shell
+    });
     this.windowManager = new DesktopWindowManager({
       logger,
       compiledMainDir: __dirname,
-      handleWindowClose: this.handleWindowClose
+      handleWindowClose: this.handleWindowClose,
+      attachExternalNavigation: this.desktopHostCapabilityService.attachExternalNavigation
     });
     this.desktopPresenceService = new DesktopPresenceService({
       logger,
@@ -65,14 +72,10 @@ class DesktopApplication {
       launcherStateStore: this.bundleManager.launcherStateStore
     });
     this.runtimeCommandService = new DesktopRuntimeCommandService(logger, this.bundleManager);
-    this.desktopHostCapabilityService = new DesktopHostCapabilityService({
-      ipcMain,
-      shell
-    });
     this.desktopRuntimeControlService = new DesktopRuntimeControlService({
       logger,
       restartRuntime: this.restartRuntime,
-      restartApplication: this.restartApplication
+      restartApplication: this.requestApplicationRestart
     });
     this.desktopUpdateManager = new DesktopUpdateManager({
       logger,
@@ -80,6 +83,7 @@ class DesktopApplication {
       updateCapability: installationProfile.updateCapability,
       bundleManager: this.bundleManager,
       presenceService: this.desktopPresenceService,
+      restartApplication: this.requestApplicationRestart,
       windowManager: this.windowManager,
       automaticCheckIntervalMs: resolveAutomaticUpdateCheckIntervalMs({
         verificationMode: process.env.NEXTCLAW_UPDATE_VERIFICATION_MODE === "1",
@@ -95,17 +99,62 @@ class DesktopApplication {
       compiledMainDir: __dirname,
       launcherVersion: app.getVersion()
     });
+    const crashDumpsPath = join(resolveDesktopRuntimeHome(), "diagnostics", "crash-dumps");
+    mkdirSync(crashDumpsPath, { recursive: true });
+    app.setPath("crashDumps", crashDumpsPath);
+    this.hostDiagnostics = new DesktopHostDiagnosticsService({
+      logger,
+      launcherVersion: app.getVersion(),
+      crashDumpsPath
+    });
   }
 
   start = async (): Promise<void> => {
     logger.info("Desktop start requested.");
-    const acquiredSingleInstanceLock = app.requestSingleInstanceLock();
-    logger.info(`Single instance lock acquired: ${String(acquiredSingleInstanceLock)}`);
-    if (!acquiredSingleInstanceLock) {
-      logger.warn("Another desktop instance is already running. Exiting the new process.");
-      app.quit();
+    if (this.handOffToDesktopGuardian()) {
       return;
     }
+    if (!this.startHostDiagnosticsAndAcquireLock()) {
+      return;
+    }
+    this.installApplicationLifecycleListeners();
+    await this.startReadyServices();
+    await this.bootstrapOrQuit();
+  };
+  private handOffToDesktopGuardian = (): boolean => {
+    const launched = launchDesktopGuardian({
+      enabled: app.isPackaged,
+      executablePath: process.execPath,
+      guardianScriptPath: join(__dirname, "launcher", "desktop-guardian.utils.js"),
+      runtimeHome: resolveDesktopRuntimeHome()
+    });
+    if (launched) {
+      logger.info("Desktop guardian launched. Handing off packaged Windows desktop startup.");
+      app.quit();
+    }
+    return launched;
+  };
+
+  private startHostDiagnosticsAndAcquireLock = (): boolean => {
+    crashReporter.start({
+      productName: "NextClaw Desktop",
+      uploadToServer: false,
+      globalExtra: { nextclawRunId: process.env.NEXTCLAW_DESKTOP_RUN_ID ?? "standalone" }
+    });
+    this.hostDiagnostics.start();
+    const acquiredSingleInstanceLock = app.requestSingleInstanceLock();
+    logger.info(`Single instance lock acquired: ${String(acquiredSingleInstanceLock)}`);
+    if (acquiredSingleInstanceLock) {
+      return true;
+    }
+    logger.warn("Another desktop instance is already running. Exiting the new process.");
+    this.hostDiagnostics.recordExitIntent("duplicate-instance");
+    this.hostDiagnostics.complete({ outcome: "controlled-exit", code: 0 });
+    app.quit();
+    return false;
+  };
+
+  private installApplicationLifecycleListeners = (): void => {
     app.on("second-instance", () => {
       if (this.windowManager.getWindow()) {
         this.desktopPresenceService.showMainWindow();
@@ -124,14 +173,17 @@ class DesktopApplication {
       if (!this.desktopPresenceService.handleBeforeQuit(event)) {
         return;
       }
-      this.stopping = true;
-      this.desktopPresenceService.markQuitting();
       event.preventDefault();
-      void this.stopRuntime().finally(() => {
-        this.dispose();
-        app.quit();
+      void this.shutdown({
+        outcome: "controlled-exit",
+        code: 0,
+        relaunch: false,
+        exitIntent: "desktop-before-quit"
       });
     });
+  };
+
+  private startReadyServices = async (): Promise<void> => {
     logger.info("Waiting for Electron app readiness.");
     await app.whenReady();
     await this.bundleManager.updateSourceService.ensureStateChannelInitialized();
@@ -149,6 +201,12 @@ class DesktopApplication {
         this.desktopPresenceService.showMainWindow();
       }
     });
+    app.on("render-process-gone", (_event, _webContents, details) => {
+      this.hostDiagnostics.recordRendererGone(details);
+    });
+    app.on("child-process-gone", (_event, details) => {
+      this.hostDiagnostics.recordChildProcessGone(details);
+    });
     logger.info(
       [
         "Electron app is ready.",
@@ -160,12 +218,18 @@ class DesktopApplication {
         `resolvedRuntimeHome=${resolveDesktopRuntimeHome()}`
       ].join(" ")
     );
+  };
+
+  private bootstrapOrQuit = async (): Promise<void> => {
     const loaded = await this.bootstrapRuntimeAndWindow();
     if (!loaded) {
       logger.warn("Desktop bootstrap returned false. Quitting launcher.");
-      this.desktopPresenceService.markQuitting();
-      this.dispose();
-      app.quit();
+      await this.shutdown({
+        outcome: "controlled-exit",
+        code: 1,
+        relaunch: false,
+        exitIntent: "desktop-bootstrap-failed"
+      });
     }
   };
   private bootstrapRuntimeAndWindow = async (allowPackagedSeedRepair = true): Promise<boolean> => {
@@ -203,12 +267,19 @@ class DesktopApplication {
       runtimeEnv: createDesktopRuntimeEnv(
         {
           ...process.env,
-          ...commandSurface.runtimeEnvPatch
+          ...commandSurface.runtimeEnvPatch,
+          ...(process.platform === "darwin"
+            ? {
+                NEXTCLAW_MACOS_ACCESSIBILITY_MODULE: join(process.resourcesPath, "native", "macos-accessibility.node"),
+              }
+            : {}),
         },
         {
-          packagedExtensionDir: runtimeCommand.pluginsDirectory
+          packagedExtensionDir: runtimeCommand.pluginsDirectory,
+          runtimeSource: runtimeCommand.source
         }
-      )
+      ),
+      onExit: this.hostDiagnostics.recordRuntimeChildExit
     });
     const runtimeStartStartedAt = Date.now();
     const { baseUrl } = await runtime.start();
@@ -270,19 +341,43 @@ class DesktopApplication {
     }
   };
 
-  private restartApplication = (): void => {
+  private requestApplicationRestart = (): Promise<void> =>
+    this.shutdown({
+      outcome: "controlled-exit",
+      code: 0,
+      relaunch: true,
+      exitIntent: "desktop-restart-requested"
+    });
+
+  private shutdown = async (params: {
+    outcome: "controlled-exit";
+    code: number;
+    relaunch: boolean;
+    exitIntent: string;
+  }): Promise<void> => {
+    const { code, exitIntent, outcome, relaunch } = params;
+    if (this.stopping) {
+      return;
+    }
+    this.stopping = true;
     this.desktopPresenceService.markQuitting();
-    app.relaunch();
-    this.dispose();
+    this.hostDiagnostics.recordExitIntent(exitIntent);
+    await this.stopRuntime();
+    await this.dispose();
+    if (relaunch) {
+      app.relaunch();
+    }
+    this.hostDiagnostics.complete({ outcome, code });
     app.quit();
   };
 
-  private dispose = (): void => {
+  private dispose = async (): Promise<void> => {
     this.desktopUpdateManager.dispose();
     this.desktopHostCapabilityService.dispose();
     this.desktopPresenceService.dispose();
     this.windowManager.dispose();
     this.desktopRuntimeControlService.dispose();
+    this.hostDiagnostics.dispose();
   };
 
   private handleWindowClose = (event: ElectronEvent): void => {

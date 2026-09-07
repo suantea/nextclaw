@@ -1,11 +1,18 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
-import { LLMProvider, type LLMResponse, type LLMStreamEvent } from "./base.provider.js";
+import {
+  LLMProvider,
+  type LLMResponse,
+  type LLMStreamEvent,
+  type ProviderChatParams,
+} from "./base.provider.js";
 import {
   ChatCompletionsPayloadError,
   normalizeChatCompletionsResponse,
   normalizeStructuredUsageCounters
 } from "@core/features/llm-providers/index.js";
+import { toOpenAiResponsesTools } from "@core/features/llm-providers/utils/openai-responses-tool.utils.js";
+import { buildChatCompletionsThinking } from "@core/features/llm-providers/utils/chat-completions-thinking.utils.js";
 import {
   buildOpenAiApiBaseCandidates,
   consumeOpenAiChatCompletionsStream,
@@ -33,6 +40,7 @@ type ResponsesApiBaseStreamParams = {
 export type OpenAIProviderOptions = {
   apiKey?: string | null;
   apiBase?: string | null;
+  chatCompletionsThinkingControl?: "thinking-type";
   defaultModel: string;
   extraHeaders?: Record<string, string> | null;
   wireApi?: "auto" | "chat" | "responses" | null;
@@ -46,10 +54,12 @@ export class OpenAICompatibleProvider extends LLMProvider {
   private wireApi: "auto" | "chat" | "responses";
   private enableResponsesFallback: boolean;
   private apiBaseCandidates: Array<string | null>;
+  private chatCompletionsThinkingControl?: "thinking-type";
 
   constructor(options: OpenAIProviderOptions) {
     super(options.apiKey, options.apiBase);
     this.defaultModel = options.defaultModel;
+    this.chatCompletionsThinkingControl = options.chatCompletionsThinkingControl;
     this.extraHeaders = options.extraHeaders ?? null;
     this.wireApi = options.wireApi ?? "auto";
     this.enableResponsesFallback = options.enableResponsesFallback ?? true;
@@ -60,14 +70,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
     return this.defaultModel;
   };
 
-  chat = async (params: {
-    messages: Array<Record<string, unknown>>;
-    tools?: Array<Record<string, unknown>>;
-    model?: string | null;
-    maxTokens?: number;
-    thinkingLevel?: ThinkingLevel | null;
-    signal?: AbortSignal;
-  }): Promise<LLMResponse> => {
+  chat = async (params: ProviderChatParams): Promise<LLMResponse> => {
     if (this.wireApi === "chat") {
       return this.chatCompletions(params);
     }
@@ -84,14 +87,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
     }
   };
 
-  chatStream = (params: {
-    messages: Array<Record<string, unknown>>;
-    tools?: Array<Record<string, unknown>>;
-    model?: string | null;
-    maxTokens?: number;
-    thinkingLevel?: ThinkingLevel | null;
-    signal?: AbortSignal;
-  }): AsyncGenerator<LLMStreamEvent> => {
+  chatStream = (params: ProviderChatParams): AsyncGenerator<LLMStreamEvent> => {
     return (async function* (provider: OpenAICompatibleProvider): AsyncGenerator<LLMStreamEvent> {
       if (provider.wireApi === "chat") {
         for await (const event of provider.chatCompletionsStream(params)) {
@@ -120,14 +116,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
     })(this);
   };
 
-  private chatCompletions = async (params: {
-    messages: Array<Record<string, unknown>>;
-    tools?: Array<Record<string, unknown>>;
-    model?: string | null;
-    maxTokens?: number;
-    thinkingLevel?: ThinkingLevel | null;
-    signal?: AbortSignal;
-  }): Promise<LLMResponse> => {
+  private chatCompletions = async (params: ProviderChatParams): Promise<LLMResponse> => {
     const model = params.model ?? this.defaultModel;
     let lastError: unknown = null;
 
@@ -139,6 +128,11 @@ export class OpenAICompatibleProvider extends LLMProvider {
             messages: params.messages as unknown as ChatCompletionMessageParam[],
             tools: params.tools as ChatCompletionTool[] | undefined,
             tool_choice: params.tools?.length ? "auto" : undefined,
+            ...buildChatCompletionsThinking({
+              control: this.chatCompletionsThinkingControl,
+              model,
+              thinkingLevel: params.thinkingLevel,
+            }),
             ...(typeof params.maxTokens === "number" ? { max_tokens: params.maxTokens } : {})
           }, params.signal ? { signal: params.signal } : undefined)
         );
@@ -159,14 +153,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
     throw lastError ?? createEmptyChatCompletionsPayloadError(this.apiBaseCandidates.at(-1) ?? null);
   };
 
-  private chatCompletionsStream = (params: {
-    messages: Array<Record<string, unknown>>;
-    tools?: Array<Record<string, unknown>>;
-    model?: string | null;
-    maxTokens?: number;
-    thinkingLevel?: ThinkingLevel | null;
-    signal?: AbortSignal;
-  }): AsyncGenerator<LLMStreamEvent> => {
+  private chatCompletionsStream = (params: ProviderChatParams): AsyncGenerator<LLMStreamEvent> => {
     return (async function* (provider: OpenAICompatibleProvider): AsyncGenerator<LLMStreamEvent> {
       const model = params.model ?? provider.defaultModel;
       let lastError: unknown = null;
@@ -187,6 +174,11 @@ export class OpenAICompatibleProvider extends LLMProvider {
                 messages: params.messages as unknown as ChatCompletionMessageParam[],
                 tools: params.tools as ChatCompletionTool[] | undefined,
                 tool_choice: params.tools?.length ? "auto" : undefined,
+                ...buildChatCompletionsThinking({
+                  control: provider.chatCompletionsThinkingControl,
+                  model,
+                  thinkingLevel: params.thinkingLevel,
+                }),
                 ...(typeof params.maxTokens === "number" ? { max_tokens: params.maxTokens } : {}),
               },
               signal: params.signal,
@@ -214,20 +206,14 @@ export class OpenAICompatibleProvider extends LLMProvider {
     })(this);
   };
 
-  private chatResponses = async (params: {
-    messages: Array<Record<string, unknown>>;
-    tools?: Array<Record<string, unknown>>;
-    model?: string | null;
-    maxTokens?: number;
-    thinkingLevel?: ThinkingLevel | null;
-    signal?: AbortSignal;
-  }): Promise<LLMResponse> => {
+  private chatResponses = async (params: ProviderChatParams): Promise<LLMResponse> => {
+    const { maxTokens, messages, model, thinkingLevel, tools } = params;
     const body = this.buildResponsesRequestBody({
-      model: params.model ?? this.defaultModel,
-      messages: params.messages,
-      tools: params.tools,
-      maxTokens: params.maxTokens,
-      thinkingLevel: params.thinkingLevel,
+      model: model ?? this.defaultModel,
+      messages,
+      tools,
+      maxTokens,
+      thinkingLevel,
     });
 
     let finalResponse: LLMResponse | null = null;
@@ -244,14 +230,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
   };
 
   private chatResponsesStream = (
-    params: {
-      messages: Array<Record<string, unknown>>;
-      tools?: Array<Record<string, unknown>>;
-      model?: string | null;
-      maxTokens?: number;
-      thinkingLevel?: ThinkingLevel | null;
-      signal?: AbortSignal;
-    },
+    params: ProviderChatParams,
     preparedBody?: Record<string, unknown>,
   ): AsyncGenerator<LLMStreamEvent> => {
     return (async function* (provider: OpenAICompatibleProvider): AsyncGenerator<LLMStreamEvent> {
@@ -341,9 +320,8 @@ export class OpenAICompatibleProvider extends LLMProvider {
     if (reasoningEffort) {
       body.reasoning = { effort: reasoningEffort };
     }
-    if (params.tools && params.tools.length) {
-      body.tools = params.tools as unknown;
-    }
+    const tools = toOpenAiResponsesTools(params.tools);
+    if (tools) body.tools = tools;
     if (typeof params.maxTokens === "number") {
       body.max_output_tokens = params.maxTokens;
     }
@@ -508,92 +486,111 @@ export class OpenAICompatibleProvider extends LLMProvider {
       const role = String(msg.role ?? "user");
       const content = msg.content;
       if (role === "tool") {
-        const callId = typeof msg.tool_call_id === "string" ? msg.tool_call_id : "";
-        const outputText =
-          typeof content === "string"
-            ? content
-            : Array.isArray(content)
-              ? JSON.stringify(content)
-              : String(content ?? "");
-        input.push({
-          type: "function_call_output",
-          call_id: callId,
-          output: outputText
-        });
+        input.push(this.normalizeResponsesToolOutput(msg));
         continue;
       }
 
-      const output: Record<string, unknown> = { role };
-      output.content = this.normalizeResponsesContent(content);
-
-      if (typeof msg.reasoning_content === "string" && msg.reasoning_content) {
-        output.reasoning = msg.reasoning_content;
+      const normalizedContent = this.normalizeResponsesContent(content, role);
+      if (normalizedContent.length > 0) {
+        input.push({ role, content: normalizedContent });
       }
 
-      input.push(output);
-
-      if (Array.isArray(msg.tool_calls)) {
-        for (const call of msg.tool_calls as Array<Record<string, unknown>>) {
-          const callAny = call as Record<string, unknown>;
-          const functionAny = (callAny.function as Record<string, unknown> | undefined) ?? {};
-          const callId = String(callAny.id ?? callAny.call_id ?? "");
-          const name = String(functionAny.name ?? callAny.name ?? "");
-          const args = String(functionAny.arguments ?? callAny.arguments ?? "{}");
-          if (!callId || !name) {
-            continue;
-          }
-          input.push({
-            type: "function_call",
-            name,
-            arguments: args,
-            call_id: callId
-          });
-        }
-      }
+      input.push(...this.normalizeResponsesToolCalls(msg.tool_calls));
     }
 
     return input;
   };
 
-  private normalizeResponsesContent = (content: unknown): string | Array<Record<string, unknown>> => {
+  private normalizeResponsesToolOutput = (
+    message: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const content = message.content;
+    const output = typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? JSON.stringify(content)
+        : String(content ?? "");
+    return {
+      type: "function_call_output",
+      call_id: typeof message.tool_call_id === "string" ? message.tool_call_id : "",
+      output
+    };
+  };
+
+  private normalizeResponsesToolCalls = (toolCalls: unknown): Array<Record<string, unknown>> => {
+    if (!Array.isArray(toolCalls)) {
+      return [];
+    }
+    const output: Array<Record<string, unknown>> = [];
+    for (const call of toolCalls as Array<Record<string, unknown>>) {
+      const functionRecord = (call.function as Record<string, unknown> | undefined) ?? {};
+      const callId = String(call.id ?? call.call_id ?? "");
+      const name = String(functionRecord.name ?? call.name ?? "");
+      if (!callId || !name) {
+        continue;
+      }
+      output.push({
+        type: "function_call",
+        name,
+        arguments: String(functionRecord.arguments ?? call.arguments ?? "{}"),
+        call_id: callId
+      });
+    }
+    return output;
+  };
+
+  private normalizeResponsesContent = (
+    content: unknown,
+    role: string
+  ): Array<Record<string, unknown>> => {
+    const textType = role === "assistant" ? "output_text" : "input_text";
     if (typeof content === "string") {
-      return [{ type: "input_text", text: content }];
+      return content ? [{ type: textType, text: content }] : [];
     }
     if (!Array.isArray(content)) {
-      return String(content ?? "");
+      const text = String(content ?? "");
+      return text ? [{ type: textType, text }] : [];
     }
 
-    const blocks: Array<Record<string, unknown>> = [];
-    for (const part of content) {
-      if (!part || typeof part !== "object") {
-        continue;
-      }
-      const partAny = part as Record<string, unknown>;
-      const type = String(partAny.type ?? "");
-      if (type === "text" || type === "output_text" || type === "input_text") {
-        const textValue = typeof partAny.text === "string" ? partAny.text : "";
-        if (textValue) {
-          blocks.push({ type: "input_text", text: textValue });
-        }
-        continue;
-      }
-      if (type === "image_url" || type === "input_image") {
-        const imageValue = partAny.image_url as string | { url?: string } | undefined;
-        const imageUrl =
-          typeof imageValue === "string"
-            ? imageValue
-            : imageValue && typeof imageValue === "object" && typeof imageValue.url === "string"
-              ? imageValue.url
-              : undefined;
-        if (imageUrl) {
-          blocks.push({ type: "input_image", image_url: imageUrl });
-        }
-      }
-    }
+    return content
+      .map((part) => this.normalizeResponsesContentBlock(part, role, textType))
+      .filter((part): part is Record<string, unknown> => part !== null);
+  };
 
-    if (blocks.length > 0) {
-      return blocks;
+  private normalizeResponsesContentBlock = (
+    part: unknown,
+    role: string,
+    textType: "input_text" | "output_text"
+  ): Record<string, unknown> | null => {
+    if (!part || typeof part !== "object") {
+      return null;
     }
-    return String(content ?? "");
+    const record = part as Record<string, unknown>;
+    const type = String(record.type ?? "");
+    if (type === "text" || type === "output_text" || type === "input_text") {
+      return typeof record.text === "string" && record.text
+        ? { type: textType, text: record.text }
+        : null;
+    }
+    if (role === "assistant" && type === "refusal") {
+      return typeof record.refusal === "string" && record.refusal
+        ? { type: "refusal", refusal: record.refusal }
+        : null;
+    }
+    if (role !== "user" || (type !== "image_url" && type !== "input_image")) {
+      return null;
+    }
+    const imageUrl = this.readResponsesImageUrl(record.image_url);
+    return imageUrl ? { type: "input_image", image_url: imageUrl } : null;
+  };
+
+  private readResponsesImageUrl = (value: unknown): string | undefined => {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (value && typeof value === "object" && typeof (value as { url?: unknown }).url === "string") {
+      return (value as { url: string }).url;
+    }
+    return undefined;
   };
 }

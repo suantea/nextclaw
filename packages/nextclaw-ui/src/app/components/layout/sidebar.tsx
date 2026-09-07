@@ -16,11 +16,14 @@ import {
   type SidebarNavListItem,
 } from "@/app/components/layout/sidebar-items";
 import { IconActionButton } from "@/shared/components/ui/actions/icon-action-button";
+import { SCROLL_BOTTOM_EDGE_FADE_CLASS } from "@/shared/components/ui/scroll-area";
 import { useAppPresenter } from "@/app/components/app-presenter-provider";
 import { useRemoteStatus } from "@/features/remote";
+import { useDesktopCapabilityAvailability } from "@/features/desktop-capabilities/hooks/use-desktop-capabilities";
 import { getSettingsNavSections } from "@/app/configs/app-navigation.config";
 import { viewportLayoutManager } from "@/app/managers/viewport-layout.manager";
 import { useViewportLayoutStore } from "@/app/stores/viewport-layout.store";
+import { useScrollRestoration } from "@/shared/hooks/use-scroll-restoration";
 import {
   SIDEBAR_RAIL_CONTROL_CLASS,
   SIDEBAR_RAIL_ICON_CLASS,
@@ -29,7 +32,6 @@ import {
   SIDEBAR_RAIL_STACK_CLASS,
   SIDEBAR_RAIL_SURFACE_CLASS,
   SIDEBAR_RAIL_WIDTH_CLASS,
-  SIDEBAR_SCROLL_EDGE_FADE_CLASS,
 } from "@/app/components/layout/sidebar-rail.styles";
 
 type SidebarNavSection = {
@@ -136,12 +138,18 @@ function SidebarNavigation({
   isCollapsed: boolean;
   sections: SidebarNavSection[];
 }) {
+  const scrollRestoration = useScrollRestoration<HTMLElement>({
+    restorationKey: "settings-sidebar:navigation",
+  });
+  const { onScroll, scrollRef } = scrollRestoration;
   return (
     <nav
+      ref={scrollRef}
+      onScroll={onScroll}
       className={cn(
         "custom-scrollbar min-h-0 flex-1 overflow-y-auto",
         isCollapsed ? "pr-0" : "pr-1",
-        SIDEBAR_SCROLL_EDGE_FADE_CLASS,
+        SCROLL_BOTTOM_EDGE_FADE_CLASS,
       )}
     >
       {!isCollapsed ? (
@@ -179,19 +187,23 @@ export function Sidebar() {
   const presenter = useAppPresenter();
   const docBrowser = useDocBrowser();
   const remoteStatus = useRemoteStatus();
+  const desktopCapabilityAvailable = useDesktopCapabilityAvailability();
   const isCollapsed = useViewportLayoutStore(
     (state) => state.isSidebarCollapsed,
   );
   const toggleCollapsed = viewportLayoutManager.toggleSidebarCollapsed;
   const accountEmail = remoteStatus.data?.account.email?.trim();
   const accountConnected = Boolean(remoteStatus.data?.account.loggedIn);
-  const settingsNavSections = getSettingsNavSections(t);
+  const settingsNavSections = getSettingsNavSections(t, {
+    includeDesktopCapabilities: desktopCapabilityAvailable,
+  });
   const sidebarStackClass = isCollapsed
     ? SIDEBAR_RAIL_STACK_CLASS
     : getSidebarItemStackClass("compact");
 
   return (
     <aside
+      data-theme-surface="navigation"
       className={cn(
         "shrink-0 flex h-full min-h-0 flex-col overflow-hidden bg-secondary pb-6 transition-[width] duration-200 ease-out",
         isCollapsed

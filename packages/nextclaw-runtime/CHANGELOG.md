@@ -1,5 +1,234 @@
 # @nextclaw/runtime
 
+## 0.4.44
+
+### Patch Changes
+
+- Updated dependencies [b51f599]
+- Updated dependencies [db88c76]
+  - @nextclaw/core@0.17.18
+
+## 0.4.43
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.17
+
+## 0.4.42
+
+### Patch Changes
+
+- Updated dependencies [862dbf2]
+- Updated dependencies [3c17608]
+  - @nextclaw/core@0.17.16
+
+## 0.4.42-beta.1
+
+### Patch Changes
+
+- Updated dependencies [3c17608]
+  - @nextclaw/core@0.17.16-beta.1
+
+## 0.4.42-beta.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.16-beta.0
+
+## 0.4.41
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.15
+
+## 0.4.40
+
+### Patch Changes
+
+- Updated dependencies [9377757]
+  - @nextclaw/core@0.17.14
+
+## 0.4.39
+
+### Patch Changes
+
+- Updated dependencies [51fac6a]
+  - @nextclaw/core@0.17.13
+
+## 0.4.38
+
+### Patch Changes
+
+- @nextclaw/core@0.17.12
+
+## 0.4.37
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.11
+
+## 0.4.36
+
+### Patch Changes
+
+- Updated dependencies [2d292fa]
+- Updated dependencies [c0523dc]
+- Updated dependencies [7d2b9f8]
+  - @nextclaw/core@0.17.10
+
+## 0.4.35
+
+### Patch Changes
+
+- Updated dependencies [667c4fd]
+  - @nextclaw/core@0.17.9
+
+## 0.4.34
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+  - @nextclaw/core@0.17.8
+
+## 0.4.33
+
+### Patch Changes
+
+- 5f68b2f: Recover context compaction from truncated or structurally incomplete summaries with a priority-prefix protocol, bounded shrinking retries, and a deterministic recent-context fallback. Derive the provider output budget from the install target and honor DeepSeek's explicit thinking-disable control during compaction.
+
+  <!-- release-note-blog: docs/blog-drafts/2026-08-22-context-compaction-without-dead-ends.blog-draft.md -->
+
+- Updated dependencies [5b07b81]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+- Updated dependencies [eabdf41]
+  - @nextclaw/core@0.17.7
+
+## 0.4.33-beta.0
+
+### Patch Changes
+
+- 5f68b2f: Recover context compaction from truncated or structurally incomplete summaries with a priority-prefix protocol, bounded shrinking retries, and a deterministic recent-context fallback. Derive the provider output budget from the install target and honor DeepSeek's explicit thinking-disable control during compaction.
+
+  <!-- release-note-blog: docs/blog-drafts/2026-08-22-context-compaction-without-dead-ends.blog-draft.md -->
+
+- Updated dependencies [5b07b81]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+  - @nextclaw/core@0.17.7-beta.0
+
+## 0.4.32
+
+### Patch Changes
+
+- Updated dependencies [6587602]
+- Updated dependencies [0f0753a]
+  - @nextclaw/core@0.17.6
+
+## 0.4.31
+
+### Patch Changes
+
+- Updated dependencies [c10dcaa]
+  - @nextclaw/core@0.17.5
+
+## 0.4.30
+
+### Patch Changes
+
+- Updated dependencies [ef5d9ae]
+- Updated dependencies [1df4217]
+  - @nextclaw/core@0.17.4
+
+## 0.4.29
+
+### Patch Changes
+
+- Updated dependencies [80f7660]
+  - @nextclaw/core@0.17.3
+
+## 0.4.28
+
+### Patch Changes
+
+- Updated dependencies [56ab5c2]
+  - @nextclaw/core@0.17.2
+
+## 0.4.27
+
+### Patch Changes
+
+- Updated dependencies [aa08a3f]
+- Updated dependencies [004d51f]
+  - @nextclaw/core@0.17.1
+
+## 0.4.26
+
+### Patch Changes
+
+- Updated dependencies [ca2c98d]
+  - @nextclaw/core@0.17.0
+
+## 0.4.25
+
+### Patch Changes
+
+- Updated dependencies [237a931]
+  - @nextclaw/core@0.16.0
+
+## 0.4.24
+
+### Patch Changes
+
+- @nextclaw/core@0.15.24
+
+## 0.4.23
+
+### Patch Changes
+
+- @nextclaw/core@0.15.23
+
+## 0.4.22
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+- Updated dependencies [7786bdf]
+  - @nextclaw/core@0.15.22
+
+## 0.4.21
+
+### Patch Changes
+
+- @nextclaw/core@0.15.21
+
+## 0.4.20
+
+### Patch Changes
+
+- 071c144: 增加提供商模型目录获取与后台自动刷新：Kimi 现在也能在提供商设置中获取当前模型列表，并参与每 12 小时的目录刷新；未填写 API Key 或上游拒绝鉴权时会直接给出可操作的本地化提示，不再展示原始英文 401，后台目录失败也不再被其他 Provider 的刷新状态拖成持续加载。其他尚未确认支持模型目录的提供商继续支持手工配置。候选只保留文本输出的聊天 LLM，图像、视频、语音、Embedding、Rerank 与 Moderation 模型不会进入聊天配置。聊天模型选择器只在展开后提示上次已见基线之后真正新增的模型，并支持“本批不再提醒”；首次大目录不会制造数百条提醒。具体提供商页会自动提示对应差集，超过 50 个候选时隐藏“全部添加”、支持搜索并只渲染前 50 个匹配项；已配置模型也可进入批量删除模式后全选或删除所选。显式获取、自动刷新和批量操作都只修改当前草稿或目录快照，不会绕过用户保存。
+- Updated dependencies [c3eb33c]
+- Updated dependencies [e309470]
+- Updated dependencies [31d5655]
+- Updated dependencies [8e53d92]
+- Updated dependencies [071c144]
+  - @nextclaw/core@0.15.20
+
+## 0.4.19
+
+### Patch Changes
+
+- 43b0e1d: 让全新安装的 NextClaw 默认接入 OpenCode Zen 当前可调用的七个免费试用模型，无需填写 API Key 即可在模型选择器中直接选择并开始聊天；已有其他提供商配置保持不变，已失效的 Ling 免费模型会从 OpenCode 配置中移除，并明确提示公共网关的限额、模型变化与数据隐私边界。
+- Updated dependencies [dbececb]
+- Updated dependencies [43b0e1d]
+  - @nextclaw/core@0.15.19
+
 ## 0.4.18
 
 ### Patch Changes

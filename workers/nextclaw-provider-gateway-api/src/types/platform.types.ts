@@ -52,6 +52,7 @@ export type UsageCounters = {
 export type ProviderAuthType = "oauth" | "api_key";
 
 export type UserRole = "admin" | "user";
+export type UserAnalyticsAudience = "external" | "internal" | "qa";
 
 export type SessionTokenPayload = {
   sub: string;
@@ -69,6 +70,7 @@ export type UserRow = {
   password_hash: string;
   password_salt: string;
   role: UserRole;
+  analytics_audience: UserAnalyticsAudience;
   free_limit_usd: number;
   free_used_usd: number;
   paid_balance_usd: number;
@@ -88,6 +90,7 @@ export type UserPublicView = {
   email: string;
   username: string | null;
   role: UserRole;
+  analyticsAudience: UserAnalyticsAudience;
   freeLimitUsd: number;
   freeUsedUsd: number;
   freeRemainingUsd: number;
@@ -377,8 +380,10 @@ export type AdminMarketplaceAppPublishStatus =
   | "rejected"
   | "all";
 export type AdminMarketplaceAppReviewStatus = "published" | "rejected";
+export type AdminMarketplaceAppCatalogVisibility = "listed" | "unlisted";
 export type OwnerMarketplaceAppVisibility = "public" | "hidden";
 export type OwnerMarketplaceAppManageAction = "hide" | "show" | "delete";
+export type OwnerMarketplaceAppCatalogVisibility = "listed" | "unlisted";
 
 export type MarketplaceAppInstallView = {
   kind: "registry";
@@ -403,21 +408,29 @@ export type MarketplaceAppPublisherView = {
 };
 
 export type MarketplaceAppManifestView = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   id: string;
   name: string;
   version: string;
   description?: string;
   icon?: string;
-  main: {
+  main?: {
     kind: "wasm";
     entry: string;
     export: string;
     action: string;
-  };
-  ui: {
+  } | {
+    kind: "wasi-http-component";
     entry: string;
   };
+  ui?: {
+    entry: string;
+  };
+  engines?: { nextclaw?: string };
+  presentation?: { primaryPanel?: string };
+  runtime?: { profile: "panel-only" | "wasi" | "native-process" };
+  storage?: { scope: "global"; schemaVersion: number };
+  components?: Array<{ kind: "panel" | "service"; path: string }>;
   permissions?: Record<string, unknown>;
 };
 
@@ -450,6 +463,8 @@ export type OwnerMarketplaceAppSummaryView = {
   author: string;
   updatedAt: string;
   latestVersion: string;
+  manifestSchemaVersion: 1 | 2;
+  catalogVisibility: OwnerMarketplaceAppCatalogVisibility;
   featured: boolean;
   publisher: MarketplaceAppPublisherView;
   install: MarketplaceAppInstallView;
@@ -493,6 +508,8 @@ export type AdminMarketplaceAppSummaryView = {
   author: string;
   updatedAt: string;
   latestVersion: string;
+  manifestSchemaVersion: 1 | 2;
+  catalogVisibility: AdminMarketplaceAppCatalogVisibility;
   featured: boolean;
   publisher: MarketplaceAppPublisherView;
   install: MarketplaceAppInstallView;
@@ -511,6 +528,10 @@ export type AdminMarketplaceAppDetailView = AdminMarketplaceAppSummaryView & {
   homepage?: string;
   manifest: MarketplaceAppManifestView;
   permissions: MarketplaceAppPermissionsView;
+  publicListing: {
+    eligible: boolean;
+    reason: "official-scope" | "panel-only" | "legacy-schema" | "community-native-process" | "invalid-runtime";
+  };
   versions: MarketplaceAppVersionView[];
 };
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -74,9 +74,21 @@ class BirdCommandRunner {
 
   run = (args) => {
     const credentials = this.store.load();
+    const birdEntry = resolveBirdEntry();
+    const credentialArgs = ["--auth-token", credentials.authToken, "--ct0", credentials.ct0];
+    if (args.includes("tweet") || args.includes("reply")) {
+      const refreshResult = spawnSync(
+        process.execPath,
+        [birdEntry, ...credentialArgs, "query-ids", "--fresh"],
+        { stdio: "inherit" },
+      );
+      if (refreshResult.status !== 0) {
+        throw refreshResult.error ?? new Error("Could not refresh X query IDs before posting");
+      }
+    }
     const result = spawnSync(
-      "bird",
-      ["--auth-token", credentials.authToken, "--ct0", credentials.ct0, ...args],
+      process.execPath,
+      [birdEntry, ...credentialArgs, ...args],
       {
         stdio: "inherit",
       },
@@ -87,6 +99,16 @@ class BirdCommandRunner {
     }
     throw result.error ?? new Error("bird exited without a status code");
   };
+}
+
+function resolveBirdEntry() {
+  for (const directory of (process.env.PATH ?? "").split(":")) {
+    const candidate = join(directory, "bird");
+    if (existsSync(candidate)) {
+      return realpathSync(candidate);
+    }
+  }
+  throw new Error("bird is not available on PATH");
 }
 
 function isRecord(value) {

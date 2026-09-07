@@ -18,7 +18,6 @@ const mocks = vi.hoisted(() => ({
   setQuery: vi.fn(),
   setListMode: vi.fn(),
   selectSession: vi.fn(),
-  openChildSessionPanel: vi.fn(),
   docOpen: vi.fn(),
   setLanguage: vi.fn(),
   setTheme: vi.fn(),
@@ -49,7 +48,12 @@ vi.mock("@/shared/hooks/use-projects", () => ({
     isPending: false,
     error: null,
   }),
-  useAddExistingProject: () => ({ mutateAsync: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
+  useAddExistingProject: () => ({
+    mutateAsync: vi.fn(),
+    reset: vi.fn(),
+    isPending: false,
+    error: null,
+  }),
 }));
 function sidebarElement(variant?: "desktop" | "mobile") {
   const queryClient = new QueryClient({
@@ -81,6 +85,12 @@ function expectCodexSelectedInSessionTypeMenu() {
     screen.getByRole("button", { name: /Codex/i }).getAttribute("aria-pressed"),
   ).toBe("true");
 }
+function expectSessionCreated(sessionType: string, projectRoot?: string) {
+  expect(mocks.createSession).toHaveBeenCalledWith({
+    projectRoot,
+    sessionType,
+  });
+}
 
 vi.mock("@/features/chat/components/providers/chat-presenter.provider", () => ({
   usePresenter: () => ({
@@ -103,9 +113,7 @@ vi.mock("@/features/chat/components/providers/chat-presenter.provider", () => ({
               .markSessionRead(sessionKey, readAt)
           : undefined,
     },
-    chatThreadManager: {
-      openChildSessionPanel: mocks.openChildSessionPanel,
-    },
+    chatThreadManager: {},
   }),
 }));
 
@@ -142,6 +150,7 @@ vi.mock(
 
 vi.mock("@/features/chat/features/ncp/hooks/use-ncp-session-list-view", () => ({
   useNcpSessionListView: () => ({
+    allItems: mocks.sessionItems,
     isLoading: mocks.isLoading,
     items: mocks.sessionItems,
   }),
@@ -193,7 +202,6 @@ function resetSidebarTestState() {
   mocks.setQuery.mockReset();
   mocks.setListMode.mockReset();
   mocks.selectSession.mockReset();
-  mocks.openChildSessionPanel.mockReset();
   mocks.docOpen.mockReset();
   mocks.setLanguage.mockReset();
   mocks.setTheme.mockReset();
@@ -249,7 +257,7 @@ describe("ChatSidebar create and list basics", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "New Task" }));
 
-    expect(mocks.createSession).toHaveBeenCalledWith("codex", undefined);
+    expectSessionCreated("codex");
   });
 
   it("hydrates the desktop new-session type from stored preferences", async () => {
@@ -265,7 +273,7 @@ describe("ChatSidebar create and list basics", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "New Task" }));
 
-    expect(mocks.createSession).toHaveBeenCalledWith("codex", undefined);
+    expectSessionCreated("codex");
   });
 
   it("does not animate the desktop create task button width during runtime option hydration", () => {
@@ -281,9 +289,9 @@ describe("ChatSidebar create and list basics", () => {
   it("keeps the desktop brand row compact with symmetric vertical padding", () => {
     renderSidebar();
 
-    expect(
-      screen.getByTestId("brand-header").parentElement?.className,
-    ).toMatch(/(?:^|\s)py-2(?:\s|$)/);
+    expect(screen.getByTestId("brand-header").parentElement?.className).toMatch(
+      /(?:^|\s)py-2(?:\s|$)/,
+    );
   });
 
   it("shows setup required status for runtime session types that are not ready yet", () => {
@@ -311,7 +319,7 @@ describe("ChatSidebar create and list basics", () => {
   it("renders the lightweight list mode switch in the session header row and toggles to project view", () => {
     renderSidebar();
 
-    expect(screen.getByText("Sessions")).not.toBeNull();
+    expect(screen.queryByText("Sessions")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Project" }));
 
     expect(mocks.setListMode).toHaveBeenCalledWith("project-first");
@@ -332,7 +340,7 @@ describe("ChatSidebar create and list basics", () => {
     fireEvent.click(screen.getByText("Codex"));
 
     expect(mocks.setQuery).toHaveBeenCalledWith("release notes");
-    expect(mocks.createSession).toHaveBeenCalledWith("codex", undefined);
+    expectSessionCreated("codex");
     expect(mocks.goToChatRoot).not.toHaveBeenCalled();
   });
 
@@ -377,7 +385,7 @@ describe("ChatSidebar create and list basics", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "New Task" }));
 
-    expect(mocks.createSession).toHaveBeenCalledWith("native", undefined);
+    expectSessionCreated("native");
     expect(mocks.goToChatRoot).not.toHaveBeenCalled();
   });
 
@@ -582,10 +590,7 @@ describe("ChatSidebar project-first mode", () => {
     );
     fireEvent.click(screen.getByText("Codex"));
 
-    expect(mocks.createSession).toHaveBeenCalledWith(
-      "codex",
-      "/tmp/project-beta",
-    );
+    expectSessionCreated("codex", "/tmp/project-beta");
     expect(mocks.goToSession).not.toHaveBeenCalled();
   });
 
@@ -617,10 +622,7 @@ describe("ChatSidebar project-first mode", () => {
       screen.getByRole("button", { name: "New Task · project-gamma" }),
     );
 
-    expect(mocks.createSession).toHaveBeenCalledWith(
-      "native",
-      "/tmp/project-gamma",
-    );
+    expectSessionCreated("native", "/tmp/project-gamma");
     expect(mocks.goToSession).not.toHaveBeenCalled();
   });
 
@@ -652,10 +654,7 @@ describe("ChatSidebar project-first mode", () => {
     );
     fireEvent.click(screen.getByText("Codex"));
 
-    expect(mocks.createSession).toHaveBeenCalledWith(
-      "codex",
-      "/tmp/project-mobile",
-    );
+    expectSessionCreated("codex", "/tmp/project-mobile");
     expect(mocks.goToChatRoot).not.toHaveBeenCalled();
   });
 });
@@ -863,7 +862,7 @@ describe("ChatSidebar session item interactions", () => {
     expect(screen.queryByLabelText("Session has unread updates")).toBeNull();
   });
 
-  it("opens the child-session browser from a parent session row", () => {
+  it("keeps child-session counts out of the parent session row", () => {
     mocks.sessionItems = [
       createSessionItem({
         key: "session:parent-1",
@@ -888,11 +887,6 @@ describe("ChatSidebar session item interactions", () => {
 
     renderSidebar();
 
-    fireEvent.click(screen.getByLabelText("View child sessions"));
-
-    expect(mocks.openChildSessionPanel).toHaveBeenCalledWith({
-      parentSessionKey: "session:parent-1",
-      activeChildSessionKey: "session:child-1",
-    });
+    expect(screen.queryByLabelText("View child sessions")).toBeNull();
   });
 });

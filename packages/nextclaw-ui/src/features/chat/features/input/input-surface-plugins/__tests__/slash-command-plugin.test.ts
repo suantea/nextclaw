@@ -18,6 +18,7 @@ function createPanelApp(
     updatedAt: overrides.updatedAt ?? '2026-06-18T00:00:00.000Z',
     sizeBytes: overrides.sizeBytes ?? 100,
     favorite: overrides.favorite ?? false,
+    mainSidebar: overrides.mainSidebar ?? false,
     clientDeclared: overrides.clientDeclared ?? false,
     clientGranted: overrides.clientGranted ?? false,
     lastOpenedAt: overrides.lastOpenedAt,
@@ -35,6 +36,7 @@ function createPlugin(
     commands: [
       {
         key: 'side-chat',
+        icon: 'message-square-plus',
         title: 'Side chat',
         description: 'Open side chat',
         detailLines: ['Creates a child session on first send'],
@@ -133,7 +135,7 @@ describe('createSlashCommandInputSurfacePlugin', () => {
       { key: 'panel-apps', label: 'Panel Apps', sectionKeys: ['panel-apps'] },
     ]);
     expect(state.panel?.items[0]).toMatchObject({
-      icon: 'command',
+      icon: 'message-square-plus',
       sectionKey: 'commands',
       sectionLabel: 'Commands',
       hintLabel: 'Run command',

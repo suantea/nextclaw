@@ -3,9 +3,11 @@ import {
   useEffect,
   useMemo,
   useState,
+  type ReactElement,
   type MutableRefObject,
 } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createChatComposerTextNode,
@@ -27,11 +29,40 @@ import type {
 } from '@/features/chat/features/conversation/hooks/use-session-conversation-input-state';
 import { useSessionConversationInputState } from '@/features/chat/features/conversation/hooks/use-session-conversation-input-state';
 import { useChatMessageLayoutStore } from '@/features/chat/stores/chat-message-layout.store';
+import { useChatComposerDraftStore } from '@/features/chat/stores/chat-composer-draft.store';
+import { ChatComposerIntentManager } from '@/features/chat/managers/chat-composer-intent.manager';
+import type { ThinkingLevel } from '@/shared/lib/api';
 
 const uploadNcpAssetsMock = vi.hoisted(() => vi.fn());
+const updateNcpSessionMock = vi.hoisted(() => vi.fn());
+
+function renderInput(input: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>{input}</QueryClientProvider>,
+  );
+}
+
+Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+  value: vi.fn(() => ({
+    bottom: 0,
+    height: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    width: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  })),
+  writable: true,
+});
 
 afterEach(() => {
   useChatMessageLayoutStore.getState().setLayout('card');
+  updateNcpSessionMock.mockReset();
 });
 
 vi.mock('@/app/hooks/use-viewport-layout', () => ({
@@ -72,20 +103,125 @@ vi.mock('@/shared/hooks/use-server-path-search', () => ({
   }),
 }));
 
+vi.mock('@/shared/hooks/use-projects', () => ({
+  useProjects: () => ({
+    data: { projects: [] },
+    isFetching: false,
+    isLoading: false,
+  }),
+}));
+
 vi.mock('@/shared/lib/api', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...(actual as object),
-    updateNcpSession: vi.fn(),
+    updateNcpSession: updateNcpSessionMock,
     uploadNcpAssets: uploadNcpAssetsMock,
   };
+});
+
+function ThinkingPreferenceHarness() {
+  const { inputActions, inputSnapshot } = useSessionConversationInputState(
+    undefined,
+    'thinking-session',
+  );
+  const inputQuery = useMemo(() => ({
+    addDiscoveredModel: vi.fn(async () => null),
+    dismissDiscoveredModels: vi.fn(),
+    defaultModel: 'openai/gpt-5.6',
+    defaultProjectRoot: null,
+    discoveredModelOptions: [],
+    fallbackPreferredModel: undefined,
+    fallbackPreferredThinking: 'high' as const,
+    isProviderStateResolved: true,
+    isSkillsLoading: false,
+    modelOptions: [{
+      value: 'openai/gpt-5.6',
+      modelLabel: 'GPT-5.6',
+      providerLabel: 'OpenAI',
+      thinkingCapability: {
+        supported: ['low', 'medium', 'high'] as ThinkingLevel[],
+        default: 'medium' as const,
+      },
+    }],
+    providersView: null,
+    refreshProviderModelCatalog: vi.fn(),
+    selectedSession: null,
+    selectedSessionKey: 'thinking-session',
+    sessionTypeState: {
+      canEditSessionType: true,
+      defaultSessionType: 'native',
+      selectedSessionType: 'native',
+      selectedSessionTypeOption: null,
+      sessionTypeOptions: [],
+      sessionTypeUnavailable: false,
+      sessionTypeUnavailableMessage: null,
+    },
+    skillRecords: [],
+  }), []);
+
+  return (
+    <I18nProvider>
+      <ChatPresenterProvider presenter={presenter}>
+        <SessionConversationInput
+          contextWindow={null}
+          controller={{ ...controller, isSending: false, sendDisabled: false }}
+          inputActions={inputActions}
+          inputQuery={inputQuery}
+          inputSnapshot={inputSnapshot}
+        />
+      </ChatPresenterProvider>
+    </I18nProvider>
+  );
+}
+
+describe('SessionConversationInput thinking preference', () => {
+  it('keeps explicit off when the provider only declares active thinking levels', async () => {
+    useChatComposerDraftStore.setState({
+      drafts: {
+        'session:thinking-session': {
+          attachments: [],
+          composerFocusRequestId: 0,
+          nodes: [],
+          pendingSessionType: 'native',
+          selectedModel: 'openai/gpt-5.6',
+          selectedSessionType: 'native',
+          selectedSkills: [],
+          selectedThinkingLevel: 'high',
+          sendError: null,
+          skillRecords: [],
+          text: '',
+        },
+      },
+    });
+    updateNcpSessionMock.mockResolvedValue({
+      sessionId: 'thinking-session',
+      updatedAt: '2026-08-15T00:00:00.000Z',
+      status: 'idle',
+      metadata: { preferred_thinking: 'off' },
+    });
+    renderInput(<ThinkingPreferenceHarness />);
+
+    fireEvent.click(screen.getByRole('combobox', { name: /High/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /Off|关闭/ }));
+
+    await waitFor(() => expect(
+      screen.getByRole('combobox', { name: /Off|关闭/ }),
+    ).toBeTruthy());
+    await waitFor(() => expect(updateNcpSessionMock).toHaveBeenCalledWith(
+      'thinking-session',
+      { preferredThinking: 'off' },
+    ));
+  });
 });
 
 type StreamingInputControl = {
   bumpStream: () => void;
 };
 
+const chatComposerIntentManager = new ChatComposerIntentManager();
 const presenter = {
+  chatComposerIntentManager,
   chatThreadManager: {
     openSideChatDraft: vi.fn(),
   },
@@ -96,19 +232,25 @@ const presenter = {
 } as unknown as ChatPresenterLike;
 
 const controller: SessionConversationInputController = {
+  canEditQueuedInput: true,
   canStopGeneration: true,
   deleteQueuedInput: vi.fn(),
   editQueuedInput: vi.fn(),
   isSending: true,
+  primaryAction: 'send',
   queuedInputs: [],
   send: vi.fn(),
+  sendSteering: vi.fn(),
+  sendPresetMessage: vi.fn(),
   sendDisabled: true,
   stop: vi.fn(),
   stopDisabled: false,
+  steerQueuedInput: vi.fn(),
 };
 
 function createStreamingInputSnapshot(
   nodes: readonly ChatComposerNode[],
+  sendError: string | null = null,
 ): SessionConversationInputSnapshot {
   return {
     attachments: [],
@@ -120,7 +262,7 @@ function createStreamingInputSnapshot(
     selectedSessionType: 'default',
     selectedSkills: [],
     selectedThinkingLevel: null,
-    sendError: null,
+    sendError,
     skillRecords: [],
     text: nodes
       .map((node) => (node.type === 'text' ? node.text : ''))
@@ -167,12 +309,16 @@ async function insertText(textbox: HTMLElement, text: string): Promise<void> {
 function StreamingSessionConversationInputHarness({
   controllerOverride = controller,
   controlRef,
+  initialText = '',
+  sendError = null,
 }: {
   controllerOverride?: SessionConversationInputController;
   controlRef: MutableRefObject<StreamingInputControl | null>;
+  initialText?: string;
+  sendError?: string | null;
 }) {
   const [nodes, setNodes] = useState<readonly ChatComposerNode[]>([
-    createChatComposerTextNode(''),
+    createChatComposerTextNode(initialText),
   ]);
   const [streamChunk, setStreamChunk] = useState(0);
   const bumpStream = useCallback(() => setStreamChunk((chunk) => chunk + 1), []);
@@ -184,7 +330,10 @@ function StreamingSessionConversationInputHarness({
     };
   }, [bumpStream, controlRef]);
 
-  const inputSnapshot = useMemo(() => createStreamingInputSnapshot(nodes), [nodes]);
+  const inputSnapshot = useMemo(
+    () => createStreamingInputSnapshot(nodes, sendError),
+    [nodes, sendError],
+  );
   const inputActions: SessionConversationInputActions = useMemo(() => ({
     addAttachments: vi.fn(() => []),
     applyPromptSuggestion: vi.fn(),
@@ -212,13 +361,18 @@ function StreamingSessionConversationInputHarness({
     },
   }), []);
   const inputQuery = useMemo(() => ({
+    addDiscoveredModel: vi.fn(async () => null),
+    dismissDiscoveredModels: vi.fn(),
     defaultModel: undefined,
     defaultProjectRoot: null,
+    discoveredModelOptions: [],
     fallbackPreferredModel: undefined,
     fallbackPreferredThinking: undefined,
     isProviderStateResolved: true,
     isSkillsLoading: false,
     modelOptions: [],
+    providersView: null,
+    refreshProviderModelCatalog: vi.fn(),
     selectedSession: null,
     selectedSessionKey: null,
     sessionTypeState: {
@@ -254,7 +408,7 @@ describe('SessionConversationInput streaming stability', () => {
     useChatMessageLayoutStore.getState().setLayout('flat');
     const controlRef: MutableRefObject<StreamingInputControl | null> = { current: null };
 
-    render(<StreamingSessionConversationInputHarness controlRef={controlRef} />);
+    renderInput(<StreamingSessionConversationInputHarness controlRef={controlRef} />);
 
     const track = document.querySelector(
       '[data-chat-conversation-track="flat"][data-chat-conversation-track-width="composer"]',
@@ -266,7 +420,7 @@ describe('SessionConversationInput streaming stability', () => {
 
   it('keeps a numbered IME candidate commit stable while streamed output rerenders the owner', async () => {
     const controlRef: MutableRefObject<StreamingInputControl | null> = { current: null };
-    render(<StreamingSessionConversationInputHarness controlRef={controlRef} />);
+    renderInput(<StreamingSessionConversationInputHarness controlRef={controlRef} />);
 
     const textbox = screen.getByRole('textbox');
     fireEvent.focus(textbox);
@@ -296,11 +450,59 @@ describe('SessionConversationInput streaming stability', () => {
     await waitFor(() => expect(window.getSelection()?.anchorOffset).toBe(1));
   });
 
+  it('inserts a project file reference at the saved composer caret', async () => {
+    const controlRef: MutableRefObject<StreamingInputControl | null> = { current: null };
+    renderInput(
+      <StreamingSessionConversationInputHarness
+        controlRef={controlRef}
+        initialText="Hello"
+      />,
+    );
+
+    const textbox = screen.getByRole('textbox');
+    fireEvent.focus(textbox);
+    expect(textbox.textContent).toBe('Hello');
+    const paragraph = textbox.querySelector('p');
+    expect(paragraph).toBeTruthy();
+    const textNode = document
+      .createTreeWalker(paragraph!, NodeFilter.SHOW_TEXT)
+      .nextNode();
+    expect(textNode).toBeTruthy();
+    const range = document.createRange();
+    range.setStart(textNode!, 2);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    fireEvent(document, new Event('selectionchange'));
+    await act(async () => Promise.resolve());
+
+    act(() => {
+      chatComposerIntentManager.requestFileReference({
+        targetSessionKey: null,
+        tokenKey: 'docs/guide.md',
+        label: 'guide.md',
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        textbox.querySelector(
+          '[data-composer-token-kind="workspace_file"][data-composer-token-key="docs/guide.md"]',
+        ),
+      ).toBeTruthy();
+    });
+    expect(textbox.textContent).toContain('He');
+    expect(textbox.textContent).toContain('guide.md');
+    expect(textbox.textContent).toContain('llo');
+    expect(textbox.textContent).toBe('Heguide.mdllo');
+  });
+
   it('renders queued inputs above the composer with edit and delete actions', () => {
     const controlRef: MutableRefObject<StreamingInputControl | null> = { current: null };
     const deleteQueuedInput = vi.fn();
     const editQueuedInput = vi.fn();
-    render(
+    renderInput(
       <StreamingSessionConversationInputHarness
         controlRef={controlRef}
         controllerOverride={{
@@ -327,6 +529,41 @@ describe('SessionConversationInput streaming stability', () => {
     expect(editQueuedInput).toHaveBeenCalledWith('queued-1');
     expect(deleteQueuedInput).toHaveBeenCalledWith('queued-2');
   });
+
+  it('renders a submitting queue row immediately without premature edit actions', () => {
+    const controlRef: MutableRefObject<StreamingInputControl | null> = { current: null };
+    renderInput(
+      <StreamingSessionConversationInputHarness
+        controlRef={controlRef}
+        controllerOverride={{
+          ...controller,
+          queuedInputs: [
+            { id: 'submitting-1', isSubmitting: true, preview: '正在提交的任务' },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText('正在提交的任务')).toBeTruthy();
+    expect(screen.getByLabelText('Adding to queue…')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Edit queued input' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete queued input' })).toBeNull();
+  });
+
+  it('leaves send-error rendering to the conversation surface', () => {
+    const controlRef: MutableRefObject<StreamingInputControl | null> = { current: null };
+    const providerError = 'Chat Completions API failed (402): raw provider error';
+
+    renderInput(
+      <StreamingSessionConversationInputHarness
+        controlRef={controlRef}
+        sendError={providerError}
+      />,
+    );
+
+    expect(screen.queryByText(providerError)).toBeNull();
+  });
+
 });
 
 type AttachmentSubmitAgentSend = (envelope: NcpAgentSendEnvelope) => Promise<NcpRunHandle | null>;
@@ -341,11 +578,27 @@ function createAttachmentRunHandle(): NcpRunHandle {
   };
 }
 
-function AttachmentSubmitHarness({ send }: { readonly send: AttachmentSubmitAgentSend }) {
-  const { inputActions, inputSnapshot } = useSessionConversationInputState();
+function AttachmentSubmitHarness({
+  initialPrompt,
+  isRunning = false,
+  refreshQueuedInputs = async () => [],
+  send,
+}: {
+  readonly initialPrompt?: string;
+  readonly isRunning?: boolean;
+  readonly refreshQueuedInputs?: () => Promise<readonly never[]>;
+  readonly send: AttachmentSubmitAgentSend;
+}) {
+  const { inputActions, inputSnapshot } = useSessionConversationInputState(
+    initialPrompt,
+    `attachment-test:${initialPrompt ?? 'empty'}`,
+  );
   const inputQuery = useMemo(() => ({
+    addDiscoveredModel: vi.fn(async () => null),
+    dismissDiscoveredModels: vi.fn(),
     defaultModel: 'test-model',
     defaultProjectRoot: null,
+    discoveredModelOptions: [],
     fallbackPreferredModel: undefined,
     fallbackPreferredThinking: undefined,
     isProviderStateResolved: true,
@@ -358,6 +611,8 @@ function AttachmentSubmitHarness({ send }: { readonly send: AttachmentSubmitAgen
         thinkingCapability: null,
       },
     ],
+    providersView: null,
+    refreshProviderModelCatalog: vi.fn(),
     selectedSession: null,
     selectedSessionKey: 'session-attachment',
     sessionTypeState: {
@@ -373,15 +628,17 @@ function AttachmentSubmitHarness({ send }: { readonly send: AttachmentSubmitAgen
   }), []);
   const agent = useMemo(() => ({
     abort: vi.fn(),
+    continueRun: vi.fn(),
+    editMessage: vi.fn(),
     isHydrating: false,
-    isRunning: false,
+    isRunning,
     isSending: false,
     send,
     snapshot: {
-      activeRun: null,
+      activeRun: isRunning ? { sessionId: 'session-attachment' } : null,
     },
     visibleMessages: [],
-  }), [send]);
+  }), [isRunning, send]);
   const controller = useSessionConversationController({
     agent,
     inputSnapshot,
@@ -389,7 +646,10 @@ function AttachmentSubmitHarness({ send }: { readonly send: AttachmentSubmitAgen
     isRuntimeBlocked: false,
     runQueue: {
       inputs: [],
+      refreshPendingInputs: async () => [],
+      refreshQueuedInputs,
       removeQueuedInput: async () => null,
+      steerQueuedInput: async () => null,
     },
     selectedAgentId: 'main',
     sessionKey: 'session-attachment',
@@ -414,6 +674,162 @@ function AttachmentSubmitHarness({ send }: { readonly send: AttachmentSubmitAgen
 }
 
 describe('SessionConversationInput attachment submit', () => {
+  it('shows immediate queue feedback from the real send button before backend acknowledgement', async () => {
+    let resolveSend!: (handle: NcpRunHandle) => void;
+    const send = vi.fn<AttachmentSubmitAgentSend>(() => new Promise((resolve) => {
+      resolveSend = resolve;
+    }));
+    const refreshQueuedInputs = vi.fn(async () => [] as const);
+
+    renderInput(
+      <AttachmentSubmitHarness
+        initialPrompt="稍后继续这个任务"
+        isRunning
+        refreshQueuedInputs={refreshQueuedInputs}
+        send={send}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Send|发送/ }));
+      await Promise.resolve();
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const submittingStatus = screen.getByLabelText('Adding to queue…');
+    expect(submittingStatus.parentElement?.textContent).toContain('稍后继续这个任务');
+    await waitFor(() => expect(screen.getByRole('textbox').textContent).toBe(''));
+    expect(refreshQueuedInputs).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSend({ ...createAttachmentRunHandle(), delivery: 'queued', runId: null });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(refreshQueuedInputs).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByLabelText('Adding to queue…')).toBeNull());
+  });
+
+  it('preserves a project file reference in the outgoing user message and AI context', async () => {
+    const send = vi.fn<AttachmentSubmitAgentSend>(async () => createAttachmentRunHandle());
+
+    renderInput(<AttachmentSubmitHarness initialPrompt="这里面有啥" send={send} />);
+
+    const textbox = screen.getByRole('textbox');
+    fireEvent.focus(textbox);
+    const textNode = document
+      .createTreeWalker(textbox, NodeFilter.SHOW_TEXT)
+      .nextNode();
+    expect(textNode).toBeTruthy();
+    const range = document.createRange();
+    range.setStart(textNode!, 0);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    fireEvent(document, new Event('selectionchange'));
+    await act(async () => Promise.resolve());
+
+    act(() => {
+      chatComposerIntentManager.requestFileReference({
+        targetSessionKey: 'session-attachment',
+        tokenKey: 'docs/guide.md',
+        label: 'guide.md',
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        document.querySelector(
+          '[data-composer-token-kind="workspace_file"][data-composer-token-key="docs/guide.md"]',
+        ),
+      ).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Send|发送/ }));
+
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(send.mock.calls[0]?.[0].message.parts).toEqual([
+      {
+        type: 'text',
+        text: '这里面有啥 @file:docs%2Fguide.md',
+      },
+    ]);
+    expect(send.mock.calls[0]?.[0].message.metadata).toMatchObject({
+      ui_inline_tokens: {
+        schemaVersion: 2,
+        items: [
+          {
+            kind: 'workspace_file',
+            key: 'docs/guide.md',
+            label: 'guide.md',
+            rawText: '@file:docs%2Fguide.md',
+          },
+        ],
+      },
+    });
+  });
+
+  it('preserves an exact workspace excerpt in the outgoing message metadata', async () => {
+    const send = vi.fn<AttachmentSubmitAgentSend>(async () => createAttachmentRunHandle());
+    renderInput(<AttachmentSubmitHarness initialPrompt="解释一下" send={send} />);
+
+    const textbox = screen.getByRole('textbox');
+    await waitFor(() => expect(textbox.textContent).toBe('解释一下'));
+    fireEvent.focus(textbox);
+    const paragraph = textbox.querySelector('p');
+    const textNode = document.createTreeWalker(
+      paragraph!,
+      NodeFilter.SHOW_TEXT,
+    ).nextNode();
+    const range = document.createRange();
+    range.setStart(textNode!, '解释一下'.length);
+    range.collapse(true);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    fireEvent(document, new Event('selectionchange'));
+    await act(async () => Promise.resolve());
+
+    act(() => {
+      chatComposerIntentManager.requestExcerptReference({
+        targetSessionKey: 'session-attachment',
+        path: 'docs/guide.md',
+        label: 'guide.md',
+        excerpt: 'Requests must include an authorization header.',
+        startLine: 32,
+        endLine: 34,
+      });
+    });
+
+    await waitFor(() => expect(document.querySelector(
+      '[data-composer-token-kind="workspace_excerpt"]',
+    )).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /Send|发送/ }));
+
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    const envelope = send.mock.calls[0]?.[0];
+    const metadata = envelope.message.metadata?.ui_inline_tokens as {
+      items: Array<Record<string, unknown>>;
+    };
+    expect(metadata.items).toEqual([
+      expect.objectContaining({
+        kind: 'workspace_excerpt',
+        path: 'docs/guide.md',
+        label: 'guide.md',
+        excerpt: 'Requests must include an authorization header.',
+        startLine: 32,
+        endLine: 34,
+        rawText: expect.stringMatching(/^@excerpt:/),
+      }),
+    ]);
+    expect(envelope.message.parts).toEqual([
+      {
+        type: 'text',
+        text: expect.stringMatching(/^解释一下 @excerpt:/),
+      },
+    ]);
+  });
+
   it('keeps uploaded file attachments in the outgoing send envelope after token insertion', async () => {
     uploadNcpAssetsMock.mockResolvedValueOnce([
       {
@@ -427,7 +843,7 @@ describe('SessionConversationInput attachment submit', () => {
     ]);
     const send = vi.fn<AttachmentSubmitAgentSend>(async () => createAttachmentRunHandle());
 
-    render(<AttachmentSubmitHarness send={send} />);
+    renderInput(<AttachmentSubmitHarness send={send} />);
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement | null;
     expect(fileInput).toBeTruthy();

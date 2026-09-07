@@ -7,6 +7,9 @@ import type {
   UiNcpSessionMessagesView,
   UiNcpSessionQueuedInputView,
   UiNcpSessionQueuedInputsView,
+  UiNcpSessionPendingInputView,
+  UiNcpSessionPendingInputsView,
+  UiNcpSessionTokenUsageView,
 } from "@nextclaw/server";
 import type { EventBus } from "@nextclaw/shared";
 import type { NcpSessionSummary } from "@nextclaw/ncp";
@@ -17,6 +20,8 @@ import type { RequestService } from "./request.service.js";
 export type ListSessionMessagesParams = {
   limit?: number;
   cursor?: string;
+  toolPayload?: "summary";
+  initialPayload?: "compact";
   signal?: AbortSignal;
 };
 
@@ -26,12 +31,15 @@ export class SessionsService {
     private readonly eventBus: EventBus
   ) {}
 
-  readonly list = async (params?: { limit?: number; peerId?: string }): Promise<UiNcpSessionListView> => {
-    const { limit, peerId: rawPeerId } = params ?? {};
+  readonly list = async (params?: { limit?: number; page?: number; pageSize?: number; query?: string; peerId?: string }): Promise<UiNcpSessionListView> => {
+    const { limit, page, pageSize, query: rawQuery, peerId: rawPeerId } = params ?? {};
     const query = new URLSearchParams();
     if (typeof limit === "number" && Number.isFinite(limit)) {
       query.set("limit", String(Math.max(1, Math.trunc(limit))));
     }
+    if (typeof page === "number" && Number.isFinite(page)) query.set("page", String(Math.max(1, Math.trunc(page))));
+    if (typeof pageSize === "number" && Number.isFinite(pageSize)) query.set("pageSize", String(Math.max(1, Math.trunc(pageSize))));
+    if (rawQuery?.trim()) query.set("query", rawQuery.trim());
     const peerId = rawPeerId?.trim();
     if (peerId) {
       query.set("peerId", peerId);
@@ -57,12 +65,24 @@ export class SessionsService {
     if (params.cursor?.trim()) {
       query.set("cursor", params.cursor.trim());
     }
+    if (params.toolPayload === "summary") {
+      query.set("toolPayload", "summary");
+    }
+    if (params.initialPayload === "compact") {
+      query.set("initialPayload", "compact");
+    }
     return await this.requestService.get<UiNcpSessionMessagesView>(
       `/api/ncp/sessions/${encodeURIComponent(sessionId)}/messages`,
       {
         ...(query.size > 0 ? { query } : {}),
         ...(params.signal ? { signal: params.signal } : {})
       }
+    );
+  };
+
+  readonly getUsage = async (sessionId: string): Promise<UiNcpSessionTokenUsageView> => {
+    return await this.requestService.get<UiNcpSessionTokenUsageView>(
+      `/api/ncp/sessions/${encodeURIComponent(sessionId)}/usage`,
     );
   };
 
@@ -92,6 +112,23 @@ export class SessionsService {
   ): Promise<UiNcpSessionQueuedInputView> => {
     return await this.requestService.delete<UiNcpSessionQueuedInputView>(
       `/api/ncp/sessions/${encodeURIComponent(sessionId)}/queued-inputs/${encodeURIComponent(queuedInputId)}`,
+    );
+  };
+
+  readonly listPendingInputs = async (
+    sessionId: string,
+  ): Promise<UiNcpSessionPendingInputsView> => {
+    return await this.requestService.get<UiNcpSessionPendingInputsView>(
+      `/api/ncp/sessions/${encodeURIComponent(sessionId)}/pending-inputs`,
+    );
+  };
+
+  readonly steerQueuedInput = async (
+    sessionId: string,
+    queuedInputId: string,
+  ): Promise<UiNcpSessionPendingInputView> => {
+    return await this.requestService.post<UiNcpSessionPendingInputView>(
+      `/api/ncp/sessions/${encodeURIComponent(sessionId)}/queued-inputs/${encodeURIComponent(queuedInputId)}/steer`,
     );
   };
 

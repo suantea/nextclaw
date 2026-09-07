@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createRuntimeScriptSpawnOptions } from "../runtime-service";
-import { createDesktopRuntimeEnv } from "../utils/desktop-paths.utils";
+import {
+  createDesktopRuntimeEnv,
+} from "../utils/desktop-paths.utils";
 
 test("hides runtime child process console windows on Windows", () => {
   const env = { NEXTCLAW_HOME: "/tmp/nextclaw" };
@@ -35,4 +37,23 @@ test("desktop runtime passes packaged extension root to embedded runtime", () =>
   );
 
   assert.equal(runtimeEnv.NEXTCLAW_PACKAGED_EXTENSION_DIR, "/tmp/nextclaw-desktop-bundle/plugins");
+});
+
+test("desktop development runtime does not inject a native SQLite module loader", () => {
+  const runtimeEnv = createDesktopRuntimeEnv(
+    {
+      NEXTCLAW_HOME: "/tmp/ambient",
+      NODE_OPTIONS: "--conditions=development",
+      NEXTCLAW_DESKTOP_NATIVE_MODULES_DIR: "/tmp/obsolete-native-modules"
+    }
+  );
+
+  assert.equal(runtimeEnv.NEXTCLAW_DESKTOP_NATIVE_MODULES_DIR, undefined);
+  assert.equal(runtimeEnv.NODE_OPTIONS, "--conditions=development");
+});
+
+test("classifies packaged desktop runtimes separately from source overrides", () => {
+  assert.equal(createDesktopRuntimeEnv({}, { runtimeSource: "bundle" }).NEXTCLAW_PRODUCT_ANALYTICS_ENVIRONMENT, "production");
+  assert.equal(createDesktopRuntimeEnv({}, { runtimeSource: "packaged-runtime" }).NEXTCLAW_PRODUCT_ANALYTICS_ENVIRONMENT, "production");
+  assert.equal(createDesktopRuntimeEnv({}, { runtimeSource: "environment-override" }).NEXTCLAW_PRODUCT_ANALYTICS_ENVIRONMENT, "development");
 });

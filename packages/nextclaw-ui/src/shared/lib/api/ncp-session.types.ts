@@ -4,6 +4,7 @@ import type {
   NcpSessionStatus,
   NcpSessionSummary,
 } from "@nextclaw/ncp";
+import type { UiNcpSessionTokenUsageView } from "@nextclaw/client-sdk";
 import type { ThinkingLevel } from "./types";
 
 export type SessionTypeIconView = {
@@ -21,8 +22,14 @@ export type RuntimeEntryView = {
 };
 
 export type SessionContextWindowView = {
+  completeInputBudget?: boolean;
   usedContextTokens: number;
   totalContextTokens: number;
+  fixedInputTokens?: number;
+  dynamicInputTokens?: number;
+  reservedContextTokens?: number;
+  triggerContextTokens?: number;
+  availableBeforeCompactionTokens?: number;
   prunedUsedContextTokens: number;
   availableContextTokens: number;
   droppedHistoryCount: number;
@@ -39,6 +46,7 @@ export type SessionContextWindowView = {
 export type SessionActivityPreviewView = {
   state: "running" | "completed" | "failed" | "cancelled" | "idle";
   timestamp: string;
+  statusKind?: "thinking" | "tool-running" | "tool-completed" | "run-failed" | "run-interrupted";
   statusText?: string;
   replyText?: string;
 };
@@ -95,6 +103,9 @@ export type NcpSessionSummaryView = NcpSessionSummary;
 export type NcpSessionsListView = {
   sessions: NcpSessionSummaryView[];
   total: number;
+  page?: number;
+  pageSize?: number;
+  hasMore?: boolean;
 };
 
 export type NcpMessageView = NcpMessage;
@@ -103,7 +114,48 @@ export type NcpSessionMessagesView = {
   sessionId: string;
   status: NcpSessionStatus;
   messages: NcpMessageView[];
+  deferredToolPayloads?: Record<string, { cursor: string }>;
   contextWindow?: SessionContextWindowView | null;
   total: number;
   pageInfo: NcpSessionMessagePageInfo;
 };
+
+export type NcpSessionTokenUsageView = UiNcpSessionTokenUsageView;
+
+export type NcpSessionObservationKind = 'context' | 'events';
+export type NcpSessionObservationStatus = 'active' | 'paused' | 'degraded' | 'expired' | 'broken';
+
+export type NcpSessionObservationView = {
+  id: string;
+  kind: NcpSessionObservationKind;
+  extensionId: string;
+  title: string;
+  description?: string;
+  status: NcpSessionObservationStatus;
+  statusReason?: string;
+  createdAt: string;
+  expiresAt?: string;
+  lastReadAt?: string;
+  safeConfigPreview?: string;
+  pendingCount?: number;
+  suppressedCount?: number;
+  deliveryFailureCount?: number;
+  lastSuppressionReason?: string;
+  lastGapAt?: string;
+  gapReason?: string;
+  delivery?: 'queue' | 'prefer-steer';
+};
+
+export type NcpSessionObservationsView = {
+  sessionId: string;
+  bindings: NcpSessionObservationView[];
+  subscriptions: NcpSessionObservationView[];
+  counts: {
+    total: number;
+    context: number;
+    events: number;
+    needsAttention: number;
+  };
+};
+
+export type NcpSessionObservationAction = 'pause' | 'resume' | 'remove';

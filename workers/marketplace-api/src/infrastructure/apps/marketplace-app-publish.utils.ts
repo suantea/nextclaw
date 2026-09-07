@@ -1,8 +1,10 @@
-import { DomainValidationError } from "../../domain/errors";
-import type { MarketplaceSkillPublishActor } from "../skills/d1-section-types";
+import { DomainValidationError } from "@/domain/errors";
+import type { MarketplaceSkillPublishActor } from "@/infrastructure/skills/d1-section-types";
 import type {
   MarketplaceAdminAppReviewStatus,
+  MarketplaceAppCatalogVisibility,
   MarketplaceAppOwnerVisibility,
+  MarketplaceAppPublicListingAssessment,
   MarketplaceAppPublishInput,
 } from "./app-marketplace.types";
 import { OFFICIAL_APPS_WEB_BASE_URL } from "./app-marketplace.types";
@@ -14,6 +16,7 @@ export type ExistingAppRow = {
   owner_scope: string | null;
   owner_user_id: string | null;
   app_name: string | null;
+  publish_status: string | null;
   published_at: string;
 };
 
@@ -28,6 +31,7 @@ export type MarketplaceResolvedAppIdentity = {
 export type MarketplaceAppReviewInput = {
   selector: string;
   publishStatus: MarketplaceAdminAppReviewStatus;
+  catalogVisibility?: MarketplaceAppCatalogVisibility;
   reviewNote?: string;
 };
 
@@ -83,6 +87,41 @@ export function assertExistingAppOwnership(
   }
 }
 
+export function assertPersonalPublishedAppIsImmutable(
+  existing: ExistingAppRow,
+  next: MarketplaceResolvedAppIdentity,
+  actor: MarketplaceSkillPublishActor,
+): void {
+  if (
+    existing.publish_status === "published" &&
+    next.ownerScope !== "nextclaw" &&
+    actor.role !== "admin"
+  ) {
+    throw new DomainValidationError(
+      "published personal apps cannot be updated until version-level review is available; the current published version remains available",
+    );
+  }
+}
+
+export function assertAppVersionCanBeReplaced(params: {
+  existingBundleSha256?: string;
+  nextBundleSha256: string;
+  publishStatus?: string | null;
+  appId: string;
+  version: string;
+}): void {
+  const { appId, existingBundleSha256, nextBundleSha256, publishStatus, version } = params;
+  if (
+    existingBundleSha256 &&
+    existingBundleSha256 !== nextBundleSha256 &&
+    publishStatus === "published"
+  ) {
+    throw new DomainValidationError(
+      `app version is immutable: ${appId}@${version} already has a different bundle`,
+    );
+  }
+}
+
 export function parseAppReviewInput(rawInput: unknown): MarketplaceAppReviewInput {
   if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
     throw new DomainValidationError("body must be an object");
@@ -90,6 +129,10 @@ export function parseAppReviewInput(rawInput: unknown): MarketplaceAppReviewInpu
   const candidate = rawInput as Record<string, unknown>;
   const selector = readString(candidate.selector, "body.selector");
   const publishStatus = readString(candidate.publishStatus, "body.publishStatus");
+  const catalogVisibility = readOptionalString(
+    candidate.catalogVisibility,
+    "body.catalogVisibility",
+  );
   const reviewNote = readOptionalString(candidate.reviewNote, "body.reviewNote")?.trim();
   if (publishStatus !== "published" && publishStatus !== "rejected") {
     throw new DomainValidationError("body.publishStatus must be published or rejected");
@@ -97,9 +140,17 @@ export function parseAppReviewInput(rawInput: unknown): MarketplaceAppReviewInpu
   if (publishStatus === "rejected" && !reviewNote) {
     throw new DomainValidationError("body.reviewNote is required when publishStatus is rejected");
   }
+  if (
+    catalogVisibility !== undefined &&
+    catalogVisibility !== "listed" &&
+    catalogVisibility !== "unlisted"
+  ) {
+    throw new DomainValidationError("body.catalogVisibility must be listed or unlisted");
+  }
   return {
     selector,
     publishStatus,
+    catalogVisibility,
     reviewNote,
   };
 }
@@ -108,8 +159,110 @@ export function deriveOwnerVisibility(value: string | null | undefined): Marketp
   return value === "hidden" ? "hidden" : "public";
 }
 
+export function resolveCatalogVisibility(params: {
+  existing: string | null | undefined;
+  isNew: boolean;
+  ownerScope: string;
+}): MarketplaceAppCatalogVisibility {
+  const { existing, isNew, ownerScope } = params;
+  if (existing === "listed" || existing === "unlisted") {
+    return existing;
+  }
+  return isNew && ownerScope !== "nextclaw" ? "unlisted" : "listed";
+}
+
 export function buildAppWebUrl(slug: string): string {
   return `${OFFICIAL_APPS_WEB_BASE_URL}/apps/${slug}`;
+}
+
+export function assertAppCanBePubliclyListed(params: {
+  manifestJson: string;
+  ownerScope: string | null | undefined;
+}): void {
+  const assessment = assessAppPublicListing(params);
+  if (assessment.eligible) return;
+  if (assessment.reason === "legacy-schema") {
+    throw new DomainValidationError("legacy schema v1 apps cannot be listed in the product catalog");
+  }
+  throw new DomainValidationError(
+    "app runtime declaration does not match the schema v2 component execution contract",
+  );
+}
+
+export function assessAppPublicListing(params: {
+  manifestJson: string;
+  ownerScope: string | null | undefined;
+}): MarketplaceAppPublicListingAssessment {
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(params.manifestJson);
+  } catch {
+    throw new DomainValidationError("app manifest is not valid JSON");
+  }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new DomainValidationError("app manifest must be an object");
+  }
+  const candidate = manifest as Record<string, unknown>;
+  if (candidate.schemaVersion !== 2) {
+    return { eligible: false, reason: "legacy-schema" };
+  }
+  if (!Array.isArray(candidate.components)) {
+    throw new DomainValidationError("schema v2 app manifest components must be an array");
+  }
+  const hasService = candidate.components.some((component) =>
+    Boolean(
+      component &&
+      typeof component === "object" &&
+      !Array.isArray(component) &&
+      (component as Record<string, unknown>).kind === "service",
+    ));
+  const runtime = candidate.runtime;
+  const explicitProfile = runtime && typeof runtime === "object" && !Array.isArray(runtime)
+    ? (runtime as Record<string, unknown>).profile
+    : undefined;
+  const runtimeProfile = explicitProfile ?? (hasService ? "native-process" : "panel-only");
+  if (
+    (hasService && runtimeProfile !== "native-process" && runtimeProfile !== "wasi") ||
+    (!hasService && runtimeProfile !== "panel-only")
+  ) {
+    return { eligible: false, reason: "invalid-runtime" };
+  }
+  if (normalizeScope(params.ownerScope) === "nextclaw") {
+    return { eligible: true, reason: "official-scope" };
+  }
+  if (!hasService) {
+    return { eligible: true, reason: "panel-only" };
+  }
+  return runtimeProfile === "wasi"
+    ? { eligible: true, reason: "community-wasi" }
+    : { eligible: true, reason: "community-native-process" };
+}
+
+export function resolveAppReviewCatalogVisibility(
+  input: MarketplaceAppReviewInput,
+  item: {
+    manifestSchemaVersion: number;
+    manifestJson: string;
+    ownerScope: string | null | undefined;
+  },
+): MarketplaceAppCatalogVisibility | undefined {
+  if (input.catalogVisibility === "listed" && item.manifestSchemaVersion < 2) {
+    throw new DomainValidationError("legacy schema v1 apps cannot be listed in the product catalog");
+  }
+  if (
+    input.publishStatus === "published" &&
+    (input.catalogVisibility === "listed" || input.catalogVisibility === undefined)
+  ) {
+    assertAppCanBePubliclyListed({
+      manifestJson: item.manifestJson,
+      ownerScope: item.ownerScope,
+    });
+  }
+  return input.catalogVisibility ?? (
+    input.publishStatus === "published"
+      ? item.manifestSchemaVersion === 2 ? "listed" : "unlisted"
+      : undefined
+  );
 }
 
 function parseAppId(appId: string): { ownerScope: string; appName: string } {

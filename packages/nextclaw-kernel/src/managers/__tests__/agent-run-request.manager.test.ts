@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LocalExecutionClaimService } from "@nextclaw/core";
 import {
   CHAT_SESSION_MATERIALIZATION_METADATA_KEY,
   EventBus,
@@ -15,6 +19,72 @@ import {
 } from "@nextclaw/ncp";
 import { AgentRunRequestManager } from "@kernel/managers/agent-run-request.manager.js";
 import { SessionRun } from "@kernel/managers/session-run.manager.js";
+
+describe("AgentRunRequestManager cross-process ownership", () => {
+  it("fails before model startup while another process owns the session", async () => {
+    const root = mkdtempSync(join(tmpdir(), "nextclaw-session-run-claims-"));
+    try {
+      const ownerClaims = new LocalExecutionClaimService(root, {
+        pid: 101,
+        isProcessAlive: () => true,
+      });
+      const contenderClaims = new LocalExecutionClaimService(root, {
+        pid: 202,
+        isProcessAlive: () => true,
+      });
+      const owner = ownerClaims.tryAcquire<void>("session:session-shared");
+      if (!owner.acquired) throw new Error("expected session owner");
+      const ingress = new Ingress();
+      const runtimeStarts = vi.fn();
+      const sessionRun = new SessionRun({ sessionId: "session-shared", messages: [] });
+      const manager = new AgentRunRequestManager(
+        { getOrCreate: runtimeStarts } as never,
+        {
+          getDefaultAgentId: () => "main",
+        } as never,
+        {
+          getDefaultModel: () => "test-model",
+          getModelMaxTokens: () => 12000,
+          loadConfig: () => ({}),
+        } as never,
+        { resolveRunSurface: async () => ({ contextBlocks: [], tools: [] }) } as never,
+        new EventBus(),
+        ingress,
+        {
+          getOrCreateAgentRunSession: async () => ({
+            sessionId: "session-shared",
+            agentId: "main",
+            agentRuntimeId: "native",
+            metadata: {},
+            model: "test-model",
+            thinkingEffort: null,
+          }),
+        } as never,
+        {
+          getSessionRun: () => sessionRun,
+          getOrCreateSessionRun: async () => sessionRun,
+        } as never,
+        undefined,
+        contenderClaims,
+      );
+      manager.start();
+
+      await expect(ingress.handle<AgentRunSendIngressPayload, NcpRunHandle>({
+        type: ingressKeys.agentRun.send,
+        payload: { content: [{ type: "text", text: "must not start twice" }] },
+      }, { source: "test" })).rejects.toThrow(
+        "Session already has an active run owned by another NextClaw process",
+      );
+
+      expect(runtimeStarts).not.toHaveBeenCalled();
+      expect(sessionRun.getSnapshot().messages).toEqual([]);
+      owner.claim.release();
+      manager.dispose();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 async function waitForEvent(
   events: readonly NcpEndpointEvent[],
@@ -46,6 +116,7 @@ describe("AgentRunRequestManager branch session creation", () => {
       sessionId?: string;
       task?: string;
     }> = [];
+    const resolvedSurfaceAgentIds: Array<string | undefined> = [];
     const manager = new AgentRunRequestManager(
       {
         getOrCreate: () => ({
@@ -58,7 +129,12 @@ describe("AgentRunRequestManager branch session creation", () => {
         getModelMaxTokens: () => 12000,
         loadConfig: () => ({}),
       } as never,
-      { buildContext: async () => [] } as never,
+      {
+        resolveRunSurface: async (request: { agentId?: string }) => {
+          resolvedSurfaceAgentIds.push(request.agentId);
+          return { contextBlocks: [], tools: [] };
+        },
+      } as never,
       new EventBus(),
       ingress,
       {
@@ -82,7 +158,6 @@ describe("AgentRunRequestManager branch session creation", () => {
       {
         getOrCreateSessionRun: async () => new SessionRun({ sessionId: "session-1", messages: [] }),
       } as never,
-      { buildTools: async () => [] } as never,
     );
     manager.start();
 
@@ -101,6 +176,7 @@ describe("AgentRunRequestManager branch session creation", () => {
       agentRuntimeId: "codex",
     });
     expect(getOrCreateAgentRunSessionCalls[0]?.task).toBe("用户的第一句话");
+    expect(resolvedSurfaceAgentIds).toEqual(["main"]);
     expect(handle.sessionId).toBe("session-1");
     manager.dispose();
   });
@@ -127,7 +203,7 @@ describe("AgentRunRequestManager branch session creation", () => {
         getModelMaxTokens: () => 12000,
         loadConfig: () => ({}),
       } as never,
-      { buildContext: async () => [] } as never,
+      { resolveRunSurface: async () => ({ contextBlocks: [], tools: [] }) } as never,
       new EventBus(),
       ingress,
       {
@@ -153,7 +229,6 @@ describe("AgentRunRequestManager branch session creation", () => {
       {
         getOrCreateSessionRun: async () => new SessionRun({ sessionId: "child-session-1", messages: [] }),
       } as never,
-      { buildTools: async () => [] } as never,
     );
     manager.start();
 
@@ -197,7 +272,7 @@ describe("AgentRunRequestManager branch session creation", () => {
         getModelMaxTokens: () => 12000,
         loadConfig: () => ({}),
       } as never,
-      { buildContext: async () => [] } as never,
+      { resolveRunSurface: async () => ({ contextBlocks: [], tools: [] }) } as never,
       new EventBus(),
       ingress,
       {
@@ -206,7 +281,6 @@ describe("AgentRunRequestManager branch session creation", () => {
         },
       } as never,
       { getSessionRun: () => null } as never,
-      { buildTools: async () => [] } as never,
     );
     manager.start();
 
@@ -247,7 +321,7 @@ describe("AgentRunRequestManager peer session identity", () => {
         getModelMaxTokens: () => 12000,
         loadConfig: () => ({}),
       } as never,
-      { buildContext: async () => [] } as never,
+      { resolveRunSurface: async () => ({ contextBlocks: [], tools: [] }) } as never,
       new EventBus(),
       ingress,
       {
@@ -269,7 +343,6 @@ describe("AgentRunRequestManager peer session identity", () => {
       {
         getOrCreateSessionRun: async () => new SessionRun({ sessionId: "agent-peer-stable", messages: [] }),
       } as never,
-      { buildTools: async () => [] } as never,
     );
     manager.start();
 
@@ -303,7 +376,7 @@ describe("AgentRunRequestManager peer session identity", () => {
         getModelMaxTokens: () => 12000,
         loadConfig: () => ({}),
       } as never,
-      { buildContext: async () => [] } as never,
+      { resolveRunSurface: async () => ({ contextBlocks: [], tools: [] }) } as never,
       new EventBus(),
       ingress,
       {
@@ -312,7 +385,6 @@ describe("AgentRunRequestManager peer session identity", () => {
         },
       } as never,
       { getSessionRun: () => null } as never,
-      { buildTools: async () => [] } as never,
     );
     manager.start();
 
@@ -365,6 +437,35 @@ describe("AgentRunRequestManager event publication", () => {
                 },
               },
               {
+                type: NcpEventType.MessageSent,
+                payload: {
+                  sessionId: "session-1",
+                  message: {
+                    id: "context-compaction-message-1",
+                    sessionId: "session-1",
+                    role: "service",
+                    status: "final",
+                    timestamp: new Date().toISOString(),
+                    parts: [{ type: "text", text: "Compressing earlier context" }],
+                    metadata: {
+                      nextclaw_timeline_kind: "context_compaction",
+                      checkpoint: {
+                        version: 1,
+                        id: "ctx-1",
+                        status: "compressing",
+                        summary: "Compressing earlier context for the next model request.",
+                        coveredMessageCount: 1,
+                        coveredSessionMessageCount: 1,
+                        originalEstimatedTokens: 100,
+                        projectedEstimatedTokens: 100,
+                        createdAt: "2026-08-08T00:00:00.000Z",
+                        updatedAt: "2026-08-08T00:00:00.000Z",
+                      },
+                    },
+                  },
+                },
+              },
+              {
                 type: NcpEventType.RunStarted,
                 payload: { sessionId: "session-1", messageId: assistantMessageId, runId: "run-1" },
               },
@@ -404,7 +505,7 @@ describe("AgentRunRequestManager event publication", () => {
         getModelMaxTokens: () => 12000,
         loadConfig: () => ({}),
       } as never,
-      { buildContext: async () => [] } as never,
+      { resolveRunSurface: async () => ({ contextBlocks: [], tools: [] }) } as never,
       eventBus,
       ingress,
       {
@@ -421,7 +522,6 @@ describe("AgentRunRequestManager event publication", () => {
         getSessionRun: () => null,
         getOrCreateSessionRun: async () => sessionRun,
       } as never,
-      { buildTools: async () => [] } as never,
     );
     manager.start();
 
@@ -439,10 +539,24 @@ describe("AgentRunRequestManager event publication", () => {
     ]);
     expect(
       publishedEvents.filter((event) => event.type === NcpEventType.MessageSent),
-    ).toHaveLength(1);
+    ).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ message: expect.objectContaining({ role: "user" }) }),
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          message: expect.objectContaining({ id: "runtime-user-message", role: "user" }),
+        }),
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({ message: expect.objectContaining({ role: "service" }) }),
+      }),
+    ]);
     manager.dispose();
   });
+});
 
+describe("AgentRunRequestManager assistant publication", () => {
   it("publishes the final assistant message before run finished for session previews", async () => {
     const ingress = new Ingress();
     const eventBus = new EventBus();
@@ -491,7 +605,7 @@ describe("AgentRunRequestManager event publication", () => {
         getModelMaxTokens: () => 12000,
         loadConfig: () => ({}),
       } as never,
-      { buildContext: async () => [] } as never,
+      { resolveRunSurface: async () => ({ contextBlocks: [], tools: [] }) } as never,
       eventBus,
       ingress,
       {
@@ -508,7 +622,6 @@ describe("AgentRunRequestManager event publication", () => {
         getSessionRun: () => null,
         getOrCreateSessionRun: async () => sessionRun,
       } as never,
-      { buildTools: async () => [] } as never,
     );
     manager.start();
 
@@ -594,7 +707,7 @@ describe("AgentRunRequestManager runtime failure publication", () => {
         getModelMaxTokens: () => 12000,
         loadConfig: () => ({}),
       } as never,
-      { buildContext: async () => [] } as never,
+      { resolveRunSurface: async () => ({ contextBlocks: [], tools: [] }) } as never,
       eventBus,
       ingress,
       {
@@ -613,7 +726,6 @@ describe("AgentRunRequestManager runtime failure publication", () => {
         getSessionRun: () => null,
         getOrCreateSessionRun: async () => sessionRun,
       } as never,
-      { buildTools: async () => [] } as never,
     );
     manager.start();
 
@@ -708,7 +820,7 @@ describe("AgentRunRequestManager tool context", () => {
         getModelMaxTokens: () => 12000,
         loadConfig: () => ({}),
       } as never,
-      { buildContext: async () => [] } as never,
+      { resolveRunSurface: async () => ({ contextBlocks: [], tools: [tool] }) } as never,
       eventBus,
       ingress,
       {
@@ -725,7 +837,6 @@ describe("AgentRunRequestManager tool context", () => {
         getSessionRun: () => null,
         getOrCreateSessionRun: async () => sessionRun,
       } as never,
-      { buildTools: async () => [tool] } as never,
     );
     manager.start();
 

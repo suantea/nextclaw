@@ -1,7 +1,4 @@
-import {
-  stringifyUnknown,
-  type ToolCard,
-} from "@/features/chat/features/message/utils/chat-message-core.utils";
+import type { ToolCard } from "@/features/chat/features/message/utils/chat-message-core.utils";
 import type {
   ChatMessagePartViewModel,
   ChatToolPartViewModel,
@@ -14,7 +11,10 @@ export type ToolCardViewSource = ToolCard & {
   agentId?: string;
   action?: ChatToolPartViewModel["action"];
   fileOperation?: ChatToolPartViewModel["fileOperation"];
+  inputData?: unknown;
   outputData?: unknown;
+  execution?: ChatToolPartViewModel["execution"];
+  toolCallId?: string;
   panelApp?: ChatToolPartViewModel["panelApp"];
 };
 
@@ -62,6 +62,43 @@ export function isTerminalResultRecord(
   );
 }
 
+function readTerminalStatus(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+export function resolveTerminalResultStatus(
+  value: unknown,
+): "success" | "error" | "cancelled" | null {
+  if (!isTerminalResultRecord(value)) return null;
+  const status = readTerminalStatus(value.status ?? value.outcome);
+  if (
+    value.cancelled === true ||
+    value.aborted === true ||
+    status === "cancelled" ||
+    status === "canceled" ||
+    status === "aborted" ||
+    status === "interrupted"
+  ) {
+    return "cancelled";
+  }
+  const exitCode = readOptionalNumber(value.exitCode ?? value.exit_code);
+  if (
+    value.ok === false ||
+    value.blocked === true ||
+    value.timedOut === true ||
+    value.killed === true ||
+    status === "error" ||
+    status === "failed" ||
+    status === "blocked" ||
+    status === "declined" ||
+    status === "timed_out" ||
+    (exitCode != null && exitCode !== 0)
+  ) {
+    return "error";
+  }
+  return "success";
+}
+
 export function extractAssetFileView(
   value: unknown,
   texts: ChatMessageAdapterTexts,
@@ -107,9 +144,19 @@ export function buildToolCard(
   toolCard: ToolCardViewSource,
   texts: ChatMessageAdapterTexts,
 ): ChatToolPartViewModel {
+  const terminalStatus = toolCard.statusTone === "success"
+    ? resolveTerminalResultStatus(toolCard.outputData)
+    : null;
+  const statusTone = terminalStatus ?? toolCard.statusTone;
+  const statusLabel = statusTone === "error"
+    ? texts.toolStatusFailedLabel
+    : statusTone === "cancelled"
+      ? texts.toolStatusCancelledLabel
+      : toolCard.statusLabel;
   return {
     kind: toolCard.kind,
     toolName: toolCard.name,
+    ...(toolCard.toolCallId ? { toolCallId: toolCard.toolCallId } : {}),
     ...("agentId" in toolCard && toolCard.agentId
       ? { agentId: toolCard.agentId }
       : {}),
@@ -119,11 +166,13 @@ export function buildToolCard(
       "input" in toolCard && typeof toolCard.input === "string"
         ? toolCard.input
         : undefined,
+    inputData: toolCard.inputData,
     output: toolCard.text,
     outputData: toolCard.outputData,
+    ...(toolCard.execution ? { execution: { ...toolCard.execution } } : {}),
     hasResult: Boolean(toolCard.hasResult),
-    statusTone: toolCard.statusTone,
-    statusLabel: toolCard.statusLabel,
+    statusTone,
+    statusLabel,
     titleLabel:
       toolCard.kind === "call" ? texts.toolCallLabel : texts.toolResultLabel,
     outputLabel: texts.toolOutputLabel,
@@ -194,28 +243,4 @@ export function resolveToolCardStatus(params: {
     statusTone: "running",
     statusLabel: texts.toolStatusRunningLabel,
   };
-}
-
-function parseStructuredValue(value: unknown): unknown {
-  if (typeof value !== "string") {
-    return value;
-  }
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-    return value;
-  }
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    return value;
-  }
-}
-
-export function buildToolInvocationInput(
-  args?: unknown,
-  parsedArgs?: unknown,
-): string | undefined {
-  const source = parsedArgs ?? parseStructuredValue(args);
-  const text = stringifyUnknown(source).trim();
-  return text || undefined;
 }

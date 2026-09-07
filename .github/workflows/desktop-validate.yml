@@ -9,6 +9,7 @@ on:
       - "packages/nextclaw-server/**"
       - "packages/nextclaw-openclaw-compat/**"
       - "packages/nextclaw-core/**"
+      - "packages/nextclaw-kernel/**"
       - "packages/nextclaw-runtime/**"
       - "packages/ncp-packages/**"
       - "packages/extensions/**"
@@ -28,6 +29,7 @@ on:
       - "packages/nextclaw-server/**"
       - "packages/nextclaw-openclaw-compat/**"
       - "packages/nextclaw-core/**"
+      - "packages/nextclaw-kernel/**"
       - "packages/nextclaw-runtime/**"
       - "packages/ncp-packages/**"
       - "packages/extensions/**"
@@ -37,6 +39,18 @@ on:
       - "scripts/**"
       - ".github/workflows/desktop-validate.yml"
   workflow_dispatch:
+    inputs:
+      target:
+        description: Desktop validation path to run during focused recovery
+        type: choice
+        default: all
+        options:
+          - all
+          - runtime
+          - macos-dmg
+          - windows-exe
+          - windows-installer
+          - linux-package
 
 permissions:
   contents: read
@@ -47,6 +61,7 @@ concurrency:
 
 jobs:
   desktop-runtime-smoke:
+    if: ${{ inputs.target == '' || inputs.target == 'all' || inputs.target == 'runtime' }}
     name: desktop-runtime-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -57,7 +72,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -71,9 +86,11 @@ jobs:
         run: |
           pnpm -r --filter @nextclaw/desktop... build
           pnpm --filter @nextclaw/server exec vitest run src/features/server-path/controllers/server-path.controller.test.ts
+          pnpm -C apps/desktop bundle:test
           pnpm -C apps/desktop lint
           pnpm -C apps/desktop tsc
           pnpm -C apps/desktop smoke
+          ELECTRON_RUN_AS_NODE=1 pnpm -C apps/desktop exec electron scripts/smoke/service-app-host.smoke.mjs
 
       - name: Build product bundle + signed manifest smoke
         shell: bash
@@ -160,6 +177,7 @@ jobs:
           NODE
 
   desktop-macos-dmg-install-smoke:
+    if: ${{ inputs.target == '' || inputs.target == 'all' || inputs.target == 'macos-dmg' }}
     name: desktop-macos-dmg-install-smoke
     runs-on: macos-14
     timeout-minutes: 45
@@ -170,7 +188,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -190,6 +208,7 @@ jobs:
           pnpm -C apps/desktop lint
           pnpm -C apps/desktop tsc
           pnpm -C apps/desktop build:main
+          pnpm -C apps/desktop native-resources -- --platform darwin --arch arm64
           pnpm -C apps/desktop exec electron-builder --mac dmg --arm64 --publish never
 
       - name: Smoke test macOS DMG install
@@ -225,9 +244,10 @@ jobs:
             apps/desktop/release/*.blockmap
 
   desktop-windows-exe-smoke:
+    if: ${{ inputs.target == '' || inputs.target == 'all' || inputs.target == 'windows-exe' }}
     name: desktop-windows-exe-smoke
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -235,7 +255,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -253,6 +273,19 @@ jobs:
           pnpm -r --filter @nextclaw/desktop... build
           pnpm --filter @nextclaw/server exec vitest run src/features/server-path/controllers/server-path.controller.test.ts
 
+      - name: Verify Windows session catalog upgrade recovery
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          pnpm --filter @nextclaw/kernel exec vitest run src/stores/ncp-agent-session-catalog-migration.store.test.ts src/stores/ncp-agent-session-summary-index.store.test.ts
+
+      - name: Smoke Service Apps with Electron host Node
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:ELECTRON_RUN_AS_NODE = "1"
+          pnpm -C apps/desktop exec electron scripts/smoke/service-app-host.smoke.mjs
+
       - name: Minimal Electron app-region smoke
         shell: pwsh
         run: |
@@ -268,7 +301,83 @@ jobs:
           pnpm -C apps/desktop lint
           pnpm -C apps/desktop tsc
           pnpm -C apps/desktop build:main
+          pnpm -C apps/desktop native-resources -- --platform win32 --arch x64
           pnpm -C apps/desktop exec electron-builder --win dir --x64 --publish never
+
+      - name: Reproduce and repair the released Windows upgrade regression
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $upgradeRoot = Join-Path $env:RUNNER_TEMP "nextclaw-windows-session-catalog-upgrade"
+          New-Item -ItemType Directory -Path $upgradeRoot -Force | Out-Null
+
+          function Get-ReleasedDesktopExecutable {
+            param([string]$Tag, [string]$Asset)
+            $releaseRoot = Join-Path $upgradeRoot $Tag
+            New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
+            gh release download $Tag --repo Peiiii/nextclaw --pattern $Asset --dir $releaseRoot
+            $zipPath = Join-Path $releaseRoot $Asset
+            $unpackedRoot = Join-Path $releaseRoot "unpacked"
+            Expand-Archive -Path $zipPath -DestinationPath $unpackedRoot -Force
+            $desktopExe = Get-ChildItem -Path $unpackedRoot -Filter "NextClaw Desktop.exe" -Recurse -File |
+              Select-Object -First 1
+            if ($null -eq $desktopExe) {
+              throw "Released Windows Desktop executable missing after extracting $Asset"
+            }
+            return $desktopExe.FullName
+          }
+
+          $released044Exe = Get-ReleasedDesktopExecutable "v0.44.1-desktop.1" "NextClaw.Desktop-0.0.269-win32-x64-unpacked.zip"
+          $pre047Exe = Get-ReleasedDesktopExecutable "v0.45.5-desktop.1" "NextClaw.Desktop-0.0.276-win32-x64-unpacked.zip"
+          $broken047Exe = Get-ReleasedDesktopExecutable "v0.47.0-desktop.1" "NextClaw.Desktop-0.0.278-win32-x64-unpacked.zip"
+          $released048Exe = Get-ReleasedDesktopExecutable "v0.48.0-desktop.1" "NextClaw.Desktop-0.0.279-win32-x64-unpacked.zip"
+          $candidateExe = (Resolve-Path "apps/desktop/release/win-unpacked/NextClaw Desktop.exe").Path
+
+          $env:NEXTCLAW_DESKTOP_UPDATE_MANIFEST_URL = "https://github.com/Peiiii/nextclaw/releases/download/v0.48.0-desktop.1/manifest-stable-win32-x64.json"
+          try {
+            & "apps/desktop/scripts/smoke-windows-desktop.ps1" -DesktopExePath $released044Exe -StartupTimeoutSec 120 -MaxReadySec 30 -DisableGuardian -SkipExtendedProbes -SessionCatalogUpgradeProbe "seed-visible-044" -ApplyAvailableUpdate -ExpectUpdatedRuntimeFailure -RemoteDebuggingPort 9223
+          } finally {
+            Remove-Item Env:\NEXTCLAW_DESKTOP_UPDATE_MANIFEST_URL -ErrorAction SilentlyContinue
+          }
+          & "apps/desktop/scripts/smoke-windows-desktop.ps1" -DesktopExePath $candidateExe -StartupTimeoutSec 120 -MaxReadySec 30 -ReuseSmokeHome -DisableGuardian -SkipExtendedProbes -SessionCatalogUpgradeProbe "expect-recovered"
+          & "apps/desktop/scripts/smoke-windows-desktop.ps1" -DesktopExePath $released044Exe -StartupTimeoutSec 120 -MaxReadySec 30 -ReuseSmokeHome -DisableGuardian -SkipExtendedProbes -SessionCatalogUpgradeProbe "expect-recovered"
+
+          & "apps/desktop/scripts/smoke-windows-desktop.ps1" -DesktopExePath $pre047Exe -StartupTimeoutSec 120 -MaxReadySec 30 -DisableGuardian -SkipExtendedProbes -SessionCatalogUpgradeProbe "baseline-pre047"
+          & "apps/desktop/scripts/smoke-windows-desktop.ps1" -DesktopExePath $broken047Exe -StartupTimeoutSec 120 -MaxReadySec 30 -ReuseSmokeHome -DisableGuardian -SkipExtendedProbes -SessionCatalogUpgradeProbe "seed-broken-047"
+
+          # The isolated no-provider send path creates a placeholder catalog row
+          # before the 0.47 event-index write fails. Affected upgraded homes
+          # already have the inverse durable state: journal present, catalog row
+          # absent, and migration marked complete. Materialize that exact state
+          # before proving whether released 0.48 can repair it on a cold start.
+          $sessionId = "windows-session-catalog-upgrade-regression"
+          $journalRoot = Join-Path $env:RUNNER_TEMP "nextclaw-desktop-smoke-home/sessions/.ncp-agent-journal"
+          $journalPath = Join-Path $journalRoot "$sessionId.jsonl"
+          $catalogPath = Join-Path $journalRoot ".ncp-agent-session-catalog.sqlite"
+          if (-not (Test-Path $journalPath) -or -not (Test-Path $catalogPath)) {
+            throw "Released 0.47 persisted-state fixture is incomplete. journal=$journalPath catalog=$catalogPath"
+          }
+          $catalogStateScript = @'
+          const { DatabaseSync } = require("node:sqlite");
+          const [catalogPath, sessionId] = process.argv.slice(1);
+          const database = new DatabaseSync(catalogPath);
+          const migration = database.prepare("SELECT value FROM storage_meta WHERE key = ? LIMIT 1").get("migration_status");
+          if (migration?.value !== "complete") throw new Error(`Expected completed migration, got ${JSON.stringify(migration)}`);
+          database.prepare("DELETE FROM sessions WHERE session_id = ?").run(sessionId);
+          const remaining = database.prepare("SELECT COUNT(*) AS count FROM sessions WHERE session_id = ?").get(sessionId);
+          database.close();
+          process.stdout.write(JSON.stringify({ migration: migration.value, remaining: Number(remaining.count) }));
+          '@
+          $catalogState = node -e $catalogStateScript $catalogPath $sessionId | ConvertFrom-Json
+          if ($catalogState.migration -ne "complete" -or [int]$catalogState.remaining -ne 0) {
+            throw "Failed to materialize the released 0.47 persisted failure state."
+          }
+          Write-Host "[desktop-smoke] materialized released 0.47 persisted failure state: migration=complete catalog=missing journal=present"
+
+          & "apps/desktop/scripts/smoke-windows-desktop.ps1" -DesktopExePath $released048Exe -StartupTimeoutSec 120 -MaxReadySec 30 -ReuseSmokeHome -DisableGuardian -SkipExtendedProbes -SessionCatalogUpgradeProbe "expect-missing-048"
+          & "apps/desktop/scripts/smoke-windows-desktop.ps1" -DesktopExePath $candidateExe -StartupTimeoutSec 120 -MaxReadySec 30 -ReuseSmokeHome -DisableGuardian -SkipExtendedProbes -SessionCatalogUpgradeProbe "expect-recovered"
 
       - name: Smoke test Windows desktop executable
         shell: pwsh
@@ -278,14 +387,14 @@ jobs:
             throw "Windows desktop executable not found in apps/desktop/release/win-unpacked"
           }
           $desktopExe = (Resolve-Path "apps/desktop/release/win-unpacked/NextClaw Desktop.exe").Path
-          & "apps/desktop/scripts/smoke-windows-desktop.ps1" -DesktopExePath $desktopExe -StartupTimeoutSec 120 -MaxReadySec 20 -SeedStaleSameVersionBundle
+          & "apps/desktop/scripts/smoke-windows-desktop.ps1" -DesktopExePath $desktopExe -StartupTimeoutSec 120 -MaxReadySec 20 -SeedStaleSameVersionBundle -AllowRendererOnlyTitlebarProbe
 
       - name: Smoke test Windows Portable archive
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          pnpm desktop:portable:verify
+          pnpm desktop:portable:verify -- --allow-renderer-only-titlebar-probe
 
       - name: Stage Windows smoke logs
         if: always()
@@ -333,6 +442,7 @@ jobs:
             apps/desktop/release/NextClaw-Portable-*-win-x64.zip
 
   desktop-windows-installer-smoke:
+    if: ${{ inputs.target == '' || inputs.target == 'all' || inputs.target == 'windows-installer' }}
     name: desktop-windows-installer-smoke
     runs-on: windows-latest
     timeout-minutes: 45
@@ -343,7 +453,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -369,6 +479,7 @@ jobs:
           pnpm -C apps/desktop lint
           pnpm -C apps/desktop tsc
           pnpm -C apps/desktop build:main
+          pnpm -C apps/desktop native-resources -- --platform win32 --arch x64
           pnpm -C apps/desktop exec electron-builder --win nsis --x64 --publish never
 
       - name: Smoke test Windows desktop installer
@@ -379,7 +490,7 @@ jobs:
           if ($null -eq $installerPath) {
             throw "Windows desktop installer not found in apps/desktop/release"
           }
-          & "apps/desktop/scripts/smoke-windows-installer.ps1" -InstallerPath $installerPath.FullName -StartupTimeoutSec 120 -MaxReadySec 20 -SeedStaleSameVersionBundle
+          & "apps/desktop/scripts/smoke-windows-installer.ps1" -InstallerPath $installerPath.FullName -StartupTimeoutSec 120 -MaxReadySec 20 -SeedStaleSameVersionBundle -AllowRendererOnlyTitlebarProbe
 
       - name: Stage Windows installer smoke logs
         if: always()
@@ -424,6 +535,7 @@ jobs:
             apps/desktop/release/*.exe.blockmap
 
   desktop-linux-package-smoke:
+    if: ${{ inputs.target == '' || inputs.target == 'all' || inputs.target == 'linux-package' }}
     name: desktop-linux-package-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -434,7 +546,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -460,9 +572,11 @@ jobs:
         run: |
           set -euo pipefail
           export CSC_IDENTITY_AUTO_DISCOVERY=false
+          pnpm -C apps/desktop bundle:seed -- --channel stable --platform linux --arch x64
           pnpm -C apps/desktop lint
           pnpm -C apps/desktop tsc
           pnpm -C apps/desktop build:main
+          pnpm -C apps/desktop native-resources -- --platform linux --arch x64
           pnpm -C apps/desktop exec electron-builder --linux AppImage deb --x64 --publish never
 
       - name: Normalize Linux artifact filenames
@@ -497,7 +611,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/desktop/build-linux-apt-repo.mjs --input-dir apps/desktop/release --output-dir dist/linux-apt-repo --signing-mode test
+          node scripts/desktop/build-linux-apt-repo.mjs --input-dir apps/desktop/release --output-dir dist/linux-apt-repo --signing-mode test --github-pages-compatible
 
       - name: Smoke test Linux APT repo install
         shell: bash

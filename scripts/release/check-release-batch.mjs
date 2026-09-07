@@ -47,8 +47,7 @@ function readNumericArg(flag, fallback) {
   return parsed;
 }
 
-function resolveBatchPackages() {
-  const workspacePackages = collectWorkspacePackages();
+function resolveBatchPackages(workspacePackages) {
   const pendingChangesetPackages = readPendingChangesetPackages();
   const explicitBatchPackages = resolveExplicitReleaseBatchPackages(
     workspacePackages,
@@ -68,7 +67,7 @@ function resolveBatchPackages() {
   return explicitBatchPackages;
 }
 
-function createEmptyCheckpoint(batchId, orderedBatchPackages) {
+function createEmptyCheckpoint(batchId, orderedBatchPackages, supportPackages) {
   return {
     batchId,
     packages: Object.fromEntries(
@@ -80,13 +79,23 @@ function createEmptyCheckpoint(batchId, orderedBatchPackages) {
           steps: {}
         }
       ])
+    ),
+    validationSupport: Object.fromEntries(
+      supportPackages.map((entry) => [
+        entry.pkg.name,
+        {
+          version: entry.pkg.version,
+          packageDir: entry.packageDir,
+          steps: {}
+        }
+      ])
     )
   };
 }
 
-function readCheckpoint(batchId, orderedBatchPackages, reset) {
+function readCheckpoint(batchId, orderedBatchPackages, supportPackages, reset) {
   const checkpointPath = resolveReleaseCheckpointPath(batchId);
-  const emptyCheckpoint = createEmptyCheckpoint(batchId, orderedBatchPackages);
+  const emptyCheckpoint = createEmptyCheckpoint(batchId, orderedBatchPackages, supportPackages);
   if (reset || !existsSync(checkpointPath)) {
     return {
       checkpointPath,
@@ -97,6 +106,10 @@ function readCheckpoint(batchId, orderedBatchPackages, reset) {
   try {
     const parsed = JSON.parse(readFileSync(checkpointPath, "utf8"));
     const parsedPackages = parsed?.packages && typeof parsed.packages === "object" ? parsed.packages : {};
+    const parsedValidationSupport =
+      parsed?.validationSupport && typeof parsed.validationSupport === "object"
+        ? parsed.validationSupport
+        : {};
     return {
       checkpointPath,
       checkpoint: {
@@ -105,6 +118,10 @@ function readCheckpoint(batchId, orderedBatchPackages, reset) {
         packages: {
           ...emptyCheckpoint.packages,
           ...parsedPackages
+        },
+        validationSupport: {
+          ...emptyCheckpoint.validationSupport,
+          ...parsedValidationSupport
         }
       }
     };
@@ -143,7 +160,8 @@ async function main() {
       Number(process.env.NEXTCLAW_RELEASE_CHECK_LINT_CONCURRENCY) || DEFAULT_STEP_CONCURRENCY.lint
     )
   };
-  const batchPackages = resolveBatchPackages();
+  const workspacePackages = collectWorkspacePackages();
+  const batchPackages = resolveBatchPackages(workspacePackages);
 
   if (batchPackages.length === 0) {
     console.error(
@@ -154,23 +172,35 @@ async function main() {
 
   const {
     batchId,
+    batchPackageNames,
     dependencyMap,
     fingerprints,
     orderedBatchPackages,
-    priorityScores
-  } = planReleaseCheckBatch(batchPackages);
-  const { checkpointPath, checkpoint } = readCheckpoint(batchId, orderedBatchPackages, resetCheckpoint);
+    orderedValidationPackages,
+    priorityScores,
+    supportPackages
+  } = planReleaseCheckBatch(batchPackages, workspacePackages);
+  const { checkpointPath, checkpoint } = readCheckpoint(
+    batchId,
+    orderedBatchPackages,
+    supportPackages,
+    resetCheckpoint
+  );
   const packageStates = createPackageStates({
     checkpoint,
+    batchPackageNames,
     dependencyMap,
     fingerprints,
     includeLint,
-    orderedBatchPackages,
+    orderedValidationPackages,
     priorityScores
   });
 
   console.log(
     `[release:check] batch packages: ${orderedBatchPackages.map((entry) => entry.pkg.name).join(", ")}`
+  );
+  console.log(
+    `[release:check] build prerequisites: ${supportPackages.length > 0 ? supportPackages.map((entry) => entry.pkg.name).join(", ") : "none"}`
   );
   console.log(`[release:check] checkpoint: ${relative(ROOT_DIR, checkpointPath).replaceAll("\\", "/")}`);
   console.log(`[release:check] concurrency: ${concurrency}`);
@@ -182,10 +212,13 @@ async function main() {
     console.log("[release:check] reset checkpoint requested");
   }
 
-  hydrateCachedSteps({
+  const cacheSummary = hydrateCachedSteps({
     checkpoint,
     packageStates
   });
+  console.log(
+    `[release:check] cache hits: ${cacheSummary.cachedStepCount} step(s) across ${cacheSummary.cachedPackageCount} package(s)`
+  );
   saveCheckpoint(checkpointPath, checkpoint);
 
   try {

@@ -1,6 +1,6 @@
 {
   "name": "@nextclaw/service",
-  "version": "0.3.20",
+  "version": "0.6.3",
   "private": false,
   "description": "NextClaw long-running service host and runtime lifecycle.",
   "type": "module",
@@ -39,7 +39,7 @@
     ]
   },
   "scripts": {
-    "build": "tsdown \"src/**/*.ts\" \"!src/**/*.test.ts\" \"!src/**/tests/**\" --dts.sourcemap --clean --target es2022 --no-fixedExtension --unbundle",
+    "build": "tsdown \"src/**/*.ts\" \"!src/**/*.test.ts\" \"!src/**/tests/**\" --dts.sourcemap --clean --target es2022 --no-fixedExtension --unbundle && node ../../scripts/desktop/macos-keyboard-input.build.mjs",
     "prepack": "pnpm run build",
     "lint": "eslint .",
     "tsc": "tsc -p tsconfig.json",

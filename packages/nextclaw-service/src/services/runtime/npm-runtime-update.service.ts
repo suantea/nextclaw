@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, verify, type KeyObject } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, sep } from "node:path";
@@ -55,8 +55,28 @@ export class NpmRuntimeUpdateService {
   hasSignatureVerifier = (): boolean => Boolean(this.bundlePublicKey);
 
   checkForUpdate = async (manifestUrl: string, currentVersion: string | null, badVersions: string[] = []): Promise<NpmRuntimeAvailableUpdate | null> => {
-    const manifest = await this.fetchManifest(manifestUrl);
+    return await this.checkForUpdates([manifestUrl], currentVersion, badVersions);
+  };
+
+  checkForUpdates = async (manifestUrls: string[], currentVersion: string | null, badVersions: string[] = []): Promise<NpmRuntimeAvailableUpdate | null> => {
+    const manifests = await Promise.all([...new Set(manifestUrls)].map(this.fetchManifest));
+    const manifest = manifests.reduce<UpdateManifest | null>((selected, candidate) => {
+      if (!selected) {
+        return candidate;
+      }
+      const versionComparison = compareNpmRuntimeVersions(candidate.latestVersion, selected.latestVersion);
+      if (versionComparison > 0 || (versionComparison === 0 && candidate.channel === "stable")) {
+        return candidate;
+      }
+      return selected;
+    }, null);
+    if (!manifest) {
+      return null;
+    }
     if (currentVersion && compareNpmRuntimeVersions(manifest.latestVersion, currentVersion) <= 0) {
+      return null;
+    }
+    if (!currentVersion && compareNpmRuntimeVersions(manifest.latestVersion, this.options.launcherVersion) < 0) {
       return null;
     }
     if (compareNpmRuntimeVersions(this.options.launcherVersion, manifest.minimumLauncherVersion) < 0) {
@@ -92,6 +112,10 @@ export class NpmRuntimeUpdateService {
         }
         mkdirSync(dirname(targetPath), { recursive: true });
         writeFileSync(targetPath, Buffer.from(await entry.async("uint8array")));
+        const unixMode = this.readArchiveUnixMode(entry);
+        if (unixMode !== null && this.platform !== "win32") {
+          chmodSync(targetPath, unixMode);
+        }
       }));
       const bundleRoot = this.findBundleRoot(stagingRoot);
       const installedBundle = await this.options.bundleService.installFromDirectory(bundleRoot);
@@ -104,6 +128,20 @@ export class NpmRuntimeUpdateService {
       await rm(stagingRoot, { recursive: true, force: true });
       throw error;
     }
+  };
+
+  private readArchiveUnixMode = (entry: JSZip.JSZipObject): number | null => {
+    const rawMode = entry.unixPermissions;
+    const parsedMode = typeof rawMode === "number"
+      ? rawMode
+      : typeof rawMode === "string"
+        ? Number.parseInt(rawMode, 8)
+        : Number.NaN;
+    if (!Number.isInteger(parsedMode)) {
+      return null;
+    }
+    const permissionBits = parsedMode & 0o777;
+    return permissionBits > 0 ? permissionBits : null;
   };
 
   private downloadBundleBytes = async (

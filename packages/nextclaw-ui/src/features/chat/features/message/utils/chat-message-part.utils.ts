@@ -1,7 +1,4 @@
-import {
-  stringifyUnknown,
-  summarizeToolArgs,
-} from "@/features/chat/features/message/utils/chat-message-core.utils";
+import { stringifyUnknown, summarizeToolArgs } from "@/features/chat/features/message/utils/chat-message-core.utils";
 import { type ChatInlineTokenSource } from "@/features/chat/features/input/utils/chat-inline-token.utils";
 import {
   buildRenderableText,
@@ -9,7 +6,6 @@ import {
 } from "./chat-message-markdown-part.utils";
 import {
   buildToolCard,
-  buildToolInvocationInput,
   extractAssetFileView,
   isTerminalResultRecord,
   readOptionalNumber,
@@ -27,6 +23,14 @@ import type {
   ChatMessageAdapterTexts,
   ChatMessagePartSource,
 } from "@/features/chat/types/chat-message.types";
+import {
+  CONTEXT_COMPACTION_PART_EXTENSION_TYPE,
+  type ContextCompactionPartData,
+} from "@/features/chat/features/message/utils/chat-message-timeline.utils";
+import {
+  isObservationEventPartExtensionType,
+  readObservationEventPartData,
+} from "@/features/chat/features/message/utils/chat-message-observation-event.utils";
 
 export type {
   ChatMessageAdapterTexts,
@@ -151,15 +155,12 @@ function buildToolInvocationPart(
   const detail = invalidArgsIssue
     ? `Invalid arguments: ${invalidArgsIssue}`
     : fileOperationCardData?.summary ?? summarizeToolArgs(invocation.parsedArgs ?? invocation.args);
-  const input = fileOperationCardData ? undefined : buildToolInvocationInput(invocation.args, invocation.parsedArgs);
   const rawResult =
     invalidArgsIssue
       ? invalidArgsIssue
       : typeof invocation.error === "string" && invocation.error.trim()
       ? invocation.error.trim()
-      : invocation.result != null
-        ? stringifyUnknown(invocation.result).trim()
-        : "";
+      : "";
   const shouldHideStructuredTerminalJson =
     !invocation.error && isTerminalResultRecord(invocation.result);
   const shouldShowRawResult =
@@ -171,10 +172,15 @@ function buildToolInvocationPart(
     name: invocation.toolName,
     ...(agentId ? { agentId } : {}),
     detail,
-    ...(input ? { input } : {}),
+    inputData: fileOperationCardData ? undefined : invocation.parsedArgs ?? invocation.args,
     text: shouldShowRawResult && rawResult ? rawResult : undefined,
-    outputData: invocation.result,
+    outputData:
+      shouldShowRawResult || shouldHideStructuredTerminalJson
+        ? invocation.result
+        : undefined,
     callId: invocation.toolCallId || undefined,
+    toolCallId: invocation.toolCallId || undefined,
+    ...(invocation.execution ? { execution: invocation.execution } : {}),
     hasResult: statusView.hasResult,
     statusTone: invalidArgsError ? "error" : statusView.statusTone,
     statusLabel: invalidArgsError ? texts.toolStatusFailedLabel : statusView.statusLabel,
@@ -241,6 +247,47 @@ function isToolInvocationPart(
   );
 }
 
+function buildExtensionPart(
+  part: Extract<ChatMessagePartSource, { type: "extension" }>,
+): Extract<ChatMessagePartViewModel, { type: "custom" }> | null {
+  if (isObservationEventPartExtensionType(part.extensionType)) {
+    const data = readObservationEventPartData(part.data);
+    if (!data) return null;
+    return {
+      type: "custom",
+      id: data.deliveryId,
+      customType: part.extensionType,
+      data,
+    };
+  }
+  if (part.extensionType !== CONTEXT_COMPACTION_PART_EXTENSION_TYPE) {
+    return null;
+  }
+  const data = part.data as Partial<ContextCompactionPartData> | null;
+  if (!data || typeof data.id !== "string" || !data.checkpoint) {
+    return null;
+  }
+  return {
+    type: "custom",
+    id: data.id,
+    customType: part.extensionType,
+    data: {
+      id: data.id,
+      checkpoint: data.checkpoint,
+    } satisfies ContextCompactionPartData,
+    process: true,
+  };
+}
+
+function isExtensionPart(
+  part: ChatMessagePartSource,
+): part is Extract<ChatMessagePartSource, { type: "extension" }> {
+  return part.type === "extension" &&
+    "extensionType" in part &&
+    typeof part.extensionType === "string" &&
+    "data" in part;
+}
+
 export function adaptChatMessagePart(
   params: ChatMessagePartAdapterParams,
 ): ChatMessagePartViewModel | null {
@@ -256,6 +303,9 @@ export function adaptChatMessagePart(
   }
   if (isToolInvocationPart(part)) {
     return buildToolInvocationPart(part, texts);
+  }
+  if (isExtensionPart(part)) {
+    return buildExtensionPart(part) ?? buildUnknownPart(part, texts);
   }
   return buildUnknownPart(part, texts);
 }

@@ -1,5 +1,233 @@
 # @nextclaw/mcp
 
+## 0.3.45
+
+### Patch Changes
+
+- Updated dependencies [b51f599]
+- Updated dependencies [db88c76]
+  - @nextclaw/core@0.17.18
+
+## 0.3.44
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.17
+
+## 0.3.43
+
+### Patch Changes
+
+- Updated dependencies [862dbf2]
+- Updated dependencies [3c17608]
+  - @nextclaw/core@0.17.16
+
+## 0.3.43-beta.1
+
+### Patch Changes
+
+- Updated dependencies [3c17608]
+  - @nextclaw/core@0.17.16-beta.1
+
+## 0.3.43-beta.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.16-beta.0
+
+## 0.3.42
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.15
+
+## 0.3.41
+
+### Patch Changes
+
+- Updated dependencies [9377757]
+  - @nextclaw/core@0.17.14
+
+## 0.3.40
+
+### Patch Changes
+
+- Updated dependencies [51fac6a]
+  - @nextclaw/core@0.17.13
+
+## 0.3.39
+
+### Patch Changes
+
+- @nextclaw/core@0.17.12
+
+## 0.3.38
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.11
+
+## 0.3.37
+
+### Patch Changes
+
+- Updated dependencies [2d292fa]
+- Updated dependencies [c0523dc]
+- Updated dependencies [7d2b9f8]
+  - @nextclaw/core@0.17.10
+
+## 0.3.36
+
+### Patch Changes
+
+- Updated dependencies [667c4fd]
+  - @nextclaw/core@0.17.9
+
+## 0.3.35
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+  - @nextclaw/core@0.17.8
+
+## 0.3.34
+
+### Patch Changes
+
+- Updated dependencies [5b07b81]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+- Updated dependencies [eabdf41]
+  - @nextclaw/core@0.17.7
+
+## 0.3.34-beta.0
+
+### Patch Changes
+
+- Updated dependencies [5b07b81]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+  - @nextclaw/core@0.17.7-beta.0
+
+## 0.3.33
+
+### Patch Changes
+
+- Updated dependencies [6587602]
+- Updated dependencies [0f0753a]
+  - @nextclaw/core@0.17.6
+
+## 0.3.32
+
+### Patch Changes
+
+- Updated dependencies [c10dcaa]
+  - @nextclaw/core@0.17.5
+
+## 0.3.31
+
+### Patch Changes
+
+- Updated dependencies [ef5d9ae]
+- Updated dependencies [1df4217]
+  - @nextclaw/core@0.17.4
+
+## 0.3.30
+
+### Patch Changes
+
+- Updated dependencies [80f7660]
+  - @nextclaw/core@0.17.3
+
+## 0.3.29
+
+### Patch Changes
+
+- Updated dependencies [56ab5c2]
+  - @nextclaw/core@0.17.2
+
+## 0.3.28
+
+### Patch Changes
+
+- Updated dependencies [aa08a3f]
+- Updated dependencies [004d51f]
+  - @nextclaw/core@0.17.1
+
+## 0.3.27
+
+### Patch Changes
+
+- Updated dependencies [ca2c98d]
+  - @nextclaw/core@0.17.0
+
+## 0.3.26
+
+### Patch Changes
+
+- Updated dependencies [237a931]
+  - @nextclaw/core@0.16.0
+
+## 0.3.25
+
+### Patch Changes
+
+- Auto-generated full public release batch.
+
+  Packages:
+  - @nextclaw/mcp
+
+## 0.3.24
+
+### Patch Changes
+
+- @nextclaw/core@0.15.24
+
+## 0.3.23
+
+### Patch Changes
+
+- @nextclaw/core@0.15.23
+
+## 0.3.22
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+- Updated dependencies [7786bdf]
+  - @nextclaw/core@0.15.22
+
+## 0.3.21
+
+### Patch Changes
+
+- @nextclaw/core@0.15.21
+
+## 0.3.20
+
+### Patch Changes
+
+- Updated dependencies [c3eb33c]
+- Updated dependencies [e309470]
+- Updated dependencies [31d5655]
+- Updated dependencies [8e53d92]
+- Updated dependencies [071c144]
+  - @nextclaw/core@0.15.20
+
+## 0.3.19
+
+### Patch Changes
+
+- Updated dependencies [dbececb]
+- Updated dependencies [43b0e1d]
+  - @nextclaw/core@0.15.19
+
 ## 0.3.18
 
 ### Patch Changes

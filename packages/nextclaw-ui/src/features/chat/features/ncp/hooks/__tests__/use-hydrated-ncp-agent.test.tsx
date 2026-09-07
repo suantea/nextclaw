@@ -85,7 +85,10 @@ describe("useHydratedNcpAgent", () => {
     await waitFor(() => {
       expect(result.current.isHydrating).toBe(false);
     });
-    expect(mocks.stream).toHaveBeenCalledWith({ sessionId: "session-a" });
+    expect(mocks.stream).toHaveBeenCalledWith(
+      { sessionId: "session-a" },
+      expect.objectContaining({ onOpen: expect.any(Function) }),
+    );
 
     rerender({ sessionId: "session-b" });
 
@@ -94,7 +97,10 @@ describe("useHydratedNcpAgent", () => {
     await waitFor(() => {
       expect(result.current.isHydrating).toBe(false);
     });
-    expect(mocks.stream).toHaveBeenCalledWith({ sessionId: "session-b" });
+    expect(mocks.stream).toHaveBeenCalledWith(
+      { sessionId: "session-b" },
+      expect.objectContaining({ onOpen: expect.any(Function) }),
+    );
     expect(mocks.stream).toHaveBeenCalledTimes(2);
   });
 
@@ -207,12 +213,13 @@ describe("useHydratedNcpAgent", () => {
       expect(result.current.isHydrating).toBe(false);
     });
     expect(loadSeed).not.toHaveBeenCalled();
-    expect(mocks.stream).toHaveBeenCalledWith({
-      sessionId: "session-materialized",
-    });
+    expect(mocks.stream).toHaveBeenCalledWith(
+      { sessionId: "session-materialized" },
+      expect.objectContaining({ onOpen: expect.any(Function) }),
+    );
   });
 
-  it("reloads missed state and reconnects after the live stream disconnects", async () => {
+  it("reloads missed state and remains usable after repeated live stream disconnects", async () => {
     vi.useFakeTimers();
     try {
       const connected = new Promise<void>(() => {});
@@ -220,9 +227,15 @@ describe("useHydratedNcpAgent", () => {
         stop: mocks.stop.mockResolvedValue(undefined),
         stream: mocks.stream
           .mockRejectedValueOnce(new Error("stream disconnected"))
+          .mockRejectedValueOnce(new Error("stream disconnected again"))
           .mockImplementationOnce(() => connected),
         subscribe: vi.fn(() => () => {}),
-        send: mocks.send,
+        send: mocks.send.mockResolvedValue({
+          sessionId: "session-recovery",
+          userMessageId: "user-after-recovery",
+          assistantMessageId: null,
+          runId: null,
+        }),
       } as unknown as NcpAgentClientEndpoint;
       const recoveredMessage = {
         id: "message-recovered",
@@ -234,6 +247,7 @@ describe("useHydratedNcpAgent", () => {
       } as const;
       const loadSeed = vi
         .fn()
+        .mockResolvedValueOnce({ messages: [], status: "running" })
         .mockResolvedValueOnce({ messages: [], status: "running" })
         .mockResolvedValueOnce({
           messages: [recoveredMessage],
@@ -248,10 +262,13 @@ describe("useHydratedNcpAgent", () => {
       );
 
       await vi.waitFor(() => {
-        expect(result.current.hydrateError?.message).toBe(
-          "stream disconnected",
-        );
+        expect(mocks.stream).toHaveBeenCalledTimes(1);
       });
+      expect(result.current.hydrateError).toBeNull();
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+      await vi.waitFor(() => expect(mocks.stream).toHaveBeenCalledTimes(2));
       await act(async () => {
         await vi.runOnlyPendingTimersAsync();
       });
@@ -259,13 +276,222 @@ describe("useHydratedNcpAgent", () => {
         expect(result.current.visibleMessages).toEqual([recoveredMessage]);
       });
 
-      expect(loadSeed).toHaveBeenCalledTimes(2);
-      expect(mocks.stream).toHaveBeenCalledTimes(2);
-      expect(mocks.send).not.toHaveBeenCalled();
+      expect(loadSeed).toHaveBeenCalledTimes(3);
+      expect(mocks.stream).toHaveBeenCalledTimes(3);
       expect(result.current.hydrateError).toBeNull();
       expect(result.current.isRunning).toBe(false);
+      await act(async () => {
+        await result.current.send("after recovery");
+      });
+      expect(mocks.send).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reports a stream error only after repeated immediate recovery failures", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = {
+        stop: mocks.stop.mockResolvedValue(undefined),
+        stream: mocks.stream.mockRejectedValue(new Error("stream unavailable")),
+        subscribe: vi.fn(() => () => {}),
+        send: mocks.send,
+      } as unknown as NcpAgentClientEndpoint;
+      const loadSeed = vi.fn().mockResolvedValue({ messages: [], status: "idle" });
+      const { result } = renderHook(() =>
+        useHydratedNcpAgent({
+          sessionId: "session-offline",
+          client: client as never,
+          loadSeed,
+        }),
+      );
+
+      await vi.waitFor(() => expect(mocks.stream).toHaveBeenCalledTimes(1));
+      expect(result.current.hydrateError).toBeNull();
+
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+      await vi.waitFor(() => expect(mocks.stream).toHaveBeenCalledTimes(2));
+      expect(result.current.hydrateError).toBeNull();
+
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+      await vi.waitFor(() => {
+        expect(result.current.hydrateError?.message).toBe("stream unavailable");
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("useHydratedNcpAgent stream reconciliation", () => {
+  it("keeps the rendered message snapshot stable when reconciliation data is unchanged", async () => {
+    let resolveReconcile: ((seed: { messages: readonly NcpMessage[]; status: "idle" }) => void) | null = null;
+    const reconcileSeed = new Promise<{ messages: readonly NcpMessage[]; status: "idle" }>((resolve) => {
+      resolveReconcile = resolve;
+    });
+    const client = {
+      stop: mocks.stop.mockResolvedValue(undefined),
+      stream: mocks.stream.mockImplementation((_payload, observer) => {
+        observer?.onOpen?.();
+        return new Promise<void>(() => {});
+      }),
+      subscribe: vi.fn(() => () => {}),
+    } as unknown as NcpAgentClientEndpoint;
+    const historyMessage: NcpMessage = {
+      id: "message-stable",
+      sessionId: "session-stable",
+      role: "assistant",
+      status: "final",
+      parts: [{ type: "text", text: "Already rendered" }],
+      timestamp: "2026-08-20T00:00:00.000Z",
+    };
+    const loadSeed = vi
+      .fn()
+      .mockResolvedValueOnce({ messages: [historyMessage], status: "idle" })
+      .mockImplementationOnce(() => reconcileSeed);
+    const { result } = renderHook(() =>
+      useHydratedNcpAgent({
+        sessionId: "session-stable",
+        client,
+        loadSeed,
+      }),
+    );
+
+    await waitFor(() => expect(loadSeed).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.visibleMessages).toEqual([historyMessage]));
+    const renderedMessages = result.current.visibleMessages;
+
+    await act(async () => {
+      resolveReconcile?.({ messages: [{ ...historyMessage }], status: "idle" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.visibleMessages).toBe(renderedMessages);
+  });
+
+  it("rehydrates when reconciliation changes the content of an existing message", async () => {
+    let resolveReconcile: ((seed: { messages: readonly NcpMessage[]; status: "idle" }) => void) | null = null;
+    const reconcileSeed = new Promise<{ messages: readonly NcpMessage[]; status: "idle" }>((resolve) => {
+      resolveReconcile = resolve;
+    });
+    const client = {
+      stop: mocks.stop.mockResolvedValue(undefined),
+      stream: mocks.stream.mockImplementation((_payload, observer) => {
+        observer?.onOpen?.();
+        return new Promise<void>(() => {});
+      }),
+      subscribe: vi.fn(() => () => {}),
+    } as unknown as NcpAgentClientEndpoint;
+    const historyMessage: NcpMessage = {
+      id: "message-changed",
+      sessionId: "session-changed",
+      role: "assistant",
+      status: "final",
+      parts: [{ type: "text", text: "Before reconciliation" }],
+      timestamp: "2026-08-20T00:00:00.000Z",
+    };
+    const loadSeed = vi
+      .fn()
+      .mockResolvedValueOnce({ messages: [historyMessage], status: "idle" })
+      .mockImplementationOnce(() => reconcileSeed);
+    const { result } = renderHook(() =>
+      useHydratedNcpAgent({
+        sessionId: "session-changed",
+        client,
+        loadSeed,
+      }),
+    );
+
+    await waitFor(() => expect(loadSeed).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.visibleMessages).toEqual([historyMessage]));
+    const renderedMessages = result.current.visibleMessages;
+
+    await act(async () => {
+      resolveReconcile?.({
+        messages: [{
+          ...historyMessage,
+          parts: [{ type: "text", text: "After reconciliation" }],
+        }],
+        status: "idle",
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.visibleMessages).not.toBe(renderedMessages);
+      expect(result.current.visibleMessages[0]?.parts).toEqual([
+        { type: "text", text: "After reconciliation" },
+      ]);
+    });
+  });
+
+  it("reconciles history after the stream opens without overwriting newer live completion", async () => {
+    let subscriber: NcpEndpointSubscriber | null = null;
+    let resolveReconcile: ((seed: { messages: readonly NcpMessage[]; status: "running" }) => void) | null = null;
+    const reconcileSeed = new Promise<{ messages: readonly NcpMessage[]; status: "running" }>((resolve) => {
+      resolveReconcile = resolve;
+    });
+    const client = {
+      stop: mocks.stop.mockResolvedValue(undefined),
+      stream: mocks.stream.mockImplementation((_payload, observer) => {
+        observer?.onOpen?.();
+        return new Promise<void>(() => {});
+      }),
+      subscribe: vi.fn((nextSubscriber: NcpEndpointSubscriber) => {
+        subscriber = nextSubscriber;
+        return () => {};
+      }),
+    } as unknown as NcpAgentClientEndpoint;
+    const loadSeed = vi
+      .fn()
+      .mockResolvedValueOnce({ messages: [], status: "running" })
+      .mockImplementationOnce(() => reconcileSeed);
+    const finalMessage: NcpMessage = {
+      id: "assistant-gap",
+      sessionId: "session-gap",
+      role: "assistant",
+      status: "final",
+      parts: [{ type: "text", text: "Recovered without refresh" }],
+      timestamp: "2026-08-14T00:00:00.000Z",
+    };
+    const { result } = renderHook(() =>
+      useHydratedNcpAgent({
+        sessionId: "session-gap",
+        client,
+        loadSeed,
+      }),
+    );
+
+    await waitFor(() => expect(loadSeed).toHaveBeenCalledTimes(2));
+    act(() => {
+      subscriber?.({
+        type: NcpEventType.MessageSent,
+        payload: { sessionId: "session-gap", message: finalMessage },
+      });
+      subscriber?.({
+        type: NcpEventType.RunFinished,
+        payload: { sessionId: "session-gap", runId: "run-gap" },
+      });
+    });
+    await waitFor(() => expect(result.current.visibleMessages).toEqual([finalMessage]));
+
+    await act(async () => {
+      resolveReconcile?.({
+        messages: [{ ...finalMessage, status: "streaming", parts: [{ type: "text", text: "Recovered" }] }],
+        status: "running",
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.visibleMessages).toEqual([finalMessage]);
+      expect(result.current.isRunning).toBe(false);
+    });
   });
 });

@@ -2,8 +2,9 @@
 export * from "./manifest.js";
 export * from "./message.js";
 export * from "./ai-execution.types.js";
-export * from "./errors.js";
+export * from "./errors.types.js";
 export * from "./session.types.js";
 export * from "./events.types.js";
 export * from "./run.types.js";
+export * from "./run-trigger.types.js";
 export type { NcpEndpoint } from "./endpoint.types.js";

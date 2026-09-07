@@ -1,6 +1,6 @@
 {
   "name": "@nextclaw/kernel",
-  "version": "0.6.20",
+  "version": "0.16.0",
   "private": false,
   "description": "NextClaw product kernel skeleton for agents, tasks, sessions, context, tools, skills, providers, automation, and channels.",
   "type": "module",
@@ -34,10 +34,12 @@
     "prepublishOnly": "node ../../scripts/release/ensure-pnpm-publish.mjs"
   },
   "dependencies": {
+    "@nextclaw/app-runtime": "workspace:*",
     "@nextclaw/channel-extension-feishu": "workspace:*",
     "@nextclaw/channel-extension-weixin": "workspace:*",
     "@nextclaw/core": "workspace:*",
     "@nextclaw/mcp": "workspace:*",
+    "@nextclaw/ncp": "workspace:*",
     "@nextclaw/ncp-agent-runtime": "workspace:*",
     "@nextclaw/ncp-agent-runtime-next": "workspace:*",
     "@nextclaw/ncp-mcp": "workspace:*",
@@ -46,12 +48,13 @@
     "@nextclaw/nextclaw-ncp-runtime-stdio-client": "workspace:*",
     "@nextclaw/runtime": "workspace:*",
     "@nextclaw/shared": "workspace:*",
-    "@nextclaw/ncp": "workspace:*",
     "rxjs": "^7.8.2",
+    "sql.js": "^1.14.2",
     "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@types/node": "^20.17.6",
+    "@types/sql.js": "^1.4.11",
     "prettier": "^3.3.3",
     "typescript": "^5.6.3",
     "vitest": "^4.1.2"

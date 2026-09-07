@@ -1,0 +1,116 @@
+# npm runtime 与 systemd 更新一致性设计
+
+## 1. 问题与证据
+
+VPS `8.219.57.52` 在设置页完成更新操作后出现了三个互相冲突的事实：
+
+- 正在运行的产品进程仍为 `0.30.0`，`/api/app/meta` 因而继续返回 `0.30.0`。
+- npm runtime 的 `current` pointer 已切到 `0.31.0`，更新状态因而显示当前内核为 `0.31.0`。
+- systemd 的 `ExecStart` 直接指向全局包内的 `dist/cli/app/index.js`，绕过了会读取 `current` pointer 的稳定 launcher。
+
+旧统一更新设计还同时保留了两种冲突的用户契约：一处写“用户点击更新”完成切换，另一处又要求用户分别点击“下载更新”和“更新”。当前设置页采用了后者，要求用户连续执行下载、应用两个动作；runtime manager 的默认 `run()` 却已经是检查、下载、应用的单次流程。
+
+因此这不是单一版本展示错误，而是三个 owner 漂移：设置页动作契约、运行版本事实源、systemd 启动入口。
+
+2026-08-13 的 `0.32.0 -> 0.33.0` 真实升级又暴露了一个自举缺口：`0.33.0` 已修正新生成的 unit，但升级动作仍由 `0.32.0` 进程和旧 unit 执行。旧 unit 使用 `Restart=on-failure` 且没有 `NEXTCLAW_PROCESS_SUPERVISOR=systemd`；应用更新后进程以 `0` 正常退出，systemd 因而不拉起新 pointer，页面持续显示旧运行版本和 `restart-required`。这证明“修正 unit 生成器”不能替代“兼容现存 unit 的重启合同”。
+
+2026-08-14 的 `0.34.0 -> 0.35.0` 真实升级进一步暴露了命令面分裂：VPS 正在运行的 runtime bundle 已是 `0.35.0`，但 agent shell 继承了 launcher 注入的 `NEXTCLAW_RUNTIME_BUNDLE_CHILD=1`；它再次执行全局 `nextclaw` 时，稳定 launcher 因该内部标记而退回全局包内的 `0.34.0` app。只有手动删除该标记后，命令才重新选择 `current` bundle。局部清理某几个 spawn 点不能解决这个问题，因为任意业务子进程都可能成为新的泄漏 consumer；需要让 launcher envelope 在 runtime bootstrap 处一次性消费并失效。
+
+## 2. 目标
+
+- 设置页只提供一次“立即更新”操作；下载、验签、安装、切换与重启仍是可观察的内部阶段。
+- `currentVersion` 表示实际正在运行的产品版本，不能用已经切换但尚未启动的 pointer 冒充。
+- pointer 与运行版本不一致时，更新状态必须持续为 `restart-required`，不能被下一次自动检查覆盖成 `up-to-date`。
+- systemd、launchd、Windows Task 等常驻入口始终经过稳定 npm launcher，不能固定到某个 runtime bundle 或全局包内的 app entry。
+- systemd 托管进程应用更新后由 systemd 重启，重新经过 launcher 选择新 pointer。
+- 更新后的 UI、agent shell、生命周期重入和新开的 CLI 在语义上等价：除显式回滚或不兼容 fallback 外，都只能进入 `current` runtime。
+- 不改变 bundle 下载、签名校验、previous/current/candidate、坏版本隔离与回滚合同。
+
+## 3. 单一 owner
+
+### 3.1 用户动作 owner
+
+`RuntimeUpdateManager.updateNow()` 是设置页的一键更新 owner：
+
+```text
+update-available
+  -> downloadUpdate
+  -> downloaded
+  -> applyDownloadedUpdate
+  -> restart-required / up-to-date
+```
+
+若进程在下载后中断，下一次点击从 `downloaded` 继续应用，不重复下载。底层 `downloadUpdate` 和 `applyDownloadedUpdate` API 保留，用于进度、CLI、测试和恢复，不再作为设置页两个并列主按钮。
+
+### 3.2 版本事实 owner
+
+- `runningVersion`：当前进程的 distribution version，是 UI `currentVersion` 的事实源。
+- `state.currentVersion`：launcher 当前 pointer 指向的目标版本，只用于启动选择、更新比较与回滚。
+- `launcherVersion`：稳定 host 的版本，由 npm launcher 显式传给 runtime child，不能用 bundle 的 distribution version 代替。
+
+当 `runningVersion !== state.currentVersion` 时，snapshot 必须返回：
+
+```text
+status = restart-required
+currentVersion = runningVersion
+requiresRestart = true
+```
+
+### 3.3 常驻启动 owner
+
+npm launcher 启动 runtime child 时传递稳定 launcher entrypoint 与 launcher version。常驻服务安装器优先使用该 entrypoint 生成启动项。
+
+Linux systemd unit 额外声明自身为 supervisor，并使用 `Restart=always`。该路径使用独立的 `supervised-process-restart` 语义，不复用 NextClaw 自管后台服务的重启语义，也不再启动同 cgroup 内的自拉起 helper。应用更新后 runtime child 以专用代码 `75` 延迟退出；launcher 原样传递退出码，`Restart=always` 与旧 unit 的 `Restart=on-failure` 都会重新启动稳定 launcher。`systemctl stop` 仍属于 systemd 的显式停止，不会被这个应用内退出路径混淆。
+
+普通终端中的 `nextclaw serve` 不声明 supervisor，仍返回持久的 `restart-required` 和手动恢复命令，避免进程自行退出后无人拉起。
+
+### 3.4 runtime bootstrap 与命令面等价 owner
+
+稳定 launcher 到 runtime child 的环境变量是一次性 bootstrap envelope，而不是业务环境。`NextclawDistributionService` 负责在 app 业务模块加载前完成唯一一次归一化：
+
+1. 读取并验证 launcher child 标记、稳定 launcher entrypoint 与 launcher version；
+2. 合并成当前进程唯一的 distribution context，明确区分 `runningVersion`、`launcherVersion`、`launcherEntrypoint` 和 `launchedByLauncher`；
+3. 立即从 `process.env` 删除全部 launcher 内部字段；
+4. 此后 runtime update、autostart、service restart、managed-service supervisor 与外部命令环境只读取 distribution context，不再解释 launcher envelope。
+
+app entrypoint 必须是两阶段 bootstrap：最小静态依赖先消费 envelope，再动态导入 CLI application graph。这样 ESM 静态模块初始化也无法在归一化前读取内部环境。
+
+需要重新进入 NextClaw 生命周期的路径统一执行 distribution context 中的稳定 launcher entrypoint；普通子进程只继承已经净化的外部环境。全局 npm 包内 app 不再是升级后的平行业务实现，只是 launcher 无有效 bundle、显式禁用 bundle 或兼容性检查失败时的受控 fallback。
+
+这使用 `equivalence-by-construction`：等价性来自所有入口收敛到同一 launcher、pointer 和 bootstrap owner；测试负责证明该机制及 fallback 边界，不靠枚举足够多的命令组合拼出等价性。
+
+## 4. 兼容与迁移
+
+- 旧 launcher 不会传递新增环境变量；runtime 必须回退到现有 distribution/version 与 argv 行为。
+- 显式的 `NEXTCLAW_PROCESS_SUPERVISOR=systemd` 是主路径。仅当它完全缺失时，runtime 才接受 systemd 提供的 `INVOCATION_ID` 作为旧 unit 兼容信号，并记录 legacy supervisor 日志；显式的其它 supervisor 值不会被覆盖。
+- 旧 unit 兼容只改变“应用更新”后的退出码，不自动写 unit、不执行 `systemctl`，也不影响普通启动、停止或终端 `serve`。owner 为 `@nextclaw/service` 的 runtime restart 合同；删除条件是所有受支持旧 unit 都已有可验证的一次性迁移，且最低受支持 host 不再可能生成旧 unit。
+- 已有错误 systemd unit 仍应在运维窗口一次性把 `ExecStart` 改为稳定 launcher、写入显式 supervisor 标记并切换为 `Restart=always`。迁移前备份 unit，启动或健康检查失败时回滚；兼容退出语义保证迁移前的页面更新也不会再次停机。
+- 新字段只通过 launcher 的一次性 bootstrap envelope 传入 child，并在业务模块加载前删除；不扩展用户配置，不写入会话或 workspace，也不继续传播到 agent shell。
+- 设置页仍允许独立“检查更新”；自动检查策略不变，自动检查不会自动下载或切换版本。
+
+## 5. 验收
+
+### 5.1 定向自动化
+
+- 设置页在 `update-available` 和 `downloaded` 状态都只显示一个“立即更新”按钮，并调用同一个 manager action。
+- manager 从 `update-available` 依次下载、应用；从 `downloaded` 只应用。
+- pointer 比运行版本新时，初始化和检查后都保持 `restart-required`，`currentVersion` 为运行版本。
+- launcher child 收到稳定 launcher entrypoint/version。
+- autostart 从 bundle child 安装时仍生成稳定 launcher 命令。
+- systemd unit 带 supervisor 标记并使用 `Restart=always`。
+- 旧 unit 只有 `INVOCATION_ID` 时仍选择 supervisor restart，应用更新后不启动 self-relaunch helper，并以 `75` 退出。
+- 显式非 systemd supervisor 即使带有环境中的 `INVOCATION_ID` 也不会误判为 systemd。
+- bootstrap 只在有效 launcher child 标记存在时接受 launcher metadata，随后删除全部内部字段并保存规范 distribution context。
+- 无 child 标记的直接 app 启动忽略残留 launcher metadata，不允许其伪造 host 事实。
+- runtime update、autostart、service restart 与 managed-service supervisor 都读取同一 distribution context；源码中不再存在消费 launcher 内部环境的业务路径。
+- lifecycle 重入执行稳定 launcher，而普通 agent/工具子进程的环境不包含 launcher child 标记。
+
+### 5.2 VPS 真实验证
+
+- systemd main process 是稳定 launcher，runtime child 路径位于 `runtime-bundles/versions/<version>`。
+- 前端静态页返回 200，公网入口可访问。
+- 实际 runtime package、进程路径与页面产品版本一致。
+- 更新操作后 PID 发生切换，并从新的 current pointer 启动。
+- 更新后 agent shell 中 launcher 内部字段均不存在，直接执行 `nextclaw --version` 与运行版本一致，无需手动 `env -u`。
+- 在 `Restart=on-failure` 的隔离旧 unit 中执行同一更新入口，确认退出码触发重启且版本事实切换完成。
+- 执行一次真实任务，确认更新没有只修版本展示而破坏 agent 主链路。

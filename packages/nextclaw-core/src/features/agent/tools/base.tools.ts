@@ -14,6 +14,7 @@ export type ToolSchema = {
 
 export type ToolExecutionContext = {
   toolCallId: string;
+  reportExecutionStarted?: () => void;
   updateToolCallResult?: (result: unknown) => Promise<void>;
 };
 
@@ -22,6 +23,7 @@ export function createToolExecutionContext(
 ): ToolExecutionContext {
   return {
     toolCallId: context.toolCallId ?? "",
+    reportExecutionStarted: context.reportExecutionStarted,
     updateToolCallResult: context.updateToolCallResult,
   };
 }
@@ -56,6 +58,7 @@ export abstract class Tool {
   abstract get name(): string;
   abstract get description(): string;
   abstract get parameters(): Record<string, unknown>;
+  readonly supportsParallelToolCalls: boolean = false;
 
   abstract execute(params: unknown, context?: ToolExecutionContext): Promise<unknown>;
 

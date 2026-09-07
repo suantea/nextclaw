@@ -1,10 +1,11 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { NcpEventType, type NcpMessage } from "@nextclaw/ncp";
 import { NCP_AGENT_SESSION_SNAPSHOT_MESSAGE_EVENT_TYPE } from "@kernel/utils/ncp-agent-session-journal.utils.js";
 import { NcpAgentSessionJournalStore } from "./ncp-agent-session-journal.store.js";
+import type { NcpAgentSessionMessageProjectionPersistenceStore } from "./ncp-agent-session-message-projection-persistence.store.js";
 
 const sessionId = "session-1";
 const userMessage: NcpMessage = {
@@ -30,6 +31,15 @@ type RawJournalLine = {
     type: string;
   };
 };
+
+type ProjectionPersistenceInternals = {
+  renameMeta: (from: string, to: string) => Promise<void>;
+  waitForMetaRenameRetry: (delayMs: number) => Promise<void>;
+};
+
+function fileSystemError(code: "EPERM"): Error & { code: string } {
+  return Object.assign(new Error(code), { code });
+}
 
 function createRecord(messages: NcpMessage[]) {
   return {
@@ -61,6 +71,66 @@ afterEach(async () => {
 });
 
 describe("NcpAgentSessionJournalStore", () => {
+  it("returns distinct numbered session pages with the full total", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "nextclaw-ncp-journal-"));
+    const store = new NcpAgentSessionJournalStore(tempDir);
+    for (const index of [1, 2, 3]) {
+      const currentSessionId = `session-${index}`;
+      await store.importSessionSnapshot({
+        ...createRecord([]),
+        sessionId: currentSessionId,
+        updatedAt: `2026-05-14T00:00:0${index}.000Z`,
+        metadata: { label: `Page ${index}` },
+      });
+    }
+
+    const first = await store.listSessionSummaryPage({ page: 1, pageSize: 2 });
+    const second = await store.listSessionSummaryPage({ page: 2, pageSize: 2 });
+    const filtered = await store.listSessionSummaryPage({
+      page: 1,
+      pageSize: 2,
+      query: "Page 2",
+    });
+
+    expect(first).toMatchObject({ total: 3, sessions: [{ sessionId: "session-3" }, { sessionId: "session-2" }] });
+    expect(second).toMatchObject({ total: 3, sessions: [{ sessionId: "session-1" }] });
+    expect(filtered).toMatchObject({ total: 1, sessions: [{ sessionId: "session-2" }] });
+  });
+
+  it("reports only runs whose append-only lifecycle has no terminal event", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "nextclaw-ncp-journal-"));
+    const store = new NcpAgentSessionJournalStore(tempDir);
+    await store.importSessionSnapshot(createRecord([userMessage]));
+    await store.appendSessionEvent({
+      sessionId,
+      event: {
+        type: NcpEventType.RunStarted,
+        payload: {
+          sessionId,
+          messageId: "assistant-interrupted",
+          runId: "run-interrupted",
+          startedAt: "2026-05-14T00:00:02.000Z",
+        },
+      },
+    });
+
+    await expect(store.listUnfinishedRuns()).resolves.toEqual([{
+      sessionId,
+      messageId: "assistant-interrupted",
+      runId: "run-interrupted",
+      startedAt: "2026-05-14T00:00:02.000Z",
+    }]);
+
+    await store.appendSessionEvent({
+      sessionId,
+      event: {
+        type: NcpEventType.RunError,
+        payload: { sessionId, runId: "run-interrupted", error: "interrupted" },
+      },
+    });
+    await expect(store.listUnfinishedRuns()).resolves.toEqual([]);
+  });
+
   it("paginates newest-first while preserving chronological order within each page", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "nextclaw-ncp-journal-"));
     const store = new NcpAgentSessionJournalStore(tempDir);
@@ -124,6 +194,34 @@ describe("NcpAgentSessionJournalStore", () => {
           parts: [{ text: "partial" }],
         },
       ],
+    });
+  });
+
+  it("keeps a committed journal event readable when projection metadata cannot be committed", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "nextclaw-ncp-journal-"));
+    const store = new NcpAgentSessionJournalStore(tempDir);
+    await store.importSessionSnapshot(createRecord([userMessage]));
+    const projectionStore = (store as unknown as {
+      messageProjectionStore: { persistence: NcpAgentSessionMessageProjectionPersistenceStore };
+    }).messageProjectionStore.persistence as unknown as ProjectionPersistenceInternals;
+    vi.spyOn(projectionStore, "renameMeta").mockRejectedValue(fileSystemError("EPERM"));
+    vi.spyOn(projectionStore, "waitForMetaRenameRetry").mockResolvedValue();
+
+    await expect(store.appendSessionEvent({
+      sessionId,
+      event: {
+        type: NcpEventType.MessageCompleted,
+        payload: { sessionId, message: assistantMessage },
+      },
+    })).resolves.toBeUndefined();
+
+    await expect(store.listSessionMessages(sessionId)).resolves.toMatchObject([
+      { id: "user-1" },
+      { id: "assistant-1", parts: [{ text: "hi" }] },
+    ]);
+    await expect(store.listSessionMessagePage({ sessionId, limit: 10 })).resolves.toMatchObject({
+      total: 2,
+      messages: [{ id: "user-1" }, { id: "assistant-1" }],
     });
   });
 
@@ -274,6 +372,7 @@ describe("NcpAgentSessionJournalStore replay", () => {
     await store.importSessionSnapshot(createRecord([userMessage, assistantMessage]));
 
     const eventTypes = await readJournalEventTypes(tempDir);
+    await rm(join(tempDir, `${sessionId}.metadata.json`));
 
     const reloaded = new NcpAgentSessionJournalStore(tempDir);
     const messages = await reloaded.listSessionMessages(sessionId);
@@ -425,7 +524,9 @@ describe("NcpAgentSessionJournalStore metadata recovery", () => {
       `${legacyMessageId}:20`,
     ]);
   });
+});
 
+describe("NcpAgentSessionJournalStore corrupted entry recovery", () => {
   it("skips corrupted journal lines without losing later valid events", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "nextclaw-ncp-journal-"));
     const store = new NcpAgentSessionJournalStore(tempDir);
@@ -572,7 +673,25 @@ describe("NcpAgentSessionJournalStore tool result replay", () => {
         payload: {
           sessionId,
           toolCallId: "tool-1",
+          content: "still running",
+          final: false,
+        },
+      },
+    });
+    await store.appendSessionEvent({
+      sessionId,
+      event: {
+        type: NcpEventType.MessageToolCallResult,
+        payload: {
+          sessionId,
+          toolCallId: "tool-1",
           content: "pwd output",
+          final: true,
+          execution: {
+            startedAt: "2026-05-14T00:00:00.250Z",
+            endedAt: "2026-05-14T00:00:01.500Z",
+            durationMs: 1240,
+          },
         },
       },
     });
@@ -593,8 +712,9 @@ describe("NcpAgentSessionJournalStore tool result replay", () => {
                 type: "tool-invocation",
                 toolCallId: "tool-1",
                 toolName: "Bash",
-                state: "call",
+                state: "result",
                 args: { command: "pwd" },
+                result: "stale snapshot",
               },
             ],
           },
@@ -628,6 +748,11 @@ describe("NcpAgentSessionJournalStore tool result replay", () => {
           state: "result",
           args: { command: "pwd" },
           result: "pwd output",
+          execution: {
+            startedAt: "2026-05-14T00:00:00.250Z",
+            endedAt: "2026-05-14T00:00:01.500Z",
+            durationMs: 1240,
+          },
         },
       ],
     });

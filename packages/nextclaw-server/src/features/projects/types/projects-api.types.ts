@@ -4,6 +4,31 @@ import type {
   ProjectTemplateId,
 } from "@nextclaw/kernel";
 
+export type {
+  ProjectAgreementMaterial,
+  ProjectSkillMaterial,
+} from "@nextclaw/kernel";
+
+export type {
+  CreateProjectWorkItemInput,
+  CreateProjectWorkStateInput,
+  ProjectWorkActivity,
+  ProjectWorkActivityPage,
+  ProjectWorkArtifactLink,
+  ProjectWorkAttention,
+  ProjectWorkItemDetail,
+  ProjectWorkItemListEntry,
+  ProjectWorkItemPage,
+  ProjectWorkListInput,
+  ProjectRecentArtifact,
+  ProjectRecentArtifactPage,
+  ProjectWorkState,
+  ProjectWorkStateCategory,
+  ProjectWorkSummary,
+  UpdateProjectWorkItemInput,
+  UpdateProjectWorkStateInput,
+} from "@nextclaw/kernel";
+
 export type ProjectView = ProjectRecord;
 export type ProjectTemplateView = ProjectTemplate;
 

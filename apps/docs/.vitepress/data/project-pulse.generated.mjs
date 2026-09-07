@@ -1,186 +1,21 @@
 export default {
-  "generatedAt": "2026-08-05T18:21:52.050Z",
+  "generatedAt": "2026-09-07T07:17:16.816Z",
   "hero": {
-    "currentLoc": 217676,
-    "testLoc": 79259,
-    "trackedFiles": 2348,
-    "recentCommitCount": 333,
+    "currentLoc": 292880,
+    "testLoc": 124019,
+    "trackedFiles": 3067,
+    "recentCommitCount": 628,
     "activeDays30": 30,
-    "recentReleaseCount": 48,
-    "latestReleaseDate": "2026-08-06",
-    "latestNoteDate": "2026-08-06",
+    "recentReleaseCount": 49,
+    "latestReleaseDate": "2026-09-04",
+    "latestNoteDate": "2026-09-04",
     "benchmarkName": "openclaw",
-    "benchmarkCodeLines": 2427146,
-    "basePercentOfBenchmark": 8.97,
-    "lighterByPercent": 91.03
+    "benchmarkCodeLines": 2838589,
+    "basePercentOfBenchmark": 10.32,
+    "lighterByPercent": 89.68
   },
   "trends": {
     "locDaily": [
-      {
-        "key": "2026-04-08",
-        "label": "04-08",
-        "value": 165701
-      },
-      {
-        "key": "2026-04-09",
-        "label": "04-09",
-        "value": 169779
-      },
-      {
-        "key": "2026-04-10",
-        "label": "04-10",
-        "value": 172377
-      },
-      {
-        "key": "2026-04-11",
-        "label": "04-11",
-        "value": 172377
-      },
-      {
-        "key": "2026-04-12",
-        "label": "04-12",
-        "value": 172377
-      },
-      {
-        "key": "2026-04-13",
-        "label": "04-13",
-        "value": 182741
-      },
-      {
-        "key": "2026-04-14",
-        "label": "04-14",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-15",
-        "label": "04-15",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-16",
-        "label": "04-16",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-17",
-        "label": "04-17",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-18",
-        "label": "04-18",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-19",
-        "label": "04-19",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-20",
-        "label": "04-20",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-21",
-        "label": "04-21",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-22",
-        "label": "04-22",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-23",
-        "label": "04-23",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-24",
-        "label": "04-24",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-25",
-        "label": "04-25",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-26",
-        "label": "04-26",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-27",
-        "label": "04-27",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-28",
-        "label": "04-28",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-29",
-        "label": "04-29",
-        "value": 182759
-      },
-      {
-        "key": "2026-04-30",
-        "label": "04-30",
-        "value": 182759
-      },
-      {
-        "key": "2026-05-01",
-        "label": "05-01",
-        "value": 182759
-      },
-      {
-        "key": "2026-05-02",
-        "label": "05-02",
-        "value": 182759
-      },
-      {
-        "key": "2026-05-03",
-        "label": "05-03",
-        "value": 182759
-      },
-      {
-        "key": "2026-05-04",
-        "label": "05-04",
-        "value": 182759
-      },
-      {
-        "key": "2026-05-05",
-        "label": "05-05",
-        "value": 182759
-      },
-      {
-        "key": "2026-05-06",
-        "label": "05-06",
-        "value": 182759
-      },
-      {
-        "key": "2026-05-07",
-        "label": "05-07",
-        "value": 182759
-      },
-      {
-        "key": "2026-05-08",
-        "label": "05-08",
-        "value": 182759
-      },
-      {
-        "key": "2026-05-09",
-        "label": "05-09",
-        "value": 182759
-      },
-      {
-        "key": "2026-05-10",
-        "label": "05-10",
-        "value": 182759
-      },
       {
         "key": "2026-05-11",
         "label": "05-11",
@@ -615,6 +450,171 @@ export default {
         "key": "2026-08-05",
         "label": "08-05",
         "value": 217676
+      },
+      {
+        "key": "2026-08-06",
+        "label": "08-06",
+        "value": 219694
+      },
+      {
+        "key": "2026-08-07",
+        "label": "08-07",
+        "value": 220029
+      },
+      {
+        "key": "2026-08-08",
+        "label": "08-08",
+        "value": 224341
+      },
+      {
+        "key": "2026-08-09",
+        "label": "08-09",
+        "value": 228199
+      },
+      {
+        "key": "2026-08-10",
+        "label": "08-10",
+        "value": 230210
+      },
+      {
+        "key": "2026-08-11",
+        "label": "08-11",
+        "value": 232581
+      },
+      {
+        "key": "2026-08-12",
+        "label": "08-12",
+        "value": 237050
+      },
+      {
+        "key": "2026-08-13",
+        "label": "08-13",
+        "value": 241252
+      },
+      {
+        "key": "2026-08-14",
+        "label": "08-14",
+        "value": 246846
+      },
+      {
+        "key": "2026-08-15",
+        "label": "08-15",
+        "value": 248999
+      },
+      {
+        "key": "2026-08-16",
+        "label": "08-16",
+        "value": 249135
+      },
+      {
+        "key": "2026-08-17",
+        "label": "08-17",
+        "value": 249169
+      },
+      {
+        "key": "2026-08-18",
+        "label": "08-18",
+        "value": 250702
+      },
+      {
+        "key": "2026-08-19",
+        "label": "08-19",
+        "value": 250767
+      },
+      {
+        "key": "2026-08-20",
+        "label": "08-20",
+        "value": 253889
+      },
+      {
+        "key": "2026-08-21",
+        "label": "08-21",
+        "value": 256445
+      },
+      {
+        "key": "2026-08-22",
+        "label": "08-22",
+        "value": 257622
+      },
+      {
+        "key": "2026-08-23",
+        "label": "08-23",
+        "value": 265497
+      },
+      {
+        "key": "2026-08-24",
+        "label": "08-24",
+        "value": 266922
+      },
+      {
+        "key": "2026-08-25",
+        "label": "08-25",
+        "value": 267677
+      },
+      {
+        "key": "2026-08-26",
+        "label": "08-26",
+        "value": 268334
+      },
+      {
+        "key": "2026-08-27",
+        "label": "08-27",
+        "value": 269599
+      },
+      {
+        "key": "2026-08-28",
+        "label": "08-28",
+        "value": 274668
+      },
+      {
+        "key": "2026-08-29",
+        "label": "08-29",
+        "value": 276169
+      },
+      {
+        "key": "2026-08-30",
+        "label": "08-30",
+        "value": 279457
+      },
+      {
+        "key": "2026-08-31",
+        "label": "08-31",
+        "value": 287963
+      },
+      {
+        "key": "2026-09-01",
+        "label": "09-01",
+        "value": 292798
+      },
+      {
+        "key": "2026-09-02",
+        "label": "09-02",
+        "value": 292814
+      },
+      {
+        "key": "2026-09-03",
+        "label": "09-03",
+        "value": 294588
+      },
+      {
+        "key": "2026-09-04",
+        "label": "09-04",
+        "value": 292737
+      },
+      {
+        "key": "2026-09-05",
+        "label": "09-05",
+        "value": 292737
+      },
+      {
+        "key": "2026-09-06",
+        "label": "09-06",
+        "value": 292790
+      },
+      {
+        "key": "2026-09-07",
+        "label": "09-07",
+        "value": 292880
       }
     ],
     "testLocDaily": [
@@ -1052,186 +1052,326 @@ export default {
         "key": "2026-08-05",
         "label": "08-05",
         "value": 79259
+      },
+      {
+        "key": "2026-08-06",
+        "label": "08-06",
+        "value": 80186
+      },
+      {
+        "key": "2026-08-07",
+        "label": "08-07",
+        "value": 80952
+      },
+      {
+        "key": "2026-08-08",
+        "label": "08-08",
+        "value": 85144
+      },
+      {
+        "key": "2026-08-09",
+        "label": "08-09",
+        "value": 89768
+      },
+      {
+        "key": "2026-08-10",
+        "label": "08-10",
+        "value": 90639
+      },
+      {
+        "key": "2026-08-11",
+        "label": "08-11",
+        "value": 91728
+      },
+      {
+        "key": "2026-08-12",
+        "label": "08-12",
+        "value": 94133
+      },
+      {
+        "key": "2026-08-13",
+        "label": "08-13",
+        "value": 95645
+      },
+      {
+        "key": "2026-08-14",
+        "label": "08-14",
+        "value": 97779
+      },
+      {
+        "key": "2026-08-15",
+        "label": "08-15",
+        "value": 99727
+      },
+      {
+        "key": "2026-08-16",
+        "label": "08-16",
+        "value": 100046
+      },
+      {
+        "key": "2026-08-17",
+        "label": "08-17",
+        "value": 100097
+      },
+      {
+        "key": "2026-08-18",
+        "label": "08-18",
+        "value": 100841
+      },
+      {
+        "key": "2026-08-19",
+        "label": "08-19",
+        "value": 101102
+      },
+      {
+        "key": "2026-08-20",
+        "label": "08-20",
+        "value": 103000
+      },
+      {
+        "key": "2026-08-21",
+        "label": "08-21",
+        "value": 104713
+      },
+      {
+        "key": "2026-08-22",
+        "label": "08-22",
+        "value": 104740
+      },
+      {
+        "key": "2026-08-23",
+        "label": "08-23",
+        "value": 107885
+      },
+      {
+        "key": "2026-08-24",
+        "label": "08-24",
+        "value": 108454
+      },
+      {
+        "key": "2026-08-25",
+        "label": "08-25",
+        "value": 109760
+      },
+      {
+        "key": "2026-08-26",
+        "label": "08-26",
+        "value": 110683
+      },
+      {
+        "key": "2026-08-27",
+        "label": "08-27",
+        "value": 111685
+      },
+      {
+        "key": "2026-08-28",
+        "label": "08-28",
+        "value": 114492
+      },
+      {
+        "key": "2026-08-29",
+        "label": "08-29",
+        "value": 115353
+      },
+      {
+        "key": "2026-08-30",
+        "label": "08-30",
+        "value": 116861
+      },
+      {
+        "key": "2026-08-31",
+        "label": "08-31",
+        "value": 121591
+      },
+      {
+        "key": "2026-09-01",
+        "label": "09-01",
+        "value": 122432
+      },
+      {
+        "key": "2026-09-02",
+        "label": "09-02",
+        "value": 122467
+      },
+      {
+        "key": "2026-09-03",
+        "label": "09-03",
+        "value": 123942
+      },
+      {
+        "key": "2026-09-04",
+        "label": "09-04",
+        "value": 123775
+      },
+      {
+        "key": "2026-09-05",
+        "label": "09-05",
+        "value": 123775
+      },
+      {
+        "key": "2026-09-06",
+        "label": "09-06",
+        "value": 123897
+      },
+      {
+        "key": "2026-09-07",
+        "label": "09-07",
+        "value": 124019
       }
     ],
     "commitDaily": [
       {
-        "key": "2026-07-07",
-        "label": "07-07",
-        "value": 8
-      },
-      {
-        "key": "2026-07-08",
-        "label": "07-08",
-        "value": 1
-      },
-      {
-        "key": "2026-07-09",
-        "label": "07-09",
-        "value": 1
-      },
-      {
-        "key": "2026-07-10",
-        "label": "07-10",
-        "value": 1
-      },
-      {
-        "key": "2026-07-11",
-        "label": "07-11",
-        "value": 6
-      },
-      {
-        "key": "2026-07-12",
-        "label": "07-12",
+        "key": "2026-08-09",
+        "label": "08-09",
         "value": 12
       },
       {
-        "key": "2026-07-13",
-        "label": "07-13",
-        "value": 29
+        "key": "2026-08-10",
+        "label": "08-10",
+        "value": 18
       },
       {
-        "key": "2026-07-14",
-        "label": "07-14",
-        "value": 19
+        "key": "2026-08-11",
+        "label": "08-11",
+        "value": 22
       },
       {
-        "key": "2026-07-15",
-        "label": "07-15",
-        "value": 23
-      },
-      {
-        "key": "2026-07-16",
-        "label": "07-16",
-        "value": 16
-      },
-      {
-        "key": "2026-07-17",
-        "label": "07-17",
-        "value": 38
-      },
-      {
-        "key": "2026-07-18",
-        "label": "07-18",
-        "value": 60
-      },
-      {
-        "key": "2026-07-19",
-        "label": "07-19",
-        "value": 12
-      },
-      {
-        "key": "2026-07-20",
-        "label": "07-20",
-        "value": 12
-      },
-      {
-        "key": "2026-07-21",
-        "label": "07-21",
+        "key": "2026-08-12",
+        "label": "08-12",
         "value": 5
       },
       {
-        "key": "2026-07-22",
-        "label": "07-22",
-        "value": 6
+        "key": "2026-08-13",
+        "label": "08-13",
+        "value": 20
       },
       {
-        "key": "2026-07-23",
-        "label": "07-23",
+        "key": "2026-08-14",
+        "label": "08-14",
+        "value": 44
+      },
+      {
+        "key": "2026-08-15",
+        "label": "08-15",
+        "value": 16
+      },
+      {
+        "key": "2026-08-16",
+        "label": "08-16",
+        "value": 7
+      },
+      {
+        "key": "2026-08-17",
+        "label": "08-17",
+        "value": 2
+      },
+      {
+        "key": "2026-08-18",
+        "label": "08-18",
+        "value": 23
+      },
+      {
+        "key": "2026-08-19",
+        "label": "08-19",
+        "value": 2
+      },
+      {
+        "key": "2026-08-20",
+        "label": "08-20",
+        "value": 23
+      },
+      {
+        "key": "2026-08-21",
+        "label": "08-21",
+        "value": 23
+      },
+      {
+        "key": "2026-08-22",
+        "label": "08-22",
+        "value": 23
+      },
+      {
+        "key": "2026-08-23",
+        "label": "08-23",
+        "value": 9
+      },
+      {
+        "key": "2026-08-24",
+        "label": "08-24",
+        "value": 23
+      },
+      {
+        "key": "2026-08-25",
+        "label": "08-25",
+        "value": 39
+      },
+      {
+        "key": "2026-08-26",
+        "label": "08-26",
+        "value": 23
+      },
+      {
+        "key": "2026-08-27",
+        "label": "08-27",
+        "value": 21
+      },
+      {
+        "key": "2026-08-28",
+        "label": "08-28",
+        "value": 8
+      },
+      {
+        "key": "2026-08-29",
+        "label": "08-29",
+        "value": 53
+      },
+      {
+        "key": "2026-08-30",
+        "label": "08-30",
+        "value": 84
+      },
+      {
+        "key": "2026-08-31",
+        "label": "08-31",
+        "value": 31
+      },
+      {
+        "key": "2026-09-01",
+        "label": "09-01",
+        "value": 16
+      },
+      {
+        "key": "2026-09-02",
+        "label": "09-02",
+        "value": 19
+      },
+      {
+        "key": "2026-09-03",
+        "label": "09-03",
+        "value": 37
+      },
+      {
+        "key": "2026-09-04",
+        "label": "09-04",
         "value": 18
       },
       {
-        "key": "2026-07-24",
-        "label": "07-24",
+        "key": "2026-09-05",
+        "label": "09-05",
         "value": 3
       },
       {
-        "key": "2026-07-25",
-        "label": "07-25",
-        "value": 1
-      },
-      {
-        "key": "2026-07-26",
-        "label": "07-26",
-        "value": 6
-      },
-      {
-        "key": "2026-07-27",
-        "label": "07-27",
+        "key": "2026-09-06",
+        "label": "09-06",
         "value": 2
       },
       {
-        "key": "2026-07-28",
-        "label": "07-28",
-        "value": 18
-      },
-      {
-        "key": "2026-07-29",
-        "label": "07-29",
-        "value": 17
-      },
-      {
-        "key": "2026-07-30",
-        "label": "07-30",
-        "value": 2
-      },
-      {
-        "key": "2026-07-31",
-        "label": "07-31",
-        "value": 10
-      },
-      {
-        "key": "2026-08-01",
-        "label": "08-01",
-        "value": 1
-      },
-      {
-        "key": "2026-08-02",
-        "label": "08-02",
-        "value": 1
-      },
-      {
-        "key": "2026-08-03",
-        "label": "08-03",
-        "value": 2
-      },
-      {
-        "key": "2026-08-04",
-        "label": "08-04",
-        "value": 1
-      },
-      {
-        "key": "2026-08-05",
-        "label": "08-05",
+        "key": "2026-09-07",
+        "label": "09-07",
         "value": 2
       }
     ],
     "commitWeekly": [
-      {
-        "key": "2026-05-18",
-        "label": "05-18",
-        "value": 169
-      },
-      {
-        "key": "2026-05-25",
-        "label": "05-25",
-        "value": 99
-      },
-      {
-        "key": "2026-06-01",
-        "label": "06-01",
-        "value": 116
-      },
-      {
-        "key": "2026-06-08",
-        "label": "06-08",
-        "value": 61
-      },
-      {
-        "key": "2026-06-15",
-        "label": "06-15",
-        "value": 52
-      },
       {
         "key": "2026-06-22",
         "label": "06-22",
@@ -1265,15 +1405,35 @@ export default {
       {
         "key": "2026-08-03",
         "label": "08-03",
-        "value": 11
+        "value": 88
+      },
+      {
+        "key": "2026-08-10",
+        "label": "08-10",
+        "value": 132
+      },
+      {
+        "key": "2026-08-17",
+        "label": "08-17",
+        "value": 105
+      },
+      {
+        "key": "2026-08-24",
+        "label": "08-24",
+        "value": 251
+      },
+      {
+        "key": "2026-08-31",
+        "label": "08-31",
+        "value": 126
+      },
+      {
+        "key": "2026-09-07",
+        "label": "09-07",
+        "value": 2
       }
     ],
     "releaseMonthly": [
-      {
-        "key": "2025-09",
-        "label": "09/25",
-        "value": 0
-      },
       {
         "key": "2025-10",
         "label": "10/25",
@@ -1327,7 +1487,12 @@ export default {
       {
         "key": "2026-08",
         "label": "08/26",
-        "value": 1
+        "value": 21
+      },
+      {
+        "key": "2026-09",
+        "label": "09/26",
+        "value": 3
       }
     ]
   },
@@ -1335,124 +1500,826 @@ export default {
     "topScopes": [
       {
         "name": "packages/nextclaw-ui",
-        "codeLines": 53669,
-        "testCodeLines": 26431,
-        "files": 652,
-        "sharePercent": 24.7
+        "codeLines": 72528,
+        "testCodeLines": 39989,
+        "files": 881,
+        "sharePercent": 24.8
       },
       {
         "name": "packages/nextclaw-kernel",
-        "codeLines": 20246,
-        "testCodeLines": 9247,
-        "files": 213,
-        "sharePercent": 9.3
+        "codeLines": 47135,
+        "testCodeLines": 24310,
+        "files": 442,
+        "sharePercent": 16.1
       },
       {
         "name": "packages/nextclaw-service",
-        "codeLines": 15051,
-        "testCodeLines": 6711,
-        "files": 163,
-        "sharePercent": 6.9
+        "codeLines": 16982,
+        "testCodeLines": 8160,
+        "files": 171,
+        "sharePercent": 5.8
       },
       {
         "name": "packages/nextclaw-core",
-        "codeLines": 14647,
-        "testCodeLines": 4862,
-        "files": 160,
-        "sharePercent": 6.7
+        "codeLines": 16626,
+        "testCodeLines": 6701,
+        "files": 174,
+        "sharePercent": 5.7
       },
       {
         "name": "workers/nextclaw-provider-gateway-api",
-        "codeLines": 13897,
+        "codeLines": 15230,
         "testCodeLines": 0,
-        "files": 68,
-        "sharePercent": 6.4
-      },
-      {
-        "name": "packages/nextclaw-agent-chat-ui",
-        "codeLines": 10661,
-        "testCodeLines": 7085,
-        "files": 111,
-        "sharePercent": 4.9
+        "files": 77,
+        "sharePercent": 5.2
       },
       {
         "name": "packages/nextclaw-server",
-        "codeLines": 10257,
-        "testCodeLines": 7501,
-        "files": 118,
+        "codeLines": 13637,
+        "testCodeLines": 10736,
+        "files": 158,
         "sharePercent": 4.7
       },
       {
+        "name": "packages/nextclaw-agent-chat-ui",
+        "codeLines": 13265,
+        "testCodeLines": 8559,
+        "files": 127,
+        "sharePercent": 4.5
+      },
+      {
         "name": "packages/nextclaw-app-runtime",
-        "codeLines": 5845,
-        "testCodeLines": 1149,
-        "files": 66,
-        "sharePercent": 2.7
+        "codeLines": 11059,
+        "testCodeLines": 3661,
+        "files": 95,
+        "sharePercent": 3.8
       }
     ],
     "benchmark": {
       "name": "openclaw",
-      "benchmarkCodeLines": 2427146,
-      "basePercentOfBenchmark": 8.97,
-      "lighterByPercent": 91.03
+      "benchmarkCodeLines": 2838589,
+      "basePercentOfBenchmark": 10.32,
+      "lighterByPercent": 89.68
     },
     "recentReleaseBatches": [
       {
-        "date": "2026-08-06",
-        "tagCount": 26,
+        "date": "2026-09-04",
+        "tagCount": 1,
         "sampleTags": [
-          "@nextclaw/channel-extension-dingtalk@0.2.18",
-          "@nextclaw/channel-extension-discord@0.2.18",
-          "@nextclaw/channel-extension-email@0.2.18"
+          "v0.48.3-desktop.2"
         ]
       },
       {
-        "date": "2026-07-31",
-        "tagCount": 6,
+        "date": "2026-09-03",
+        "tagCount": 52,
         "sampleTags": [
-          "@nextclaw/nextclaw-narp-runtime-claude-code-sdk@0.2.17",
-          "@nextclaw/nextclaw-narp-runtime-codex-sdk@0.2.17",
-          "@nextclaw/nextclaw-ncp-runtime-adapter-hermes-http@0.3.16"
+          "@nextclaw/app-runtime@0.16.2",
+          "@nextclaw/channel-extension-dingtalk@0.2.43",
+          "@nextclaw/channel-extension-discord@0.2.43"
         ]
       },
       {
-        "date": "2026-07-29",
-        "tagCount": 98,
+        "date": "2026-09-01",
+        "tagCount": 72,
         "sampleTags": [
-          "@nextclaw/agent-chat-ui@0.6.18",
-          "@nextclaw/agent-chat@0.3.12",
-          "@nextclaw/aigen@0.2.12"
+          "@nextclaw/app-runtime@0.16.1-beta.0",
+          "@nextclaw/channel-extension-dingtalk@0.2.42-beta.1",
+          "@nextclaw/channel-extension-discord@0.2.42-beta.1"
         ]
       },
       {
-        "date": "2026-07-28",
-        "tagCount": 2,
+        "date": "2026-08-31",
+        "tagCount": 27,
         "sampleTags": [
-          "nextclaw@0.27.5",
-          "v0.27.5-desktop.1"
+          "@nextclaw/channel-extension-dingtalk@0.2.42-beta.0",
+          "@nextclaw/channel-extension-discord@0.2.42-beta.0",
+          "@nextclaw/channel-extension-email@0.2.42-beta.0"
         ]
       },
       {
-        "date": "2026-07-26",
-        "tagCount": 2,
+        "date": "2026-08-30",
+        "tagCount": 34,
         "sampleTags": [
-          "@nextclaw/ncp-react@0.5.16",
-          "@nextclaw/ui@0.15.18"
+          "@nextclaw/app-runtime@0.15.0",
+          "@nextclaw/client-sdk@0.9.5",
+          "@nextclaw/companion@0.2.52"
         ]
       },
       {
-        "date": "2026-07-23",
-        "tagCount": 147,
+        "date": "2026-08-29",
+        "tagCount": 84,
         "sampleTags": [
-          "@nextclaw/aigen@0.2.9",
-          "@nextclaw/browser-connector@0.3.9",
-          "@nextclaw/channel-extension-dingtalk@0.2.13"
+          "v0.45.0-desktop.1",
+          "@nextclaw/app-runtime@0.14.1",
+          "@nextclaw/channel-extension-dingtalk@0.2.38"
         ]
       }
     ]
   },
   "timeline": {
     "notes": [
+      {
+        "slug": "2026-09-04-nextclaw-v0-48-3",
+        "date": "2026-09-04",
+        "tags": [
+          "startup, sessions, projects, PWA"
+        ],
+        "en": {
+          "title": "2026-09-04 · NextClaw v0.48.3",
+          "description": "Faster startup, more accurate silent replies, and simpler, more reliable project data and controls.",
+          "href": "/en/notes/2026-09-04-nextclaw-v0-48-3"
+        },
+        "zh": {
+          "title": "2026-09-04 · NextClaw v0.48.3",
+          "description": "启动更快、静默回复更准确，并让项目数据与项目入口更简单可靠。",
+          "href": "/zh/notes/2026-09-04-nextclaw-v0-48-3"
+        }
+      },
+      {
+        "slug": "2026-09-02-nextclaw-v0-48-1",
+        "date": "2026-09-02",
+        "tags": [
+          "Windows, Desktop, session recovery"
+        ],
+        "en": {
+          "title": "2026-09-02 · NextClaw v0.48.1",
+          "description": "Fixes Windows Desktop upgrades to v0.48.0 that could prevent sessions from loading and messages from sending.",
+          "href": "/en/notes/2026-09-02-nextclaw-v0-48-1"
+        },
+        "zh": {
+          "title": "2026-09-02 · NextClaw v0.48.1",
+          "description": "修复 Windows 桌面端从旧版升级到 v0.48.0 后，会话列表无法加载、消息无法发送的问题。",
+          "href": "/zh/notes/2026-09-02-nextclaw-v0-48-1"
+        }
+      },
+      {
+        "slug": "2026-09-01-nextclaw-v0-48-0",
+        "date": "2026-09-01",
+        "tags": [
+          "release",
+          "projects",
+          "desktop"
+        ],
+        "en": {
+          "title": "2026-09-01 · NextClaw v0.48.0",
+          "description": "Projects can now track work, artifacts, and AI progress over time, with desktop session reliability restored.",
+          "href": "/en/notes/2026-09-01-nextclaw-v0-48-0"
+        },
+        "zh": {
+          "title": "2026-09-01 · NextClaw v0.48.0",
+          "description": "项目现在可以持续追踪工作项、产物与 AI 进展，并修复桌面端会话故障。",
+          "href": "/zh/notes/2026-09-01-nextclaw-v0-48-0"
+        }
+      },
+      {
+        "slug": "2026-08-30-nextclaw-v0-47-0",
+        "date": "2026-08-30",
+        "tags": [
+          "release",
+          "apps",
+          "wasm",
+          "runtime"
+        ],
+        "en": {
+          "title": "2026-08-30 · NextClaw v0.47.0",
+          "description": "Portable Service Apps now have a complete capability, background-work, AI, and cross-platform verification loop.",
+          "href": "/en/notes/2026-08-30-nextclaw-v0-47-0"
+        },
+        "zh": {
+          "title": "2026-08-30 · NextClaw v0.47.0",
+          "description": "Portable Service Apps 现在具备完整的受控能力、长期任务、AI 调用和可验证的跨平台交付链路。",
+          "href": "/zh/notes/2026-08-30-nextclaw-v0-47-0"
+        }
+      },
+      {
+        "slug": "2026-08-30-nextclaw-v0-45-5",
+        "date": "2026-08-30",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-30 · NextClaw v0.45.5",
+          "description": "Fix production activity receipts being classified as development traffic.",
+          "href": "/en/notes/2026-08-30-nextclaw-v0-45-5"
+        },
+        "zh": {
+          "title": "2026-08-30 · NextClaw v0.45.5",
+          "description": "修复正式版匿名活跃数据被误归入开发环境的问题。",
+          "href": "/zh/notes/2026-08-30-nextclaw-v0-45-5"
+        }
+      },
+      {
+        "slug": "2026-08-29-nextclaw-v0-45-4",
+        "date": "2026-08-29",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-29 · NextClaw v0.45.4",
+          "description": "Load the Island theme background earlier and reuse it across refreshes.",
+          "href": "/en/notes/2026-08-29-nextclaw-v0-45-4"
+        },
+        "zh": {
+          "title": "2026-08-29 · NextClaw v0.45.4",
+          "description": "加快岛屿主题背景的首次显示和刷新加载。",
+          "href": "/zh/notes/2026-08-29-nextclaw-v0-45-4"
+        }
+      },
+      {
+        "slug": "2026-08-29-nextclaw-v0-45-3",
+        "date": "2026-08-29",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-29 · NextClaw v0.45.3",
+          "description": "Fix Agent runs stopping unexpectedly after 20 tool calls on upgraded installations.",
+          "href": "/en/notes/2026-08-29-nextclaw-v0-45-3"
+        },
+        "zh": {
+          "title": "2026-08-29 · NextClaw v0.45.3",
+          "description": "修复旧实例在 20 次工具调用后意外中止 Agent 任务的问题。",
+          "href": "/zh/notes/2026-08-29-nextclaw-v0-45-3"
+        }
+      },
+      {
+        "slug": "2026-08-29-nextclaw-v0-45-2",
+        "date": "2026-08-29",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-29 · NextClaw v0.45.2",
+          "description": "Fix Linux compatibility, first-install self-repair, and runner failure handling for Portable Service Apps.",
+          "href": "/en/notes/2026-08-29-nextclaw-v0-45-2"
+        },
+        "zh": {
+          "title": "2026-08-29 · NextClaw v0.45.2",
+          "description": "修复 Linux 上可移植 Service App 的系统兼容、首次安装自愈和异常退出问题。",
+          "href": "/zh/notes/2026-08-29-nextclaw-v0-45-2"
+        }
+      },
+      {
+        "slug": "2026-08-29-nextclaw-v0-45-1",
+        "date": "2026-08-29",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-29 · NextClaw v0.45.1",
+          "description": "Fix missing or non-executable Portable Service App runners on Linux, Windows, and macOS.",
+          "href": "/en/notes/2026-08-29-nextclaw-v0-45-1"
+        },
+        "zh": {
+          "title": "2026-08-29 · NextClaw v0.45.1",
+          "description": "修复 Linux、Windows 和 macOS 上可移植 Service App 缸运行器或不可执行的问题。",
+          "href": "/zh/notes/2026-08-29-nextclaw-v0-45-1"
+        }
+      },
+      {
+        "slug": "2026-08-28-nextclaw-v0-45-0",
+        "date": "2026-08-28",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-28 · NextClaw v0.45.0",
+          "description": "Build a Service App in Rust once and run it through NextClaw on macOS, Windows, and Linux.",
+          "href": "/en/notes/2026-08-28-nextclaw-v0-45-0"
+        },
+        "zh": {
+          "title": "2026-08-28 · NextClaw v0.45.0",
+          "description": "用 Rust 编写一次 Service App，并在 macOS、Windows 和 Linux 上由 NextClaw 统一运行。",
+          "href": "/zh/notes/2026-08-28-nextclaw-v0-45-0"
+        }
+      },
+      {
+        "slug": "2026-08-27-nextclaw-v0-44-1",
+        "date": "2026-08-27",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-27 · NextClaw v0.44.1",
+          "description": "Manage scheduled tasks, inspect model calls and token usage, and keep your reading position.",
+          "href": "/en/notes/2026-08-27-nextclaw-v0-44-1"
+        },
+        "zh": {
+          "title": "2026-08-27 · NextClaw v0.44.1",
+          "description": "在会话中管理定时任务、查看模型调用与 Token 用量，并保留准确的阅读位置。",
+          "href": "/zh/notes/2026-08-27-nextclaw-v0-44-1"
+        }
+      },
+      {
+        "slug": "2026-08-26-nextclaw-v0-44-0",
+        "date": "2026-08-26",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-26 · NextClaw v0.44.0",
+          "description": "Faster Markdown navigation, clearer session context, and more reliable mid-run steering.",
+          "href": "/en/notes/2026-08-26-nextclaw-v0-44-0"
+        },
+        "zh": {
+          "title": "2026-08-26 · NextClaw v0.44.0",
+          "description": "Markdown 长文浏览更快，会话侧栏信息更清楚，运行中插话也更稳定。",
+          "href": "/zh/notes/2026-08-26-nextclaw-v0-44-0"
+        }
+      },
+      {
+        "slug": "2026-08-25-nextclaw-v0-43-0",
+        "date": "2026-08-25",
+        "tags": [
+          "release",
+          "npm",
+          "desktop",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-25 · NextClaw v0.43.0",
+          "description": "Every AI run is traceable, with more reliable steering, child sessions, and long-chat queueing.",
+          "href": "/en/notes/2026-08-25-nextclaw-v0-43-0"
+        },
+        "zh": {
+          "title": "2026-08-25 · NextClaw v0.43.0",
+          "description": "每次 AI 运行都可追溯，插话、子会话和长会话排队也更稳定。",
+          "href": "/zh/notes/2026-08-25-nextclaw-v0-43-0"
+        }
+      },
+      {
+        "slug": "2026-08-24-nextclaw-v0-42-3",
+        "date": "2026-08-24",
+        "tags": [
+          "release",
+          "npm",
+          "desktop",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-24 · NextClaw v0.42.3",
+          "description": "Long-session compaction recovers from truncated summaries, with continuous attention, session reliability, and Desktop startup fixes.",
+          "href": "/en/notes/2026-08-24-nextclaw-v0-42-3"
+        },
+        "zh": {
+          "title": "2026-08-24 · NextClaw v0.42.3",
+          "description": "长会话压缩可以从截断中恢复，并新增持续关注、会话目录可靠性与 Desktop 启动修复。",
+          "href": "/zh/notes/2026-08-24-nextclaw-v0-42-3"
+        }
+      },
+      {
+        "slug": "2026-08-22-nextclaw-v0-42-2",
+        "date": "2026-08-22",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-22 · NextClaw v0.42.2",
+          "description": "Fixes built-in Service App requests on Windows Desktop, including installed and portable editions.",
+          "href": "/en/notes/2026-08-22-nextclaw-v0-42-2"
+        },
+        "zh": {
+          "title": "2026-08-22 · NextClaw v0.42.2",
+          "description": "修复 Windows 桌面端内置服务应用可能只显示“请重试”的问题，并覆盖安装版与便携版。",
+          "href": "/zh/notes/2026-08-22-nextclaw-v0-42-2"
+        }
+      },
+      {
+        "slug": "2026-08-21-nextclaw-v0-42-1",
+        "date": "2026-08-21",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-21 · NextClaw v0.42.1",
+          "description": "Fixes built-in desktop Service Apps when no system Node.js is installed and keeps failed requests machine-readable.",
+          "href": "/en/notes/2026-08-21-nextclaw-v0-42-1"
+        },
+        "zh": {
+          "title": "2026-08-21 · NextClaw v0.42.1",
+          "description": "修复桌面端内置服务应用在缺少系统 Node.js 时无法运行的问题，并让失败请求始终返回可识别的错误。",
+          "href": "/zh/notes/2026-08-21-nextclaw-v0-42-1"
+        }
+      },
+      {
+        "slug": "2026-08-21-nextclaw-v0-42-0",
+        "date": "2026-08-21",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-21 · NextClaw v0.42.0",
+          "description": "Refines sidebar pinned apps, app compatibility messaging, and publishes precompressed UI assets for faster static delivery after updates.",
+          "href": "/en/notes/2026-08-21-nextclaw-v0-42-0"
+        },
+        "zh": {
+          "title": "2026-08-21 · NextClaw v0.42.0",
+          "description": "发布侧边栏面板常驻入口重构、市场兼容性提示和 UI 资源预压缩能力，减少安装后冷启动静态加载耗时。",
+          "href": "/zh/notes/2026-08-21-nextclaw-v0-42-0"
+        }
+      },
+      {
+        "slug": "2026-08-20-nextclaw-v0-41-0",
+        "date": "2026-08-20",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-20 · NextClaw v0.41.0",
+          "description": "Adds opt-in, privacy-minimized product activity reporting and makes bundled Desktop apps reliable without a system Node installation.",
+          "href": "/en/notes/2026-08-20-nextclaw-v0-41-0"
+        },
+        "zh": {
+          "title": "2026-08-20 · NextClaw v0.41.0",
+          "description": "新增默认关闭的隐私友好型产品活跃统计，并让桌面端内置应用无需系统 Node 也能可靠运行。",
+          "href": "/zh/notes/2026-08-20-nextclaw-v0-41-0"
+        }
+      },
+      {
+        "slug": "2026-08-20-nextclaw-v0-40-1",
+        "date": "2026-08-20",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-20 · NextClaw v0.40.1",
+          "description": "Panel App main-sidebar management is now consistent across the list, running view, and pinned entry, with direct removal from the left sidebar.",
+          "href": "/en/notes/2026-08-20-nextclaw-v0-40-1"
+        },
+        "zh": {
+          "title": "2026-08-20 · NextClaw v0.40.1",
+          "description": "Panel App 的主侧栏管理现在在列表、运行态和左侧入口中保持一致，并可直接从左侧移除。",
+          "href": "/zh/notes/2026-08-20-nextclaw-v0-40-1"
+        }
+      },
+      {
+        "slug": "2026-08-20-nextclaw-v0-40-0",
+        "date": "2026-08-20",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-20 · NextClaw v0.40.0",
+          "description": "Tool-heavy sessions reopen up to about 6× faster, Panel Apps can live in the main sidebar, QQ delivery is more resilient, and runtime failures are traceable.",
+          "href": "/en/notes/2026-08-20-nextclaw-v0-40-0"
+        },
+        "zh": {
+          "title": "2026-08-20 · NextClaw v0.40.0",
+          "description": "大型工具会话重载最快约 6 倍，Panel App 可加入主侧栏，QQ 投递更可靠，运行故障也能沿日志证据排查。",
+          "href": "/zh/notes/2026-08-20-nextclaw-v0-40-0"
+        }
+      },
+      {
+        "slug": "2026-08-18-nextclaw-v0-39-2",
+        "date": "2026-08-18",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-18 · NextClaw v0.39.2",
+          "description": "NextClaw v0.39.2 fixes Marketplace Panel Apps failing to reopen after being pinned to the right sidebar.",
+          "href": "/en/notes/2026-08-18-nextclaw-v0-39-2"
+        },
+        "zh": {
+          "title": "2026-08-18 · NextClaw v0.39.2",
+          "description": "NextClaw v0.39.2 修复 Marketplace Panel App 固定到右侧边栏后无法再次打开的问题。",
+          "href": "/zh/notes/2026-08-18-nextclaw-v0-39-2"
+        }
+      },
+      {
+        "slug": "2026-08-18-nextclaw-v0-39-1",
+        "date": "2026-08-18",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-18 · NextClaw v0.39.1",
+          "description": "NextClaw v0.39.1 fixes native Service Apps losing execute permission after installation on Linux.",
+          "href": "/en/notes/2026-08-18-nextclaw-v0-39-1"
+        },
+        "zh": {
+          "title": "2026-08-18 · NextClaw v0.39.1",
+          "description": "NextClaw v0.39.1 修复 Linux 上原生 Service App 安装后无法执行的问题。",
+          "href": "/zh/notes/2026-08-18-nextclaw-v0-39-1"
+        }
+      },
+      {
+        "slug": "2026-08-18-nextclaw-v0-39-0",
+        "date": "2026-08-18",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-18 · NextClaw v0.39.0",
+          "description": "NextClaw v0.39.0 adds platform-aware publishing and installation for native Apps, with clear compatibility labels in the Marketplace.",
+          "href": "/en/notes/2026-08-18-nextclaw-v0-39-0"
+        },
+        "zh": {
+          "title": "2026-08-18 · NextClaw v0.39.0",
+          "description": "NextClaw v0.39.0 让原生 App 可以按平台发布和安装，并在应用市场中清楚显示支持范围。",
+          "href": "/zh/notes/2026-08-18-nextclaw-v0-39-0"
+        }
+      },
+      {
+        "slug": "2026-08-15-nextclaw-v0-37-0",
+        "date": "2026-08-15",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-15 · NextClaw v0.37.0",
+          "description": "NextClaw v0.37.0 makes active sessions easier to understand while improving continuous input, network recovery, and embedded browser controls.",
+          "href": "/en/notes/2026-08-15-nextclaw-v0-37-0"
+        },
+        "zh": {
+          "title": "2026-08-15 · NextClaw v0.37.0",
+          "description": "NextClaw v0.37.0 让会话运行状态更清楚，并提升连续输入、网络恢复与内嵌浏览器操作的可靠性。",
+          "href": "/zh/notes/2026-08-15-nextclaw-v0-37-0"
+        }
+      },
+      {
+        "slug": "2026-08-14-nextclaw-v0-36-2",
+        "date": "2026-08-14",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-14 · NextClaw v0.36.2",
+          "description": "NextClaw v0.36.2 hardens App data isolation and deletion recovery while keeping catalogs lightweight and management ownership clear.",
+          "href": "/en/notes/2026-08-14-nextclaw-v0-36-2"
+        },
+        "zh": {
+          "title": "2026-08-14 · NextClaw v0.36.2",
+          "description": "NextClaw v0.36.2 加固 App 数据隔离与删除恢复，让应用列表保持轻量，管理入口保持唯一。",
+          "href": "/zh/notes/2026-08-14-nextclaw-v0-36-2"
+        }
+      },
+      {
+        "slug": "2026-08-14-nextclaw-v0-36-1",
+        "date": "2026-08-14",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-14 · NextClaw v0.36.1",
+          "description": "NextClaw v0.36.1 keeps the UI, agents, and CLI on the same runtime after an update.",
+          "href": "/en/notes/2026-08-14-nextclaw-v0-36-1"
+        },
+        "zh": {
+          "title": "2026-08-14 · NextClaw v0.36.1",
+          "description": "NextClaw v0.36.1 修复更新后页面、Agent 和命令行版本不一致的问题。",
+          "href": "/zh/notes/2026-08-14-nextclaw-v0-36-1"
+        }
+      },
+      {
+        "slug": "2026-08-14-nextclaw-v0-36-0",
+        "date": "2026-08-14",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-14 · NextClaw v0.36.0",
+          "description": "NextClaw v0.36.0 completes the app-data lifecycle with visible storage, data-preserving uninstall, recovery, and explicit permanent deletion.",
+          "href": "/en/notes/2026-08-14-nextclaw-v0-36-0"
+        },
+        "zh": {
+          "title": "2026-08-14 · NextClaw v0.36.0",
+          "description": "NextClaw v0.36.0 补齐 App 数据的查看、保留、恢复和永久删除，让卸载不再等于在文件系统里留下无法管理的目录。",
+          "href": "/zh/notes/2026-08-14-nextclaw-v0-36-0"
+        }
+      },
+      {
+        "slug": "2026-08-14-nextclaw-v0-35-0",
+        "date": "2026-08-14",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-14 · NextClaw v0.35.0",
+          "description": "NextClaw v0.35.0 adds isolated app-instance storage, candidate probing, and truthful permission labels so installs, updates, and uninstalls are dependable over time.",
+          "href": "/en/notes/2026-08-14-nextclaw-v0-35-0"
+        },
+        "zh": {
+          "title": "2026-08-14 · NextClaw v0.35.0",
+          "description": "NextClaw v0.35.0 为 Apps 增加独立实例存储、候选版本探测和真实权限标识，让安装、更新与卸载达到长期可用级别。",
+          "href": "/zh/notes/2026-08-14-nextclaw-v0-35-0"
+        }
+      },
+      {
+        "slug": "2026-08-13-nextclaw-v0-33-2",
+        "date": "2026-08-13",
+        "tags": [
+          "release",
+          "apps",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-13 · NextClaw v0.33.2",
+          "description": "NextClaw v0.33.2 fixes app update errors and turns Personal Space todos and calendar into practical everyday Mini Apps.",
+          "href": "/en/notes/2026-08-13-nextclaw-v0-33-2"
+        },
+        "zh": {
+          "title": "2026-08-13 · NextClaw v0.33.2",
+          "description": "NextClaw v0.33.2 修复应用检查更新报错，并把个人空间的待办和日历升级为可日常使用的 Mini APP。",
+          "href": "/zh/notes/2026-08-13-nextclaw-v0-33-2"
+        }
+      },
+      {
+        "slug": "2026-08-13-nextclaw-v0-33-1",
+        "date": "2026-08-13",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-13 · NextClaw v0.33.1",
+          "description": "NextClaw v0.33.1 fixes Linux in-app updates that did not restart the service and left the running version unchanged.",
+          "href": "/en/notes/2026-08-13-nextclaw-v0-33-1"
+        },
+        "zh": {
+          "title": "2026-08-13 · NextClaw v0.33.1",
+          "description": "NextClaw v0.33.1 修复 Linux 服务器从页面更新后没有自动重新启动、版本仍停在旧版的问题。",
+          "href": "/zh/notes/2026-08-13-nextclaw-v0-33-1"
+        }
+      },
+      {
+        "slug": "2026-08-13-nextclaw-v0-33-0",
+        "date": "2026-08-13",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-13 · NextClaw v0.33.0",
+          "description": "NextClaw v0.33.0 scales app discovery and turns installs, updates, rollbacks, and uninstalls into background operations you can leave behind.",
+          "href": "/en/notes/2026-08-13-nextclaw-v0-33-0"
+        },
+        "zh": {
+          "title": "2026-08-13 · NextClaw v0.33.0",
+          "description": "NextClaw v0.33.0 让应用市场能够随生态规模增长，并把安装、更新、回滚和卸载变成可离开的后台操作。",
+          "href": "/zh/notes/2026-08-13-nextclaw-v0-33-0"
+        }
+      },
+      {
+        "slug": "2026-08-12-nextclaw-v0-32-0",
+        "date": "2026-08-12",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-12 · NextClaw v0.32.0",
+          "description": "NextClaw v0.32.0 introduces installable, manageable Mini Apps and the first Personal Space bundle with Todos, Markdown Notes, Favorites, and Calendar.",
+          "href": "/en/notes/2026-08-12-nextclaw-v0-32-0"
+        },
+        "zh": {
+          "title": "2026-08-12 · NextClaw v0.32.0",
+          "description": "NextClaw v0.32.0 推出可安装、可管理的 Mini App 体系，并首发包含待办、Markdown 笔记、收藏与日历的“个人空间”。",
+          "href": "/zh/notes/2026-08-12-nextclaw-v0-32-0"
+        }
+      },
+      {
+        "slug": "2026-08-11-nextclaw-v0-31-0",
+        "date": "2026-08-11",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-11 · NextClaw v0.31.0",
+          "description": "NextClaw v0.31.0 adds a project Explorer that stays beside file previews, plus stronger message recovery, selection controls, and startup guards.",
+          "href": "/en/notes/2026-08-11-nextclaw-v0-31-0"
+        },
+        "zh": {
+          "title": "2026-08-11 · NextClaw v0.31.0",
+          "description": "NextClaw v0.31.0 加入与文件预览连续协作的项目文件 Explorer，并增强消息恢复、选择操作与启动阶段保护。",
+          "href": "/zh/notes/2026-08-11-nextclaw-v0-31-0"
+        }
+      },
+      {
+        "slug": "2026-08-10-nextclaw-v0-30-0",
+        "date": "2026-08-10",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-10 · NextClaw v0.30.0",
+          "description": "NextClaw v0.30.0 starts unused messaging channels on demand to reduce idle memory, while adding conversation excerpt references, richer media previews, and better model discovery.",
+          "href": "/en/notes/2026-08-10-nextclaw-v0-30-0"
+        },
+        "zh": {
+          "title": "2026-08-10 · NextClaw v0.30.0",
+          "description": "NextClaw v0.30.0 让未启用的消息渠道按需运行，显著降低空闲内存，同时加入会话片段引用、更完整的媒体预览和模型发现体验。",
+          "href": "/zh/notes/2026-08-10-nextclaw-v0-30-0"
+        }
+      },
+      {
+        "slug": "2026-08-08-nextclaw-v0-29-0",
+        "date": "2026-08-08",
+        "tags": [
+          "release",
+          "npm",
+          "minor"
+        ],
+        "en": {
+          "title": "2026-08-08 · NextClaw v0.29.0",
+          "description": "NextClaw v0.29.0 keeps long tasks moving with automatic context compaction, message continuation, workspace file references, and provider model discovery.",
+          "href": "/en/notes/2026-08-08-nextclaw-v0-29-0"
+        },
+        "zh": {
+          "title": "2026-08-08 · NextClaw v0.29.0",
+          "description": "NextClaw v0.29.0 让长任务可以自动压缩上下文并继续执行，同时加入消息续跑、工作区文件引用和提供商模型发现。",
+          "href": "/zh/notes/2026-08-08-nextclaw-v0-29-0"
+        }
+      },
+      {
+        "slug": "2026-08-07-nextclaw-v0-28-2",
+        "date": "2026-08-07",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-07 · NextClaw v0.28.2",
+          "description": "NextClaw v0.28.2 completes fresh-install onboarding with packaged workspace templates and accurate zero-key guidance.",
+          "href": "/en/notes/2026-08-07-nextclaw-v0-28-2"
+        },
+        "zh": {
+          "title": "2026-08-07 · NextClaw v0.28.2",
+          "description": "NextClaw v0.28.2 补齐全新安装的工作区模板与零密钥引导，让开箱即用体验从第一步就保持一致。",
+          "href": "/zh/notes/2026-08-07-nextclaw-v0-28-2"
+        }
+      },
+      {
+        "slug": "2026-08-07-nextclaw-v0-28-1",
+        "date": "2026-08-07",
+        "tags": [
+          "release",
+          "npm",
+          "patch"
+        ],
+        "en": {
+          "title": "2026-08-07 · NextClaw v0.28.1",
+          "description": "NextClaw v0.28.1 lets fresh installations start chatting without an API key and improves chat input, sidebar navigation, and message rendering.",
+          "href": "/en/notes/2026-08-07-nextclaw-v0-28-1"
+        },
+        "zh": {
+          "title": "2026-08-07 · NextClaw v0.28.1",
+          "description": "NextClaw v0.28.1 让全新安装无需 API Key 即可开始聊天，并改进聊天输入、侧栏导航与消息显示体验。",
+          "href": "/zh/notes/2026-08-07-nextclaw-v0-28-1"
+        }
+      },
       {
         "slug": "2026-08-06-nextclaw-v0-28-0",
         "date": "2026-08-06",
@@ -2052,9 +2919,9 @@ export default {
   },
   "meta": {
     "locProfile": "source",
-    "locGeneratedAt": "2026-08-05T05:24:33.625Z",
+    "locGeneratedAt": "2026-09-07T07:17:14.639Z",
     "sourceCount": {
-      "notes": 27,
+      "notes": 64,
       "scopes": 8
     }
   }

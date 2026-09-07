@@ -9,7 +9,7 @@ import {
   Search,
 } from "lucide-react";
 
-import { PageLayout } from "@/app/components/layout/page-layout";
+import { PageHeader, PageLayout } from "@/app/components/layout/page-layout";
 import { usePresenter } from "@/features/chat";
 import { CronJobDetailDialog } from "@/features/cron/components/cron-job-detail-dialog";
 import { CronJobRow } from "@/features/cron/components/cron-job-row";
@@ -17,21 +17,16 @@ import {
   CronTaskComposer,
   CronTemplateGallery,
 } from "@/features/cron/components/cron-task-discovery";
-import {
-  useCronJobs,
-  useDeleteCronJob,
-  useRunCronJob,
-  useToggleCronJob,
-} from "@/features/cron/hooks/use-cron-jobs";
+import { useCronJobs } from "@/features/cron/hooks/use-cron-jobs";
+import { useCronJobActions } from "@/features/cron/hooks/use-cron-job-actions";
 import { Button } from "@/shared/components/ui/button";
+import { IconActionButton } from "@/shared/components/ui/actions/icon-action-button";
 import { Input } from "@/shared/components/ui/input";
 import type {
   CronJobView,
   CronListStatus,
   CronListSummaryView,
 } from "@/shared/lib/api";
-import { describeCronSession } from "@/shared/lib/cron";
-import { useConfirmDialog } from "@/shared/hooks/use-confirm-dialog";
 import { t } from "@/shared/lib/i18n";
 import { cn } from "@/shared/lib/utils";
 
@@ -167,10 +162,7 @@ export function CronConfig() {
     query: deferredQuery,
     status,
   });
-  const deleteCronJob = useDeleteCronJob();
-  const toggleCronJob = useToggleCronJob();
-  const runCronJob = useRunCronJob();
-  const { confirm, ConfirmDialog } = useConfirmDialog();
+  const cronActions = useCronJobActions();
   const jobs = cronQuery.data?.jobs ?? [];
   const total = cronQuery.data?.total ?? 0;
   const summary = cronQuery.data?.summary;
@@ -190,50 +182,28 @@ export function CronConfig() {
     composerRef.current?.focus();
   };
 
-  const handleDelete = async (job: CronJobView) => {
-    const confirmed = await confirm({
-      title: `${t("cronDeleteConfirm")}?`,
-      description: job.name ? `${job.name} (${job.id})` : job.id,
-      variant: "destructive",
-      confirmLabel: t("delete"),
+  const handleDelete = (job: CronJobView) => {
+    void cronActions.deleteJob(job, () => {
+      setExpandedJobId(null);
+      setSelectedJobId(null);
+      if (jobs.length === 1 && page > 0) {
+        setPage(page - 1);
+      }
     });
-    if (!confirmed) {
-      return;
-    }
-    setExpandedJobId(null);
-    setSelectedJobId(null);
-    if (jobs.length === 1 && page > 0) {
-      setPage(page - 1);
-    }
-    deleteCronJob.mutate({ id: job.id });
   };
 
   const handleToggle = (job: CronJobView, enabled: boolean) => {
-    const leavesCurrentFilter =
-      (status === "enabled" && !enabled) || (status === "disabled" && enabled);
-    if (leavesCurrentFilter && jobs.length === 1 && page > 0) {
-      setPage(page - 1);
-    }
-    toggleCronJob.mutate({ id: job.id, enabled });
-  };
-
-  const handleRun = async (job: CronJobView) => {
-    const force = !job.enabled;
-    if (force) {
-      const confirmed = await confirm({
-        title: `${t("cronRunForceConfirm")}?`,
-        description: job.name ? `${job.name} (${job.id})` : job.id,
-        confirmLabel: t("cronRunNow"),
-      });
-      if (!confirmed) {
-        return;
+    void cronActions.toggleJob(job, enabled, () => {
+      const leavesCurrentFilter =
+        (status === "enabled" && !enabled) || (status === "disabled" && enabled);
+      if (leavesCurrentFilter && jobs.length === 1 && page > 0) {
+        setPage(page - 1);
       }
-    }
-    runCronJob.mutate({ id: job.id, force });
+    });
   };
 
-  const handleOpenSession = (job: CronJobView) => {
-    presenter.chatSessionListManager.selectSession(describeCronSession(job));
+  const handleRun = (job: CronJobView) => {
+    void cronActions.runJob(job);
   };
 
   const handlePageChange = (nextPage: number) => {
@@ -248,24 +218,20 @@ export function CronConfig() {
   const hasTasks = (summary?.total ?? 0) > 0;
 
   return (
-    <PageLayout className="space-y-7">
-      <header className="flex items-start justify-between gap-6 pt-2">
-        <div>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
-            {t("cronWorkspaceEyebrow")}
-          </div>
-          <h1 className="text-3xl font-semibold tracking-[-0.035em] text-foreground sm:text-4xl">
-            {t("cronPageTitle")}
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {t("cronPageDescription")}
-          </p>
-        </div>
-        <div className="pt-5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+    <PageLayout className="space-y-6">
+      <PageHeader
+        headingLevel={1}
+        title={t("cronPageTitle")}
+        description={t("cronPageDescription")}
+        actions={(
+          <IconActionButton
+            size="lg"
+            label={t("refresh")}
+            icon={(
+              <RefreshCw
+                className={cn("h-4 w-4", cronQuery.isFetching && "animate-spin")}
+              />
+            )}
             onClick={() => {
               if (page === 0) {
                 setExpandedJobId(null);
@@ -274,14 +240,9 @@ export function CronConfig() {
                 handlePageChange(0);
               }
             }}
-            aria-label={t("refresh")}
-          >
-            <RefreshCw
-              className={cn("h-4 w-4", cronQuery.isFetching && "animate-spin")}
-            />
-          </Button>
-        </div>
-      </header>
+          />
+        )}
+      />
 
       {hasTasks ? (
         <CronTaskComposer
@@ -456,11 +417,10 @@ export function CronConfig() {
           }
         }}
         onDelete={handleDelete}
-        onOpenSession={handleOpenSession}
         onRun={handleRun}
         onToggle={handleToggle}
       />
-      <ConfirmDialog />
+      <cronActions.ConfirmDialog />
     </PageLayout>
   );
 }

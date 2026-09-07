@@ -10,17 +10,21 @@ import {
   resolveConfigSecrets,
   saveConfig,
   type Config,
+  type DiagnosticRuntime,
   type ExtensionRegistry,
 } from "@nextclaw/core";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { classifyDiagnosticError } from "@nextclaw/shared";
 import type { ChannelManager } from "./channel.manager.js";
 import type { LlmProviderManager } from "./llm-provider.manager.js";
+import type { ProviderModelCatalogManager } from "./provider-model-catalog.manager.js";
 
 export type ConfigManagerRuntimeHooks = {
   resolveChannelConfig?: (config: Config) => Config;
   getExtensionChannels?: () => ExtensionRegistry["channels"];
   applyAgentRuntimeConfig?: (config: Config) => void;
+  reloadExtensions?: (params: { config: Config; changedPaths: string[] }) => Promise<void> | void;
   reloadCompanion?: (params: { config: Config; changedPaths: string[] }) => Promise<void> | void;
   reloadMcp?: (params: { config: Config; changedPaths: string[] }) => Promise<void> | void;
   onRestartRequired?: (paths: string[]) => void;
@@ -29,7 +33,9 @@ export type ConfigManagerRuntimeHooks = {
 export type ConfigManagerOptions = {
   configPath?: string;
   channels: ChannelManager;
+  diagnostics?: Pick<DiagnosticRuntime, "record">;
   providerManager: LlmProviderManager;
+  providerModelCatalogManager?: Pick<ProviderModelCatalogManager, "load">;
 };
 
 export type ConfigMutationResult = Record<string, unknown> & { ok: boolean; error?: string };
@@ -68,6 +74,7 @@ export class ConfigManager {
     this.configPath = options.configPath ?? getConfigPath();
     this.currentConfig = this.loadConfig();
     this.options.providerManager.load(this.currentConfig);
+    this.options.providerModelCatalogManager?.load(this.currentConfig);
     this.options.channels.load({
       channelConfig: this.resolveChannelConfig(this.currentConfig),
       extensionChannels: this.resolveExtensionChannels(),
@@ -89,8 +96,30 @@ export class ConfigManager {
     return typeof value === "number" ? Math.trunc(value) : undefined;
   };
 
-  installRuntimeHooks = (hooks: ConfigManagerRuntimeHooks): void => {
+  installRuntimeHooks = (hooks: ConfigManagerRuntimeHooks): (() => void) => {
+    const previousHooks = new Map<
+      keyof ConfigManagerRuntimeHooks,
+      ConfigManagerRuntimeHooks[keyof ConfigManagerRuntimeHooks]
+    >();
+    for (const key of Object.keys(hooks) as Array<keyof ConfigManagerRuntimeHooks>) {
+      previousHooks.set(key, this.hooks[key]);
+    }
     this.hooks = { ...this.hooks, ...hooks };
+    return () => {
+      const nextHooks = { ...this.hooks };
+      for (const key of Object.keys(hooks) as Array<keyof ConfigManagerRuntimeHooks>) {
+        if (nextHooks[key] !== hooks[key]) {
+          continue;
+        }
+        const previous = previousHooks.get(key);
+        if (previous === undefined) {
+          delete nextHooks[key];
+        } else {
+          Object.assign(nextHooks, { [key]: previous });
+        }
+      }
+      this.hooks = nextHooks;
+    };
   };
 
   applyLiveConfigReload = async (): Promise<void> => {
@@ -102,38 +131,98 @@ export class ConfigManager {
     if (!changedPaths.length) {
       return;
     }
-    this.currentConfig = nextConfig;
     const plan = buildReloadPlan(changedPaths);
+    const correlationId = randomUUID();
+    const startedAt = Date.now();
+    this.recordConfigEvent("apply.started", "started", correlationId, {
+      changedPathCount: changedPaths.length,
+      restartRequiredCount: plan.restartRequired.length,
+    });
+    try {
+      this.currentConfig = nextConfig;
+      if (plan.reloadMcp) {
+        await this.reloadMcp({
+          config: nextConfig,
+          changedPaths,
+        });
+        this.recordConfigEvent("mcp.applied", "succeeded", correlationId);
+      }
+      if (plan.reloadCompanion) {
+        await this.reloadCompanion({
+          config: nextConfig,
+          changedPaths,
+        });
+        this.recordConfigEvent("companion.applied", "succeeded", correlationId);
+      }
+      if (plan.restartChannels) {
+        await this.hooks.reloadExtensions?.({
+          config: nextConfig,
+          changedPaths,
+        });
+        await this.rebuildChannels(nextConfig, { start: true });
+        this.recordConfigEvent("channels.applied", "succeeded", correlationId);
+      }
+      if (plan.reloadProviders) {
+        await this.reloadProvider(nextConfig);
+        this.recordConfigEvent("providers.applied", "succeeded", correlationId);
+      }
+      if (plan.reloadAgent) {
+        this.hooks.applyAgentRuntimeConfig?.(nextConfig);
+        this.recordConfigEvent("agent-defaults.applied", "succeeded", correlationId);
+      }
+      if (plan.restartRequired.length > 0) {
+        this.hooks.onRestartRequired?.(plan.restartRequired);
+      }
+      this.recordConfigEvent("apply.completed", "succeeded", correlationId, {
+        changedPathCount: changedPaths.length,
+        restartRequiredCount: plan.restartRequired.length,
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (error) {
+      const classification = classifyDiagnosticError(error);
+      this.recordConfigEvent(
+        classification.outcome === "cancelled" ? "apply.cancelled" : "apply.failed",
+        classification.outcome,
+        correlationId,
+        {
+        changedPathCount: changedPaths.length,
+        durationMs: Date.now() - startedAt,
+        reasonCode: classification.reasonCode,
+        providerCode: classification.providerCode,
+        facts: classification.facts,
+      });
+      throw error;
+    }
+  };
 
-    if (plan.reloadMcp) {
-      await this.reloadMcp({
-        config: nextConfig,
-        changedPaths,
-      });
-      console.log("Config reload: MCP servers reloaded.");
-    }
-    if (plan.reloadCompanion) {
-      await this.reloadCompanion({
-        config: nextConfig,
-        changedPaths,
-      });
-      console.log("Config reload: companion setting applied.");
-    }
-    if (plan.restartChannels) {
-      await this.rebuildChannels(nextConfig, { start: true });
-      console.log("Config reload: channels restarted.");
-    }
-    if (plan.reloadProviders) {
-      await this.reloadProvider(nextConfig);
-      console.log("Config reload: provider settings applied.");
-    }
-    if (plan.reloadAgent) {
-      this.hooks.applyAgentRuntimeConfig?.(nextConfig);
-      console.log("Config reload: agent defaults applied.");
-    }
-    if (plan.restartRequired.length > 0) {
-      this.hooks.onRestartRequired?.(plan.restartRequired);
-    }
+  private recordConfigEvent = (
+    event: string,
+    outcome: "started" | "succeeded" | "cancelled" | "failed",
+    correlationId: string,
+    details: {
+      changedPathCount?: number;
+      restartRequiredCount?: number;
+      durationMs?: number;
+      reasonCode?: string;
+      providerCode?: string;
+      facts?: Record<string, string | number | boolean | null>;
+    } = {},
+  ): void => {
+    this.options.diagnostics?.record({
+      domain: "config.apply",
+      event,
+      component: "kernel.config-manager",
+      outcome,
+      correlationId,
+      durationMs: details.durationMs,
+      reasonCode: details.reasonCode,
+      providerCode: details.providerCode,
+      facts: {
+        ...(details.changedPathCount !== undefined ? { changedPathCount: details.changedPathCount } : {}),
+        ...(details.restartRequiredCount !== undefined ? { restartRequiredCount: details.restartRequiredCount } : {}),
+        ...(details.facts ?? {}),
+      },
+    });
   };
 
   getConfigSnapshot = (params: { version?: string } = {}): Record<string, unknown> => {
@@ -169,7 +258,7 @@ export class ConfigManager {
     }, 300);
   };
 
-  runReload = async (reason: string): Promise<void> => {
+  runReload = async (_reason: string): Promise<void> => {
     if (this.reloadRunning) {
       this.reloadPending = true;
       return;
@@ -181,8 +270,8 @@ export class ConfigManager {
     }
     try {
       await this.applyLiveConfigReload();
-    } catch (error) {
-      console.error(`Config reload failed (${reason}): ${String(error)}`);
+    } catch {
+      // applyReloadPlan records the structured failure and runReload keeps the watcher alive.
     } finally {
       this.reloadRunning = false;
       if (this.reloadPending) {
@@ -229,6 +318,7 @@ export class ConfigManager {
     }
     this.providerReloadTask = (async () => {
       this.options.providerManager.load(nextConfig);
+      this.options.providerModelCatalogManager?.load(nextConfig);
     })();
     try {
       await this.providerReloadTask;
@@ -375,7 +465,7 @@ export class ConfigManager {
             required: true as const,
             automatic: false as const,
             changedPaths: [...plan.restartRequired],
-            message: `Config saved. Restart manually to apply: ${plan.restartRequired.join(", ")}.`,
+            message: `Config saved. Run nextclaw restart in an external terminal to apply: ${plan.restartRequired.join(", ")}.`,
           }
         : null;
     const message =
@@ -383,8 +473,8 @@ export class ConfigManager {
         ? "Config already matched the requested state."
         : pendingRestart
           ? changedPaths.length > plan.restartRequired.length
-            ? "Config saved. Supported changes were applied immediately; restart manually to apply the rest."
-            : "Config saved. Restart manually to apply changes."
+            ? "Config saved. Supported changes were applied immediately; run nextclaw restart in an external terminal to apply the rest."
+            : "Config saved. Run nextclaw restart in an external terminal to apply changes."
           : "Config saved and applied.";
 
     return {

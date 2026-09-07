@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatSessionWorkspacePanel } from "@/features/chat/features/workspace/components/chat-session-workspace-panel";
+import { WorkspaceTabsBar } from "@/features/chat/features/workspace/components/chat-session-workspace-panel-nav";
 import type { ChatWorkspaceFileTab } from "@/features/chat/stores/chat-thread.store";
 import type * as ReactQuery from "@tanstack/react-query";
 
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   closeWorkspacePanel: vi.fn(),
   setWorkspacePanelWidth: vi.fn(),
   invalidateQueries: vi.fn(),
+  requestFileReference: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
@@ -28,6 +30,9 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
 vi.mock("@/features/chat/components/providers/chat-presenter.provider", () => ({
   usePresenter: () => ({
     chatThreadManager: mocks,
+    chatComposerIntentManager: {
+      requestFileReference: mocks.requestFileReference,
+    },
   }),
 }));
 
@@ -77,7 +82,7 @@ function renderPanel(displayMode: "docked" | "overlay" = "docked") {
       workspaceNavigationHistoryIndex={0}
       activePanelKind="file"
       sessionCronJobs={[]}
-      sessionProjectRoot={null}
+      sessionProjectRoot="/workspace"
       sessionWorkingDir={null}
       displayMode={displayMode}
     />,
@@ -96,7 +101,7 @@ describe("ChatSessionWorkspacePanel", () => {
     await user.click(screen.getByRole("button", { name: "Refresh preview" }));
 
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["server-path-read", "README.md", null],
+      queryKey: ["server-path-read", "README.md", null, null],
     });
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["server-path-browse", "README.md", "", true],
@@ -108,12 +113,57 @@ describe("ChatSessionWorkspacePanel", () => {
     ).toBe("1");
   });
 
+  it("shows more actions for a child-session workspace tab", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkspaceTabsBar
+        canGoBack={false}
+        canGoForward={false}
+        tabs={[
+          {
+            key: "child:child-1",
+            kind: "child-session",
+            title: "Child session",
+            tooltip: "Child session",
+            active: true,
+            sessionKey: "child-1",
+            onSelect: vi.fn(),
+          },
+        ]}
+        onClose={vi.fn()}
+        onGoBack={vi.fn()}
+        onGoForward={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+
+    expect(screen.getByRole("menuitem", { name: "Copy session ID" })).toBeTruthy();
+  });
+
+  it("adds an opened project file to the active chat from its action menu", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(
+      screen.getByRole("button", { name: "File actions" }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Add to chat" }));
+
+    expect(mocks.requestFileReference).toHaveBeenCalledWith({
+      targetSessionKey: "session-1",
+      tokenKey: "README.md",
+      label: "README.md",
+    });
+  });
+
   it("maximizes and restores the docked workspace panel within its container", async () => {
     const user = userEvent.setup();
     renderPanel();
 
     const panel = screen.getByTestId("chat-session-workspace-panel");
     expect(panel.className).not.toContain("absolute");
+    expect(panel.getAttribute("data-theme-surface")).toBe("workspace-panel");
 
     await user.click(
       screen.getByRole("button", { name: "Maximize workspace panel" }),

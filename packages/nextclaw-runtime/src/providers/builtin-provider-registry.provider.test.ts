@@ -23,4 +23,32 @@ describe('@nextclaw/runtime module boundary', () => {
       'mimo/mimo-v2.5': { vision: true }
     });
   });
+
+  it('exposes OpenCode Zen anonymous free-trial defaults', async () => {
+    const runtime = await import('./builtin-provider-registry.provider.js');
+
+    const opencode = runtime.findBuiltinProviderByName('opencode');
+
+    assert.equal(opencode?.defaultApiBase, 'https://opencode.ai/zen/v1');
+    assert.equal(opencode?.anonymousApiKey, 'public');
+    assert.equal(opencode?.defaultWireApi, 'chat');
+    assert.equal(opencode?.supportsResponsesApi, false);
+    assert.deepEqual(opencode?.defaultModels, [
+      'opencode/big-pickle',
+      'opencode/deepseek-v4-flash-free',
+      'opencode/mimo-v2.5-free',
+      'opencode/laguna-s-2.1-free',
+      'opencode/longcat-2.0-free',
+      'opencode/north-mini-code-free',
+      'opencode/nemotron-3-ultra-free'
+    ]);
+  });
+
+  it('declares the DeepSeek chat-completions thinking control', async () => {
+    const runtime = await import('./builtin-provider-registry.provider.js');
+
+    const deepseek = runtime.findBuiltinProviderByName('deepseek');
+
+    assert.equal(deepseek?.chatCompletionsThinkingControl, 'thinking-type');
+  });
 });

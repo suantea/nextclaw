@@ -55,6 +55,7 @@ export class ContextWindowBudgetService {
 
   evaluate = (params: {
     contextTokens: number;
+    fixedInputTokens?: number;
     messages: RuntimeMessage[];
     reservedContextTokens: number;
   }): ContextWindowBudgetEvaluation => {
@@ -63,6 +64,7 @@ export class ContextWindowBudgetService {
     const prepared = this.inputBudgetPruner.prepareForBudget({
       messages: params.messages.map(stripToModelInputMessage),
       contextTokens,
+      fixedInputTokens: params.fixedInputTokens,
       reserveTokensFloor: reservedContextTokens,
       softThresholdTokens: 0,
     });
@@ -75,7 +77,7 @@ export class ContextWindowBudgetService {
   };
 }
 
-function stripToModelInputMessage(message: RuntimeMessage): RuntimeMessage {
+export function stripToModelInputMessage(message: RuntimeMessage): RuntimeMessage {
   const modelMessage: RuntimeMessage = {};
   for (const field of MODEL_MESSAGE_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(message, field)) {

@@ -1,0 +1,124 @@
+name: npm-release-prepare
+run-name: npm-release-prepare source=${{ inputs.source_sha || github.sha }} dispatch=${{ inputs.dispatch_id || 'push' }}
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: "Exact source commit to prepare"
+        required: true
+        type: string
+      dispatch_id:
+        description: "Unique caller identity for recovery dispatches"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: npm-release-prepare-${{ inputs.source_sha || github.sha }}
+  cancel-in-progress: false
+
+env:
+  NPM_RELEASE_SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+
+jobs:
+  prepare:
+    name: prepare exact-commit NPM artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      ready: ${{ steps.release-batch.outputs.ready }}
+      target_version: ${{ steps.release-identity.outputs.target_version }}
+    steps:
+      - name: Checkout exact source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.NPM_RELEASE_SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Bind checkout to master
+        run: |
+          git switch -C master "$NPM_RELEASE_SOURCE_SHA"
+          git branch --set-upstream-to=origin/master master
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Detect a releasable NPM batch
+        id: release-batch
+        shell: bash
+        run: |
+          if pnpm release:auto:changeset --check; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "No releasable public package drift exists at $NPM_RELEASE_SOURCE_SHA."
+          fi
+
+      - name: Prepare immutable release tree and tarballs
+        if: steps.release-batch.outputs.ready == 'true'
+        run: >-
+          pnpm release:npm:prepare --
+          --branch master
+          --target-branch master
+          --artifact-output "${{ runner.temp }}/npm-release-prepared"
+
+      - name: Read prepared release identity
+        if: steps.release-batch.outputs.ready == 'true'
+        id: release-identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_version="$(jq -r '.targetVersion' "${{ runner.temp }}/npm-release-prepared/artifact.json")"
+          test -n "$target_version"
+          test "$target_version" != "null"
+          echo "target_version=$target_version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact-commit prepared artifact
+        if: steps.release-batch.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-release-prepared-${{ env.NPM_RELEASE_SOURCE_SHA }}
+          if-no-files-found: error
+          retention-days: 7
+          path: ${{ runner.temp }}/npm-release-prepared
+
+  prepare-runtime:
+    name: prepare exact-commit Runtime artifacts
+    needs: prepare
+    if: ${{ needs.prepare.outputs.ready == 'true' }}
+    permissions:
+      actions: read
+      contents: write
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/npm-runtime-update-release.yml
+    with:
+      channel: stable
+      dispatch_id: prepare-${{ inputs.source_sha || github.sha }}
+      prepared_npm_artifact_name: npm-release-prepared-${{ inputs.source_sha || github.sha }}
+      prepared_source_sha: ${{ inputs.source_sha || github.sha }}
+      publish: false
+      release_tag: nextclaw@${{ needs.prepare.outputs.target_version }}
+      release_target: ${{ inputs.source_sha || github.sha }}
+    secrets: inherit

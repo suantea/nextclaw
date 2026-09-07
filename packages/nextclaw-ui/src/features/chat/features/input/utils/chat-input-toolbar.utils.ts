@@ -7,27 +7,76 @@ import type {
   ChatModelRecord,
   ChatThinkingLevel,
 } from "@/features/chat/types/chat-input-bar.types";
+import type { ChatModelOption } from "@/features/chat/types/chat-input.types";
+import { resolveSelectableThinkingLevels } from "@/shared/lib/provider-models";
+
+/**
+ * Extract the short model name by stripping the provider prefix.
+ * "openai/gpt-5" → "gpt-5", "minimax/MiniMax-M3" → "MiniMax-M3"
+ */
+export function toModelShortLabel(value: string): string {
+  if (!value) return value;
+  const slashIndex = value.lastIndexOf('/');
+  return slashIndex >= 0 ? value.slice(slashIndex + 1) : value;
+}
+
+/**
+ * Group model values by provider prefix.
+ * Values without "/" go into a "其他" bucket.
+ */
+export function groupModelValues(values: readonly string[]): Array<{ provider: string; items: string[] }> {
+  const groups = new Map<string, string[]>();
+  for (const value of values) {
+    const slashIndex = value.indexOf('/');
+    const provider = slashIndex > 0 ? value.slice(0, slashIndex) : '其他';
+    const items = groups.get(provider);
+    if (items) {
+      items.push(value);
+    } else {
+      groups.set(provider, [value]);
+    }
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([provider, items]) => ({ provider, items: items.sort() }));
+}
 
 function formatModelOptionLabel(option: ChatModelRecord): string {
   const modelLabel = option.modelLabel.trim();
   const providerLabel = option.providerLabel.trim();
   return providerLabel ? `${providerLabel}/${modelLabel}` : modelLabel;
 }
-
-function normalizeThinkingLevels(
-  levels: ChatThinkingLevel[],
-): ChatThinkingLevel[] {
-  const deduped: ChatThinkingLevel[] = [];
-  for (const level of ["off", ...levels] as ChatThinkingLevel[]) {
-    if (!deduped.includes(level)) {
-      deduped.push(level);
-    }
+function buildDiscoveredModelGroups(options: ChatModelRecord[]) {
+  const groups = new Map<string, { key: string; label: string; options: Array<{ value: string; label: string }> }>();
+  for (const option of options) {
+    const separatorIndex = option.value.indexOf('/');
+    const providerKey = separatorIndex > 0 ? option.value.slice(0, separatorIndex) : option.providerLabel;
+    const group = groups.get(providerKey) ?? {
+      key: providerKey,
+      label: option.providerLabel,
+      options: [],
+    };
+    group.options.push({ value: option.value, label: option.modelLabel });
+    groups.set(providerKey, group);
   }
-  return deduped;
+  return [...groups.values()];
+}
+
+export function toChatModelRecords(snapshotModels: ChatModelOption[]): ChatModelRecord[] {
+  return snapshotModels.map((model) => ({
+    value: model.value,
+    modelLabel: model.modelLabel,
+    providerLabel: model.providerLabel,
+    thinkingCapability: model.thinkingCapability
+      ? {
+          supported: model.thinkingCapability.supported as ChatThinkingLevel[],
+          default: (model.thinkingCapability.default as ChatThinkingLevel | null | undefined) ?? null,
+        }
+      : null,
+  }));
 }
 
 export function buildModelStateHint(params: {
-  isModelOptionsLoading: boolean;
   isModelOptionsEmpty: boolean;
   onGoToProviders: () => void;
   texts: Pick<
@@ -37,18 +86,11 @@ export function buildModelStateHint(params: {
 }): ChatInlineHint | null {
   const {
     isModelOptionsEmpty,
-    isModelOptionsLoading,
     onGoToProviders,
     texts,
   } = params;
-  if (!isModelOptionsLoading && !isModelOptionsEmpty) {
+  if (!isModelOptionsEmpty) {
     return null;
-  }
-  if (isModelOptionsLoading) {
-    return {
-      tone: "neutral",
-      loading: true,
-    };
   }
   return {
     tone: "warning",
@@ -58,24 +100,73 @@ export function buildModelStateHint(params: {
   };
 }
 
+function buildModelDiscovery(params: {
+  options: ChatModelRecord[];
+  onDismiss?: () => void;
+  onSelect?: (value: string) => Promise<void> | void;
+  texts: Pick<
+    ChatInputBarAdapterTexts,
+    | "allModelsLabel"
+    | "discoveredModelAddLabel"
+    | "discoveredModelAddedLabel"
+    | "discoveredModelsCloseLabel"
+    | "discoveredModelsDismissLabel"
+    | "discoveredModelsDoneLabel"
+    | "discoveredModelsGroupLabel"
+    | "discoveredModelsSummaryLabel"
+    | "discoveredModelsViewLabel"
+    | "modelSearchEmptyLabel"
+    | "modelSearchPlaceholder"
+  >;
+}): ChatToolbarSelect["discovery"] {
+  const { onDismiss, onSelect, options, texts } = params;
+  if (!onDismiss || !onSelect || options.length === 0) {
+    return undefined;
+  }
+  return {
+    summaryLabel: texts.discoveredModelsSummaryLabel.replace('{count}', String(options.length)),
+    viewLabel: texts.discoveredModelsViewLabel,
+    groupLabel: texts.discoveredModelsGroupLabel,
+    allGroupLabel: texts.allModelsLabel,
+    actionLabel: texts.discoveredModelAddLabel,
+    addedLabel: texts.discoveredModelAddedLabel,
+    dismissLabel: texts.discoveredModelsDismissLabel,
+    doneLabel: texts.discoveredModelsDoneLabel,
+    closeLabel: texts.discoveredModelsCloseLabel,
+    searchPlaceholder: texts.modelSearchPlaceholder,
+    searchEmptyLabel: texts.modelSearchEmptyLabel,
+    groups: buildDiscoveredModelGroups(options),
+    onDismiss,
+    onSelect,
+  };
+}
+
 export function buildModelToolbarSelect({
   modelOptions,
+  discoveredModelOptions,
   favoriteModelValues,
   recentModelValues,
   selectedModel,
   isModelOptionsLoading,
   hasModelOptions,
   onFavoriteToggle,
+  onDiscoveredModelSelect,
+  onDiscoveredModelsDismiss,
+  onOpen,
   onValueChange,
   texts,
 }: {
   modelOptions: ChatModelRecord[];
+  discoveredModelOptions?: ChatModelRecord[];
   favoriteModelValues?: string[];
   recentModelValues?: string[];
   selectedModel: string;
   isModelOptionsLoading: boolean;
   hasModelOptions: boolean;
   onFavoriteToggle?: (value: string, favorite: boolean) => void;
+  onDiscoveredModelSelect?: (value: string) => Promise<void> | void;
+  onDiscoveredModelsDismiss?: () => void;
+  onOpen?: () => void;
   onValueChange: (value: string) => void;
   texts: Pick<
     ChatInputBarAdapterTexts,
@@ -86,6 +177,15 @@ export function buildModelToolbarSelect({
     | "favoriteModelsLabel"
     | "favoriteModelLabel"
     | "unfavoriteModelLabel"
+    | "manageModelsLabel"
+    | "discoveredModelsSummaryLabel"
+    | "discoveredModelsViewLabel"
+    | "discoveredModelsGroupLabel"
+    | "discoveredModelAddLabel"
+    | "discoveredModelAddedLabel"
+    | "discoveredModelsDismissLabel"
+    | "discoveredModelsDoneLabel"
+    | "discoveredModelsCloseLabel"
     | "recentModelsLabel"
     | "allModelsLabel"
   >;
@@ -114,6 +214,18 @@ export function buildModelToolbarSelect({
   const remainingOptions = modelOptions.filter(
     (option) => !favoriteValueSet.has(option.value) && !recentValueSet.has(option.value),
   );
+
+  // Build provider-grouped catalog for remaining models
+  const remainingGroups = groupModelValues(remainingOptions.map((o) => o.value));
+  const providerGroupedSections = remainingGroups.map(({ provider, items }) => ({
+    key: `provider-${provider}`,
+    label: provider.charAt(0).toUpperCase() + provider.slice(1),
+    options: items.map((value) => ({
+      value,
+      label: toModelShortLabel(value),
+    })),
+  }));
+
   const optionGroups = favoriteOptions.length > 0 || recentOptions.length > 0
     ? [
           {
@@ -121,7 +233,7 @@ export function buildModelToolbarSelect({
             label: texts.favoriteModelsLabel,
             options: favoriteOptions.map((option) => ({
               value: option.value,
-              label: formatModelOptionLabel(option),
+              label: toModelShortLabel(option.value),
             })),
           },
           {
@@ -129,19 +241,24 @@ export function buildModelToolbarSelect({
             label: texts.recentModelsLabel,
             options: recentOptions.map((option) => ({
               value: option.value,
-              label: formatModelOptionLabel(option),
+              label: toModelShortLabel(option.value),
             })),
           },
+          ...providerGroupedSections,
+        ].filter((group) => group.options.length > 0)
+    : providerGroupedSections.length > 0
+      ? [
           {
             key: "all-models",
             label: texts.allModelsLabel,
             options: remainingOptions.map((option) => ({
               value: option.value,
-              label: formatModelOptionLabel(option),
+              label: toModelShortLabel(option.value),
             })),
           },
-        ].filter((group) => group.options.length > 0)
-    : undefined;
+        ]
+      : undefined;
+  const discoveryOptions = discoveredModelOptions ?? [];
 
   return {
     key: "model",
@@ -156,7 +273,7 @@ export function buildModelToolbarSelect({
       label: formatModelOptionLabel(option),
     })),
     groups: optionGroups,
-    disabled: !hasModelOptions,
+    disabled: !hasModelOptions && discoveryOptions.length === 0,
     loading: isModelOptionsLoading,
     emptyLabel: texts.modelNoOptionsLabel,
     search: {
@@ -172,6 +289,15 @@ export function buildModelToolbarSelect({
           onToggle: onFavoriteToggle,
         }
       : undefined,
+    discovery: buildModelDiscovery({
+      options: discoveryOptions,
+      onDismiss: onDiscoveredModelsDismiss,
+      onSelect: onDiscoveredModelSelect,
+      texts,
+    }),
+    manageLabel: texts.manageModelsLabel,
+    manageHref: "/providers",
+    onOpen,
     onValueChange,
   };
 }
@@ -194,7 +320,7 @@ export function buildThinkingToolbarSelect(params: {
     return null;
   }
 
-  const options = normalizeThinkingLevels(supportedLevels);
+  const options = resolveSelectableThinkingLevels(supportedLevels);
   const fallback = options.includes("off") ? "off" : options[0];
   const resolvedValue =
     (selectedThinkingLevel &&

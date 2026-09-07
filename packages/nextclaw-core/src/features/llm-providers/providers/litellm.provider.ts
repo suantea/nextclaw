@@ -7,7 +7,7 @@ import {
   findProviderByName,
   type ProviderRegistry,
   type ProviderSpec
-} from "./registry.js";
+} from "./provider-registry.provider.js";
 import type { ThinkingLevel } from "@core/shared/lib/core-utils/index.js";
 
 type ProviderRegistryView = Pick<
@@ -63,6 +63,7 @@ export class LiteLLMProvider extends LLMProvider {
       : new OpenAICompatibleProvider({
           apiKey: apiKey ?? null,
           apiBase: apiBase ?? null,
+          chatCompletionsThinkingControl: providerSpec?.chatCompletionsThinkingControl,
           defaultModel,
           extraHeaders,
           wireApi,

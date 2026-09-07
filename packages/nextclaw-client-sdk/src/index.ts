@@ -1,17 +1,36 @@
 export {
   createNextClawAppClient,
   type NextClawAppClient,
-  type NextClawPanelAppNamespace
+  type NextClawPanelAppNamespace,
 } from "./nextclaw-app-client.utils.js";
 export { NextClawClient } from "./nextclaw-client.manager.js";
 export { NextClawClientError } from "./services/request.service.js";
+export { McpService } from "./services/mcp.service.js";
+export {
+  FeatureControlsService,
+  type ProductFeatureControlsView,
+} from "./services/feature-controls.service.js";
+export {
+  CapabilityAccessService,
+  type CapabilityGrantRequestView,
+  type CapabilityGrantView,
+  type DesktopHostStatusView,
+} from "./services/capability-access.service.js";
+export { AppPackagesClientService } from "./services/app-packages.service.js";
+export { AppDataClientService } from "./services/app-data.service.js";
 export { InboxDeliveriesService } from "./services/inbox-deliveries.service.js";
+export { SystemObjectReferencesService } from "./services/system-object-references.service.js";
 export { eventKeys } from "@nextclaw/shared";
-export type { AgentRunSendIngressPayload, AppEvent, AppEventEnvelope, AppEventKey } from "@nextclaw/shared";
+export type {
+  AgentRunSendIngressPayload,
+  AppEvent,
+  AppEventEnvelope,
+  AppEventKey,
+} from "@nextclaw/shared";
 export type {
   NextClawAgentRunStreamHandler,
   NextClawAgentRunStreamOptions,
-  NextClawAgentRunStreamSubscription
+  NextClawAgentRunStreamSubscription,
 } from "./services/agent-runs.service.js";
 export type { ListSessionMessagesParams } from "./services/sessions.service.js";
 export type {
@@ -19,12 +38,12 @@ export type {
   NextClawRealtimeHandler,
   NextClawRealtimeSubscribeOptions,
   NextClawRequestOptions,
-  NextClawUploadOptions
+  NextClawUploadOptions,
 } from "./types/nextclaw-request.types.js";
 export type {
   NextClawRealtimeEvent,
   NextClawRealtimeSubscription,
-  NextClawWebSocketLike
+  NextClawWebSocketLike,
 } from "./types/nextclaw-realtime.types.js";
 export type {
   NextClawQueryParams,
@@ -32,9 +51,19 @@ export type {
   NextClawRequestMethod,
   NextClawTransport,
   NextClawTransportRequestInput,
-  NextClawTransportUploadInput
+  NextClawTransportUploadInput,
 } from "./types/nextclaw-transport.types.js";
 export type {
+  AppPackageHostTarget,
+  AppPackageList,
+  AppDataDeleteResult,
+  AppDataEntry,
+  AppDataList,
+  AppPackageOperationInput,
+  AppPackageOperationList,
+  AppPackageOperationStatus,
+  AppPackageOperationView,
+  AppPackageView,
   AgentBindingView,
   AgentCreateRequest,
   AgentDeleteResult,
@@ -71,6 +100,9 @@ export type {
   CronListView,
   CronRunRequest,
   MarketplaceInstalledView,
+  McpConnectionCreateResult,
+  McpConnectionRequest,
+  McpConnectionTestResult,
   MarketplaceInstallRequest,
   MarketplaceInstallResult,
   MarketplaceItemType,
@@ -116,10 +148,29 @@ export type {
   ProviderTemplatesView,
   ProvidersView,
   ProjectAddExistingRequest,
+  ProjectAgreementMaterial,
   ProjectCreateRequest,
   ProjectListView,
   ProjectTemplateView,
   ProjectView,
+  CreateProjectWorkItemInput,
+  CreateProjectWorkStateInput,
+  ProjectWorkActivity,
+  ProjectWorkActivityPage,
+  ProjectWorkArtifactLink,
+  ProjectWorkAttention,
+  ProjectWorkItemDetail,
+  ProjectWorkItemListEntry,
+  ProjectWorkItemPage,
+  ProjectWorkListInput,
+  ProjectRecentArtifact,
+  ProjectRecentArtifactPage,
+  ProjectSkillMaterial,
+  ProjectWorkState,
+  ProjectWorkStateCategory,
+  ProjectWorkSummary,
+  UpdateProjectWorkItemInput,
+  UpdateProjectWorkStateInput,
   RemoteAccessView,
   RemoteAccountProfileUpdateRequest,
   RemoteBrowserAuthPollRequest,
@@ -134,6 +185,7 @@ export type {
   RuntimeConfigUpdate,
   RuntimeControlActionResult,
   RuntimeControlView,
+  RuntimeVerificationRecordListView,
   SearchConfigUpdate,
   SearchConfigView,
   ServiceActionGrantBatchRequestView,
@@ -143,35 +195,58 @@ export type {
   ServiceActionListView,
   ServiceAppListView,
   ServiceAppRecordView,
+  PortableRuntimeAcceptanceContractApiView,
+  PortableRuntimeAcceptanceExportApiView,
+  PortableRuntimeAcceptanceStatusApiView,
   SecretsConfigUpdate,
   SecretsView,
   ServerPathBrowseView,
   ServerPathDirectoryCreateRequest,
   ServerPathDirectoryCreateView,
+  ServerPathEntryDeleteView,
+  ServerPathEntryRenameRequest,
+  ServerPathEntryRenameView,
+  ServerPathFileCreateRequest,
+  ServerPathFileCreateView,
+  ServerPathFilesUploadView,
   ServerPathReadView,
   ServerPathSearchEntryView,
   ServerPathSearchView,
+  ServerPathWatchRequest,
+  ServerPathWatchView,
   SessionPatchUpdate,
   UiNcpAssetPutView as NcpAssetPutView,
   UiNcpSessionListView,
   UiNcpSessionMessagesView,
   UiNcpSessionQueuedInputView,
   UiNcpSessionQueuedInputsView,
-  UiServerEvent
+  UiNcpSessionPendingInputView,
+  UiNcpSessionPendingInputsView,
+  UiNcpSessionTokenUsageView,
+  UiServerEvent,
 } from "@nextclaw/server";
 export type {
   NcpEndpointEvent,
   NcpMessageAbortPayload,
   NcpRunHandle,
   NcpSessionSummary,
-  NcpStreamRequestPayload
+  NcpStreamRequestPayload,
 } from "@nextclaw/ncp";
 export type { UpdateSnapshot } from "@nextclaw/shared";
 export type {
+  SystemObjectReferenceDisplayText,
+  SystemObjectReferenceGroupDescriptor,
+  SystemObjectReferenceGroupIcon,
+  SystemObjectReferenceGroupView,
   InboxDelivery,
-  InboxDeliveryContinueResult,
   InboxDeliveryListView,
   InboxDeliveryStateAction,
+  SystemObjectReferenceItem,
+  SystemObjectReferenceListView,
+  SystemObjectResolvedReference,
 } from "@nextclaw/shared";
 export type ChannelConfigUpdate = Record<string, unknown>;
-export type PanelAppPreferencesUpdateView = { favorite?: boolean };
+export type PanelAppPreferencesUpdateView = {
+  favorite?: boolean;
+  mainSidebar?: boolean;
+};

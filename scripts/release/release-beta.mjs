@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readLatestReleaseCheckpoint } from "./release-checkpoints.mjs";
@@ -15,10 +16,12 @@ const RUNTIME_MANIFEST_TARGETS = [
   { platform: "win32", arch: "x64" }
 ];
 
-function printHelp() {
+function printHelp(options = {}) {
+  const npmOnly = options.skipRuntimeChannel === true;
   console.log(`
 Usage:
   pnpm release:beta -- [options]
+  pnpm release:npm:beta -- [options]
 
 Options:
   --dry-run                             Print the intended closure without mutating anything
@@ -33,8 +36,8 @@ Default behavior:
   1. run pnpm release:auto for a full public workspace beta batch
   2. create a release commit if version/changelog files changed
   3. push the current branch and local tags
-  4. if nextclaw is in the batch, trigger the beta runtime update workflow
-  5. wait for workflow success and verify release assets + public beta manifests
+  4. verify the real nextclaw@beta registry install
+  ${npmOnly ? "5. report NPM_READY without opening runtime or desktop channels" : "5. report NPM_READY, then trigger and verify the beta runtime update closure"}
 `.trim());
 }
 
@@ -119,6 +122,10 @@ function readCurrentBranch() {
   return run("git", ["rev-parse", "--abbrev-ref", "HEAD"], { capture: true }).trim();
 }
 
+function readHeadSha() {
+  return run("git", ["rev-parse", "HEAD"], { capture: true }).trim();
+}
+
 function ensureBetaPreMode() {
   const preStatePath = join(ROOT_DIR, ".changeset", "pre.json");
   const preState = JSON.parse(readFileSync(preStatePath, "utf8"));
@@ -198,7 +205,7 @@ function sleep(ms) {
   });
 }
 
-async function waitForWorkflowRun(branch, startedAtMs) {
+async function waitForWorkflowRun(dispatchId, startedAtMs) {
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const runs = readJsonCommand("gh", [
       "run",
@@ -212,13 +219,13 @@ async function waitForWorkflowRun(branch, startedAtMs) {
       "--limit",
       "20",
       "--json",
-      "databaseId,createdAt,event,headBranch,status,conclusion,url"
+      "databaseId,createdAt,displayTitle,event,status,conclusion,url"
     ]);
     const matchingRun = runs.find((entry) => {
       const createdAtMs = Date.parse(entry.createdAt ?? "");
       return (
         entry.event === "workflow_dispatch" &&
-        entry.headBranch === branch &&
+        String(entry.displayTitle ?? "").includes(`dispatch=${dispatchId}`) &&
         Number.isFinite(createdAtMs) &&
         createdAtMs >= startedAtMs - 60_000
       );
@@ -229,10 +236,16 @@ async function waitForWorkflowRun(branch, startedAtMs) {
     await sleep(5000);
   }
 
-  throw new Error(`Timed out waiting for ${RUNTIME_WORKFLOW} to appear on branch ${branch}.`);
+  throw new Error(`Timed out waiting for ${RUNTIME_WORKFLOW} dispatch ${dispatchId}.`);
 }
 
-function triggerRuntimeWorkflow({ branch, minimumLauncherVersionOverride, releaseTag }) {
+function triggerRuntimeWorkflow({
+  branch,
+  dispatchId,
+  minimumLauncherVersionOverride,
+  releaseTag,
+  releaseTarget
+}) {
   const args = [
     "workflow",
     "run",
@@ -244,7 +257,11 @@ function triggerRuntimeWorkflow({ branch, minimumLauncherVersionOverride, releas
     "-f",
     `channel=${BETA_CHANNEL}`,
     "-f",
-    `release_tag=${releaseTag}`
+    `release_tag=${releaseTag}`,
+    "-f",
+    `release_target=${releaseTarget}`,
+    "-f",
+    `dispatch_id=${dispatchId}`
   ];
   if (minimumLauncherVersionOverride) {
     args.push("-f", `minimum_launcher_version_override=${minimumLauncherVersionOverride}`);
@@ -308,9 +325,11 @@ function buildDryRunPlan(branch, options) {
     `- command: pnpm release:auto (full public workspace beta batch)`,
     `- commit release artifacts if version/changelog files changed`,
     `- push branch and tags`,
+    `- NPM_READY gate: registry verification + real nextclaw@beta install`,
     options.skipRuntimeChannel
       ? "- runtime update channel: skipped by flag"
-      : "- runtime update channel: trigger workflow + wait + verify if nextclaw is in the batch"
+      : "- runtime update channel: trigger workflow + wait + verify if nextclaw is in the batch",
+    "- desktop: excluded"
   ];
 }
 
@@ -336,6 +355,26 @@ function runLocalBetaRelease(branch) {
   };
 }
 
+function runPublishedBetaInstall(nextclawVersion, announceReady) {
+  if (!nextclawVersion) {
+    return;
+  }
+  run("pnpm", [
+    "-C",
+    "packages/nextclaw",
+    "validation:npm-update",
+    "--",
+    "--published-beta"
+  ]);
+  if (announceReady) {
+    console.log("NPM_READY");
+    console.log("- channel: beta");
+    console.log(`- nextclaw version: ${nextclawVersion}`);
+    console.log("- registry install: verified");
+    console.log("- excluded at this point: runtime, desktop, docs, website, X");
+  }
+}
+
 async function runRuntimeReleaseClosure(branch, nextclawVersion, options) {
   if (options.skipRuntimeChannel || !nextclawVersion) {
     return {
@@ -347,13 +386,17 @@ async function runRuntimeReleaseClosure(branch, nextclawVersion, options) {
 
   ensureRuntimeReleaseCommandPrerequisites();
   const releaseTag = options.releaseTag ?? `nextclaw@${nextclawVersion}`;
+  const releaseTarget = readHeadSha();
+  const dispatchId = randomUUID();
   const dispatchStartedAtMs = Date.now();
   triggerRuntimeWorkflow({
     branch,
+    dispatchId,
     minimumLauncherVersionOverride: options.minimumLauncherVersionOverride,
-    releaseTag
+    releaseTag,
+    releaseTarget
   });
-  const workflowRun = await waitForWorkflowRun(branch, dispatchStartedAtMs);
+  const workflowRun = await waitForWorkflowRun(dispatchId, dispatchStartedAtMs);
   const runtimeRunSummary = watchWorkflowRun(workflowRun.databaseId);
   const runtimeReleaseSummary = verifyRuntimeReleaseAssets(releaseTag, nextclawVersion);
   const publicManifestSummary = await verifyPublicBetaManifests(nextclawVersion);
@@ -367,12 +410,14 @@ async function runRuntimeReleaseClosure(branch, nextclawVersion, options) {
 function printCompletionSummary({
   branch,
   nextclawVersion,
+  npmOnly,
   publicManifestSummary,
   releaseCommit,
   runtimeReleaseSummary,
   runtimeRunSummary
 }) {
-  console.log("release:beta completed");
+  console.log(npmOnly || !runtimeRunSummary ? "NPM_READY" : "release:beta completed");
+  console.log("- channel: beta");
   console.log(`- branch: ${branch}`);
   console.log(`- release commit: ${releaseCommit ?? "no local release artifact diff"}`);
   console.log(`- nextclaw in batch: ${nextclawVersion ? `yes (${nextclawVersion})` : "no"}`);
@@ -390,7 +435,7 @@ function printCompletionSummary({
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    printHelp();
+    printHelp(options);
     return;
   }
 
@@ -406,6 +451,7 @@ async function main() {
 
   ensureLocalReleaseCommandPrerequisites();
   const { nextclawVersion, releaseCommit } = runLocalBetaRelease(branch);
+  runPublishedBetaInstall(nextclawVersion, !options.skipRuntimeChannel);
   const { publicManifestSummary, runtimeReleaseSummary, runtimeRunSummary } = await runRuntimeReleaseClosure(
     branch,
     nextclawVersion,
@@ -415,6 +461,7 @@ async function main() {
   printCompletionSummary({
     branch,
     nextclawVersion,
+    npmOnly: options.skipRuntimeChannel,
     publicManifestSummary,
     releaseCommit,
     runtimeReleaseSummary,

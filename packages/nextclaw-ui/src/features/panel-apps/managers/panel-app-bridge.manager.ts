@@ -9,10 +9,17 @@ import type {
   ServiceActionGrantView,
   ServiceActionInvokeResultView,
   ServiceActionListView,
+  PortableRuntimeAcceptanceExportApiView,
+  PortableRuntimeAcceptanceStatusApiView,
+  RuntimeVerificationRecordListView,
 } from '@nextclaw/client-sdk';
-import type { ServiceActionAuthorizationManager } from '@/features/service-apps';
-import type { DocBrowserIframeMessageParams } from '@/shared/components/doc-browser/doc-browser-renderer.types';
+import type { PanelAppServiceActionAuthorizationManager } from '@/features/panel-apps/managers/panel-app-service-action-authorization.manager';
 import { nextclawClient } from '@/shared/lib/api';
+
+export type PanelAppIframeMessageParams = {
+  event: MessageEvent;
+  iframe: HTMLIFrameElement | null;
+};
 
 type PanelAppBridgeRequest = {
   type: 'nextclaw:panel-app-service-actions:request';
@@ -22,13 +29,20 @@ type PanelAppBridgeRequest = {
   method:
     | 'agent.generateObject'
     | 'agent.send'
+    | 'acceptance.export'
+    | 'acceptance.status'
     | 'invoke'
     | 'list'
     | 'requestGrant'
-    | 'revokeGrant';
+    | 'revokeGrant'
+    | 'verification.list';
   payload?: {
+    acceptanceId?: string;
     actionId?: string;
+    appId?: string;
     input?: unknown;
+    limit?: number;
+    locale?: string;
     request?: unknown;
   };
 };
@@ -57,20 +71,20 @@ type PanelAppBridgeResponse =
     };
 
 export class PanelAppBridgeManager {
-  constructor(private readonly authorizationManager: ServiceActionAuthorizationManager) {}
+  constructor(private readonly authorizationManager: PanelAppServiceActionAuthorizationManager) {}
 
-  handleIframeMessage = ({ event, iframe, iframeInstanceId, tab }: DocBrowserIframeMessageParams): void => {
+  handleIframeMessage = ({ event, iframe }: PanelAppIframeMessageParams): void => {
     if (!this.isBridgeRequest(event.data)) {
       return;
     }
     if (!iframe?.contentWindow || event.source !== iframe.contentWindow) {
       return;
     }
-    void this.handleBridgeRequest({ event, iframe, iframeInstanceId, tab }, event.data);
+    void this.handleBridgeRequest({ event, iframe }, event.data);
   };
 
   private handleBridgeRequest = async (
-    params: DocBrowserIframeMessageParams,
+    params: PanelAppIframeMessageParams,
     request: PanelAppBridgeRequest,
   ): Promise<void> => {
     try {
@@ -99,6 +113,9 @@ export class PanelAppBridgeManager {
     | PanelAppAgentGenerateObjectResultView
     | PanelAppAgentSendResultView
     | PanelAppCapabilityGrantView
+    | PortableRuntimeAcceptanceExportApiView
+    | PortableRuntimeAcceptanceStatusApiView
+    | RuntimeVerificationRecordListView
     | ServiceActionGrantView
     | ServiceActionInvokeResultView
     | ServiceActionListView
@@ -122,6 +139,25 @@ export class PanelAppBridgeManager {
         return await this.sendAgentMessageWithAuthorization(session, request);
       case 'agent.generateObject':
         return await this.generateAgentObjectWithAuthorization(session, request);
+      case 'verification.list':
+        return await nextclawClient.serviceApps.listVerificationRecords({
+          acceptanceId: request.payload?.acceptanceId,
+          appId: request.payload?.appId,
+          limit: request.payload?.limit,
+          bridgeSessionToken: session.token,
+        });
+      case 'acceptance.status':
+        return await nextclawClient.serviceApps.getPortableRuntimeAcceptanceStatus({
+          appId: request.payload?.appId,
+          locale: request.payload?.locale,
+          bridgeSessionToken: session.token,
+        });
+      case 'acceptance.export':
+        return await nextclawClient.serviceApps.exportPortableRuntimeAcceptance({
+          appId: request.payload?.appId,
+          locale: request.payload?.locale,
+          bridgeSessionToken: session.token,
+        });
       default:
         throw new Error(`Unsupported panel bridge method: ${String(request.method)}`);
     }
@@ -340,7 +376,7 @@ export class PanelAppBridgeManager {
   };
 
   private postResponse = (
-    params: DocBrowserIframeMessageParams,
+    params: PanelAppIframeMessageParams,
     response: PanelAppBridgeResponse,
   ): void => {
     params.iframe?.contentWindow?.postMessage(response, '*');
@@ -374,9 +410,12 @@ export class PanelAppBridgeManager {
       (candidate.method === 'invoke' ||
         candidate.method === 'agent.send' ||
         candidate.method === 'agent.generateObject' ||
+        candidate.method === 'acceptance.export' ||
+        candidate.method === 'acceptance.status' ||
         candidate.method === 'list' ||
         candidate.method === 'requestGrant' ||
-        candidate.method === 'revokeGrant')
+        candidate.method === 'revokeGrant' ||
+        candidate.method === 'verification.list')
     );
   };
 }

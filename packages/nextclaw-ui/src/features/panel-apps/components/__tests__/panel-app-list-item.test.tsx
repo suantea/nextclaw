@@ -1,7 +1,18 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
-import { PanelAppListItem } from '../panel-app-list-item';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { viewportLayoutManager } from '@/app/managers/viewport-layout.manager';
+import { useViewportLayoutStore } from '@/app/stores/viewport-layout.store';
+import { PanelAppListItem } from '@/features/panel-apps/components/panel-app-list-item';
+
+const mainSidebarMutation = vi.hoisted(() => ({
+  isPending: false,
+  mutate: vi.fn(),
+}));
+
+vi.mock('@/features/panel-apps/hooks/use-panel-apps', () => ({
+  useUpdatePanelAppPreferences: () => mainSidebarMutation,
+}));
 
 const baseEntry = {
   id: 'demo',
@@ -15,12 +26,20 @@ const baseEntry = {
   updatedAt: '2026-05-28T09:00:00.000Z',
   sizeBytes: 12,
   favorite: false,
+  mainSidebar: false,
   clientDeclared: false,
   clientGranted: false,
   openCount: 0,
 };
 
 describe('PanelAppListItem', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    viewportLayoutManager.resetForTests();
+    mainSidebarMutation.isPending = false;
+    mainSidebarMutation.mutate.mockReset();
+  });
+
   it('keeps panel app metadata compact below the icon-title row', () => {
     const { container } = render(
       <PanelAppListItem
@@ -60,5 +79,67 @@ describe('PanelAppListItem', () => {
     await user.click(screen.getByRole('button', { name: 'Delete' }));
 
     expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps main-sidebar placement in the low-frequency more-actions menu', async () => {
+    const user = userEvent.setup();
+    viewportLayoutManager.setMainSidebarAppGroupCollapsed(true);
+    const { rerender } = render(
+      <PanelAppListItem
+        deletePending={false}
+        entry={baseEntry}
+        favoritePending={false}
+        onDelete={vi.fn()}
+        onOpen={vi.fn()}
+        onToggleFavorite={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Add to main sidebar' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'More panel app actions' }));
+    await user.click(screen.getByRole('button', { name: 'Add to main sidebar' }));
+    expect(mainSidebarMutation.mutate).toHaveBeenCalledWith({
+      id: 'demo',
+      preferences: { mainSidebar: true },
+    });
+    expect(
+      useViewportLayoutStore.getState().isMainSidebarAppGroupCollapsed,
+    ).toBe(false);
+
+    rerender(
+      <PanelAppListItem
+        deletePending={false}
+        entry={{ ...baseEntry, mainSidebar: true }}
+        favoritePending={false}
+        onDelete={vi.fn()}
+        onOpen={vi.fn()}
+        onToggleFavorite={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Remove from main sidebar' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'More panel app actions' }));
+    await user.click(screen.getByRole('button', { name: 'Remove from main sidebar' }));
+    expect(mainSidebarMutation.mutate).toHaveBeenLastCalledWith({
+      id: 'demo',
+      preferences: { mainSidebar: false },
+    });
+  });
+
+  it('offers the standalone app link from the more-actions menu', async () => {
+    const user = userEvent.setup();
+    render(
+      <PanelAppListItem
+        deletePending={false}
+        entry={baseEntry}
+        favoritePending={false}
+        onDelete={vi.fn()}
+        onOpen={vi.fn()}
+        onToggleFavorite={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More panel app actions' }));
+    const link = screen.getByRole('link', { name: 'Open in New Tab' });
+    expect(link.getAttribute('href')).toBe('/apps/panel/demo/standalone');
   });
 });

@@ -1,9 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CronJobView } from "@/shared/lib/api";
 import { setLanguage } from "@/shared/lib/i18n";
+import { buildSessionPath } from "@/features/chat";
 import { CronConfig } from "@/features/cron";
 
 const mocks = vi.hoisted(() => ({
@@ -12,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   deleteJob: vi.fn(),
   refetch: vi.fn(),
   runJob: vi.fn(),
-  selectSession: vi.fn(),
   toggleJob: vi.fn(),
   cronParams: vi.fn(),
   cronQuery: {
@@ -26,14 +27,20 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/features/chat", () => ({
-  usePresenter: () => ({
-    chatSessionListManager: {
-      createSession: mocks.createSession,
-      selectSession: mocks.selectSession,
-    },
-  }),
-}));
+vi.mock("@/features/chat", async () => {
+  const routeUtils = await vi.importActual<{
+    buildSessionPath: typeof buildSessionPath;
+  }>("@/features/chat/features/session/utils/chat-session-route.utils");
+
+  return {
+    buildSessionPath: routeUtils.buildSessionPath,
+    usePresenter: () => ({
+      chatSessionListManager: {
+        createSession: mocks.createSession,
+      },
+    }),
+  };
+});
 
 vi.mock("@/features/cron/hooks/use-cron-jobs", () => ({
   useCronJobs: (params: unknown) => {
@@ -43,6 +50,16 @@ vi.mock("@/features/cron/hooks/use-cron-jobs", () => ({
   useDeleteCronJob: () => ({ mutate: mocks.deleteJob }),
   useRunCronJob: () => ({ mutate: mocks.runJob }),
   useToggleCronJob: () => ({ mutate: mocks.toggleJob }),
+}));
+
+vi.mock("@/features/cron/hooks/use-cron-job-actions", () => ({
+  useCronJobActions: () => ({
+    ConfirmDialog: () => null,
+    deleteJob: mocks.deleteJob,
+    isPending: () => false,
+    runJob: mocks.runJob,
+    toggleJob: mocks.toggleJob,
+  }),
 }));
 
 vi.mock("@/shared/hooks/use-confirm-dialog", () => ({
@@ -75,6 +92,14 @@ function createJob(overrides: Partial<CronJobView> = {}): CronJobView {
     deleteAfterRun: false,
     ...overrides,
   };
+}
+
+function renderCronConfig() {
+  return render(
+    <MemoryRouter>
+      <CronConfig />
+    </MemoryRouter>,
+  );
 }
 
 describe("CronConfig", () => {
@@ -110,8 +135,12 @@ describe("CronConfig", () => {
   });
 
   it("shows current task metrics and distinguishes bound and dedicated sessions", () => {
-    render(<CronConfig />);
+    renderCronConfig();
 
+    expect(
+      screen.getByRole("heading", { level: 1, name: "定时任务" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("自动化工作台")).toBeNull();
     expect(screen.getByText("全部任务")).toBeTruthy();
     expect(screen.getAllByText("运行中").length).toBeGreaterThan(0);
     expect(screen.getAllByText("需要关注").length).toBeGreaterThan(0);
@@ -123,7 +152,7 @@ describe("CronConfig", () => {
 
   it("keeps one inline task preview open at a time", async () => {
     const user = userEvent.setup();
-    render(<CronConfig />);
+    renderCronConfig();
 
     const agentPreview = document.getElementById(
       "cron-job-preview-agent-radar",
@@ -152,9 +181,70 @@ describe("CronConfig", () => {
     ).toBe("true");
   });
 
+  it("links available execution sessions from inline task previews", async () => {
+    const user = userEvent.setup();
+    renderCronConfig();
+
+    await user.click(
+      screen.getByRole("button", { name: "展开任务 Agent 产品雷达" }),
+    );
+    const sessionLink = screen.getByRole("link", {
+      name: "session:research",
+    });
+    expect(sessionLink.getAttribute("href")).toBe(
+      buildSessionPath("session:research"),
+    );
+    expect(sessionLink.className).toContain(
+      "text-[hsl(var(--link-foreground))]",
+    );
+    expect(sessionLink.className.split(" ")).toContain("underline");
+    expect(sessionLink.querySelector("svg")).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", { name: "展开任务 重要邮件监控" }),
+    );
+    expect(
+      screen.getByRole("link", { name: "cron:mail-watch" }).getAttribute("href"),
+    ).toBe(buildSessionPath("cron:mail-watch"));
+  });
+
+  it("keeps a dedicated execution session unavailable before its first run", async () => {
+    mocks.cronQuery.data = {
+      jobs: [
+        createJob({
+          id: "not-run",
+          name: "尚未执行的任务",
+          payload: {
+            kind: "agent_turn",
+            message: "等待第一次执行。",
+            agentId: "main",
+            sessionId: null,
+          },
+          state: {
+            nextRunAt: "2026-07-21T01:00:00.000Z",
+            lastRunAt: null,
+            lastStatus: null,
+            lastError: null,
+          },
+        }),
+      ],
+      total: 1,
+      summary: { total: 1, enabled: 1, disabled: 0, attention: 0 },
+    };
+    const user = userEvent.setup();
+    renderCronConfig();
+
+    await user.click(
+      screen.getByRole("button", { name: "展开任务 尚未执行的任务" }),
+    );
+
+    expect(screen.getByText("cron:not-run")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "cron:not-run" })).toBeNull();
+  });
+
   it("hands a typed request to a new AI draft conversation", async () => {
     const user = userEvent.setup();
-    render(<CronConfig />);
+    renderCronConfig();
 
     const input = screen.getByLabelText("描述你想安排的任务");
     await user.type(input, "每天早上整理项目风险{Enter}");
@@ -171,7 +261,7 @@ describe("CronConfig", () => {
       summary: { total: 0, enabled: 0, disabled: 0, attention: 0 },
     };
     const user = userEvent.setup();
-    render(<CronConfig />);
+    renderCronConfig();
 
     await user.click(screen.getByRole("button", { name: /每日 AI 新闻简报/ }));
 
@@ -183,29 +273,31 @@ describe("CronConfig", () => {
     expect(mocks.createSession).not.toHaveBeenCalled();
   });
 
-  it("opens task details from the edit action and navigates to the bound session", async () => {
+  it("exposes the bound session destination from task details", async () => {
     const user = userEvent.setup();
-    render(<CronConfig />);
+    renderCronConfig();
 
     await user.click(
-      screen.getByRole("button", { name: "编辑 Agent 产品雷达" }),
+      screen.getByRole("button", { name: "查看任务详情 Agent 产品雷达" }),
     );
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(screen.getByText("当前系统只保存最近一次执行快照。")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "打开会话" }));
-    expect(mocks.selectSession).toHaveBeenCalledWith("session:research");
+    expect(
+      screen.getByRole("link", { name: "打开会话" }).getAttribute("href"),
+    ).toBe(buildSessionPath("session:research"));
   });
 
   it("keeps enablement as an independent row action", async () => {
     const user = userEvent.setup();
-    render(<CronConfig />);
+    renderCronConfig();
 
     await user.click(screen.getAllByRole("switch")[0]);
-    expect(mocks.toggleJob).toHaveBeenCalledWith({
-      id: "agent-radar",
-      enabled: false,
-    });
+    expect(mocks.toggleJob).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-radar" }),
+      false,
+      expect.any(Function),
+    );
     expect(
       screen
         .getByRole("button", { name: "展开任务 Agent 产品雷达" })
@@ -226,7 +318,7 @@ describe("CronConfig", () => {
       summary: { total: 12, enabled: 10, disabled: 2, attention: 1 },
     };
     const user = userEvent.setup();
-    render(<CronConfig />);
+    renderCronConfig();
 
     expect(screen.getByText("1–10 / 12")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "展开任务 任务 1" }));

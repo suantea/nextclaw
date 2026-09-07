@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
   Bot,
   BrainCircuit,
   AlarmClock,
@@ -9,7 +10,9 @@ import {
   KeyRound,
   MessageCircle,
   MessageSquare,
+  MonitorCog,
   Palette,
+  Puzzle,
   Search,
   Settings,
   Shield,
@@ -29,6 +32,10 @@ export type AppNavigationItem = {
 export type AppNavigationSection = {
   label: string;
   items: AppNavigationItem[];
+};
+
+type SettingsNavigationOptions = {
+  includeDesktopCapabilities?: boolean;
 };
 
 export function matchesRouteTarget(pathname: string, target: string): boolean {
@@ -52,7 +59,10 @@ export function isMainWorkspaceRoute(pathname: string): boolean {
     normalized === "/cron" ||
     normalized.startsWith("/cron/") ||
     normalized === "/agents" ||
-    normalized.startsWith("/agents/")
+    normalized.startsWith("/agents/") ||
+    normalized === "/projects" ||
+    normalized.startsWith("/projects/") ||
+    normalized.startsWith("/apps/panel/")
   );
 }
 
@@ -127,8 +137,9 @@ export function getMainSidebarNavItems(
 
 export function getSettingsNavItems(
   translate: Translate,
+  options: SettingsNavigationOptions = {},
 ): AppNavigationItem[] {
-  return [
+  const items = [
     {
       target: "/model",
       label: translate("model"),
@@ -145,6 +156,11 @@ export function getSettingsNavItems(
       icon: MessageSquare,
     },
     {
+      target: "/extensions",
+      label: translate("extensions"),
+      icon: Puzzle,
+    },
+    {
       target: "/appearance",
       label: translate("appearance"),
       icon: Palette,
@@ -153,6 +169,16 @@ export function getSettingsNavItems(
       target: "/security",
       label: translate("security"),
       icon: Shield,
+    },
+    {
+      target: "/privacy",
+      label: translate("privacy"),
+      icon: Activity,
+    },
+    {
+      target: "/desktop-capabilities",
+      label: translate("desktopCapabilities"),
+      icon: MonitorCog,
     },
     {
       target: "/search",
@@ -185,12 +211,16 @@ export function getSettingsNavItems(
       icon: Wrench,
     },
   ];
+  return options.includeDesktopCapabilities === false
+    ? items.filter((item) => item.target !== "/desktop-capabilities")
+    : items;
 }
 
 export function getSettingsNavSections(
   translate: Translate,
+  options: SettingsNavigationOptions = {},
 ): AppNavigationSection[] {
-  const items = getSettingsNavItems(translate);
+  const items = getSettingsNavItems(translate, options);
   return [
     {
       label: translate("settingsGroupBasic"),
@@ -261,6 +291,22 @@ export function resolveMobileRouteMeta(
       title: translate("agentsPageTitle"),
       backTarget: null,
       backLabel: null,
+    };
+  }
+
+  if (normalized === "/projects" || normalized.startsWith("/projects/")) {
+    return {
+      title: translate("projectsTitle"),
+      backTarget: "/chat",
+      backLabel: translate("chat"),
+    };
+  }
+
+  if (normalized.startsWith("/apps/panel/")) {
+    return {
+      title: translate("panelAppsTitle"),
+      backTarget: "/chat",
+      backLabel: translate("chat"),
     };
   }
 

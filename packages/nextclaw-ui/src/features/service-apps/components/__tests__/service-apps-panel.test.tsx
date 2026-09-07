@@ -8,17 +8,68 @@ const discoverServiceAppActionsMutateAsync = vi.fn(async () => ({ actions: [] })
 const refetchServiceActions = vi.fn();
 const refetchServiceActionGrants = vi.fn();
 const refetchServiceApps = vi.fn();
+const refetchAppData = vi.fn();
 const restartServiceAppMutate = vi.fn();
 const revokeServiceActionGrantMutate = vi.fn();
+const grantAgentServiceActionsMutate = vi.fn();
+const resetDeleteServiceApp = vi.fn();
+
+vi.mock('@/features/app-data/hooks/use-app-data', () => ({
+  useAppData: () => ({
+    data: {
+      entries: [{
+        id: 'ad1.workspace-notes',
+        appId: 'notes',
+        instanceId: 'default',
+        displayName: 'Notes',
+        source: 'workspace-service',
+        lifecycle: 'active',
+        storage: {
+          layout: 'instance-v1',
+          layoutVersion: 1,
+          instanceId: 'default',
+          instanceDirectory: '/workspace/.nextclaw/app-instances/notes/default',
+          dataDirectory: '/workspace/.nextclaw/app-instances/notes/default/data',
+          configDirectory: '/workspace/.nextclaw/app-instances/notes/default/config',
+          stateDirectory: '/workspace/.nextclaw/app-instances/notes/default/state',
+          cacheDirectory: '/workspace/.nextclaw/app-instances/notes/default/cache',
+          temporaryDirectory: '/workspace/.nextclaw/app-instances/notes/default/tmp',
+          logsDirectory: '/workspace/.nextclaw/app-instances/notes/default/logs',
+        },
+        usage: {
+          dataBytes: 12,
+          configBytes: 0,
+          stateBytes: 0,
+          cacheBytes: 0,
+          temporaryBytes: 0,
+          logsBytes: 0,
+          totalBytes: 12,
+        },
+        createdAt: '2026-08-14T00:00:00.000Z',
+        actions: { deleteRetainedData: false },
+      }],
+      diagnostics: [],
+    },
+    error: null,
+    isLoading: false,
+    refetch: refetchAppData,
+  }),
+}));
 
 vi.mock('@/features/service-apps/hooks/use-service-apps', () => ({
   useDeleteServiceApp: () => ({
+    error: null,
     isPending: false,
     mutate: deleteServiceAppMutate,
+    reset: resetDeleteServiceApp,
   }),
   useDiscoverServiceAppActions: () => ({
     isPending: false,
     mutateAsync: discoverServiceAppActionsMutateAsync,
+  }),
+  useGrantAgentServiceActions: () => ({
+    isPending: false,
+    mutate: grantAgentServiceActionsMutate,
   }),
   useRestartServiceApp: () => ({
     mutate: restartServiceAppMutate,
@@ -33,7 +84,18 @@ vi.mock('@/features/service-apps/hooks/use-service-apps', () => ({
     refetch: refetchServiceActionGrants,
   }),
   useServiceActions: () => ({
-    data: { actions: [] },
+    data: {
+      actions: [{
+        id: 'notes.read',
+        appId: 'notes',
+        name: 'read',
+        title: 'Read notes',
+        description: 'Read persisted notes.',
+        risk: 'read',
+        runtimeState: 'matched',
+        grantState: 'not-granted',
+      }],
+    },
     isError: false,
     isLoading: false,
     refetch: refetchServiceActions,
@@ -49,9 +111,24 @@ vi.mock('@/features/service-apps/hooks/use-service-apps', () => ({
         id: 'notes',
         manifestPath: '/workspace/service-apps/notes/service-app.json',
         protocol: 'mcp',
+        sourceKind: 'workspace',
         status: 'idle',
         title: 'Notes',
+      }, {
+        args: ['server.mjs'],
+        command: 'node',
+        cwd: '/apps/personal-organizer/service',
+        dirPath: '/apps/personal-organizer/service',
+        enabled: true,
+        id: 'organizer-service',
+        manifestPath: '/apps/personal-organizer/service/service-app.json',
+        packageId: 'nextclaw.personal-organizer',
+        protocol: 'mcp',
+        sourceKind: 'package',
+        status: 'idle',
+        title: 'Organizer Service',
       }],
+      diagnostics: [],
       serviceAppsPath: '/workspace/service-apps',
       workspacePath: '/workspace',
     },
@@ -61,28 +138,71 @@ vi.mock('@/features/service-apps/hooks/use-service-apps', () => ({
   }),
 }));
 
+vi.mock('@/shared/hooks/use-agents', () => ({
+  useAgents: () => ({ data: { agents: [{ id: 'main', displayName: 'Main' }] } }),
+}));
+
 describe('ServiceAppsPanel', () => {
-  it('labels service app icon actions and deletes through a confirm dialog', async () => {
+  it('keeps service actions progressive and deletes through a confirm dialog', async () => {
     const user = userEvent.setup();
 
-    render(<ServiceAppsPanel />);
+    render(<ServiceAppsPanel onManagePackage={vi.fn()} />);
 
-    expect(screen.getByText('Not connected')).toBeTruthy();
+    expect(screen.getAllByText('Not connected')).toHaveLength(2);
     expect(screen.queryByText('idle')).toBeNull();
-    const discoverButton = screen.getByRole('button', { name: 'Connect and discover actions' });
+    const discoverButton = screen.getAllByRole('button', {
+      name: 'Connect and discover actions',
+    })[0]!;
     expect(discoverButton).toBeTruthy();
-    const disconnectButton = screen.getByRole('button', { name: 'Disconnect runtime' });
-    expect(disconnectButton).toBeTruthy();
-    expect((disconnectButton as HTMLButtonElement).disabled).toBe(true);
     await user.hover(discoverButton);
     await waitFor(() => {
       expect(screen.queryAllByText('Connect to the service app runtime and discover its available actions.').length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete service app' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await user.click(discoverButton);
+    expect(discoverServiceAppActionsMutateAsync).toHaveBeenCalledWith('notes');
 
-    expect(deleteServiceAppMutate).toHaveBeenCalledWith('notes');
+    fireEvent.click(screen.getAllByRole('button', { name: 'More actions' })[0]!);
+    expect((screen.getByRole('button', { name: 'Disconnect runtime' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete service app' }));
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+    });
+    expect(resetDeleteServiceApp).toHaveBeenCalled();
+    expect(screen.getByText('Total app data')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Keep personal data/ }).getAttribute('aria-pressed'))
+      .toBe('true');
+    const deleteButtons = screen.getAllByRole('button', { name: 'Delete service app' });
+    fireEvent.click(deleteButtons.at(-1)!);
+
+    expect(deleteServiceAppMutate).toHaveBeenCalledWith(
+      { appId: 'notes', purgeData: false },
+      { onSuccess: expect.any(Function) },
+    );
+  });
+
+  it('routes package-managed services back to Apps without offering standalone deletion', () => {
+    const onManagePackage = vi.fn();
+    render(<ServiceAppsPanel onManagePackage={onManagePackage} />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'More actions' })[1]!);
+    expect(screen.queryByRole('button', { name: 'Delete service app' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage in Apps' }));
+
+    expect(onManagePackage).toHaveBeenCalledWith('nextclaw.personal-organizer');
+  });
+
+  it('explicitly grants a service action to the selected agent', async () => {
+    const user = userEvent.setup();
+    render(<ServiceAppsPanel onManagePackage={vi.fn()} />);
+
+    await user.click(screen.getAllByRole('button', { name: /Actions/ })[0]!);
+    await user.click(screen.getByRole('button', { name: 'Grant to Agent' }));
+    await user.click(screen.getByRole('button', { name: 'Main' }));
+
+    expect(grantAgentServiceActionsMutate).toHaveBeenCalledWith({
+      actionIds: ['notes.read'],
+      agentId: 'main',
+    });
   });
 });

@@ -55,6 +55,7 @@ function resetChatSessionListManagerState() {
   useChatThreadStore.setState({
     snapshot: {
       ...useChatThreadStore.getState().snapshot,
+      draftProjectRoot: null,
       workspacePanelParentKey: "session-1",
       activeWorkspacePanelKind: "child-session",
       activeChildSessionKey: "child-session-1",
@@ -69,6 +70,18 @@ function resetChatSessionListManagerState() {
 
 describe("ChatSessionListManager draft and selection flow", () => {
   beforeEach(resetChatSessionListManagerState);
+
+  it("clears the route-derived session selection outside session routes", () => {
+    const manager = new ChatSessionListManager(
+      {} as ConstructorParameters<typeof ChatSessionListManager>[0],
+    );
+
+    manager.syncRouteSessionSelection(null);
+
+    expect(
+      useChatSessionListStore.getState().snapshot.selectedSessionKey,
+    ).toBeNull();
+  });
 
   it("applies the requested session type when creating a session", () => {
     const uiManager = {
@@ -93,7 +106,7 @@ describe("ChatSessionListManager draft and selection flow", () => {
     });
     expect(
       useChatSessionListStore.getState().snapshot.selectedSessionKey,
-    ).toBeNull();
+    ).toBe("session-1");
     expect(useChatThreadStore.getState().snapshot.sessionKey).toBeNull();
     expect(
       useChatThreadStore.getState().snapshot.hasSubmittedDraftMessage,
@@ -109,7 +122,7 @@ describe("ChatSessionListManager draft and selection flow", () => {
     } as unknown as ConstructorParameters<typeof ChatSessionListManager>[0];
 
     const manager = new ChatSessionListManager(uiManager);
-    manager.startAgentDraftChat("researcher", "codex");
+    manager.startAgentDraftChat("researcher", "codex", "Create an agent");
 
     expect(uiManager.navigateTo).toHaveBeenCalledWith("/chat/draft", {
       replace: true,
@@ -117,7 +130,7 @@ describe("ChatSessionListManager draft and selection flow", () => {
         chatDraft: {
           sessionType: "codex",
           projectRoot: null,
-          prompt: null,
+          prompt: "Create an agent",
         },
       },
     });
@@ -126,7 +139,7 @@ describe("ChatSessionListManager draft and selection flow", () => {
     );
     expect(
       useChatSessionListStore.getState().snapshot.selectedSessionKey,
-    ).toBeNull();
+    ).toBe("session-1");
     expect(useChatThreadStore.getState().snapshot.sessionKey).toBeNull();
     expect(
       useChatThreadStore.getState().snapshot.hasSubmittedDraftMessage,
@@ -157,6 +170,41 @@ describe("ChatSessionListManager draft and selection flow", () => {
         },
       },
     });
+    expect(useChatThreadStore.getState().snapshot.draftProjectRoot).toBe(
+      "/tmp/project-alpha",
+    );
+  });
+
+  it("drops file tabs from an abandoned draft while preserving real session tabs", () => {
+    useChatThreadStore.getState().setSnapshot({
+      workspaceFileTabs: [
+        {
+          key: "draft::preview::old.md",
+          parentSessionKey: null,
+          path: "old.md",
+          viewMode: "preview",
+        },
+        {
+          key: "session-1::preview::kept.md",
+          parentSessionKey: "session-1",
+          path: "kept.md",
+          viewMode: "preview",
+        },
+      ],
+    });
+    const manager = new ChatSessionListManager({
+      navigateTo: vi.fn(),
+      isAtChatRoot: vi.fn(() => true),
+    } as unknown as ConstructorParameters<typeof ChatSessionListManager>[0]);
+
+    manager.createSession({ projectRoot: "/tmp/new-project" });
+
+    expect(useChatThreadStore.getState().snapshot.workspaceFileTabs).toEqual([
+      expect.objectContaining({
+        key: "session-1::preview::kept.md",
+        parentSessionKey: "session-1",
+      }),
+    ]);
   });
 
   it("carries an initial prompt through the draft route state", () => {
@@ -182,6 +230,33 @@ describe("ChatSessionListManager draft and selection flow", () => {
     });
   });
 
+  it("keeps a project-bound initial prompt as an editable unsent draft", () => {
+    const uiManager = {
+      goToChatRoot: vi.fn(),
+      navigateTo: vi.fn(),
+      goToSession: vi.fn(),
+      isAtChatRoot: vi.fn(() => true),
+    } as unknown as ConstructorParameters<typeof ChatSessionListManager>[0];
+
+    const manager = new ChatSessionListManager(uiManager);
+    manager.createSession({
+      projectRoot: "/tmp/project-alpha",
+      prompt: "Use the project observation capability.",
+    });
+
+    expect(uiManager.navigateTo).toHaveBeenCalledWith("/chat/draft", {
+      replace: true,
+      state: {
+        chatDraft: {
+          sessionType: "native",
+          projectRoot: "/tmp/project-alpha",
+          prompt: "Use the project observation capability.",
+        },
+      },
+    });
+    expect(useChatThreadStore.getState().snapshot.hasSubmittedDraftMessage).toBe(false);
+  });
+
   it("does not eagerly replace the old selected session before the route finishes switching", () => {
     const uiManager = {
       goToChatRoot: vi.fn(),
@@ -198,7 +273,7 @@ describe("ChatSessionListManager draft and selection flow", () => {
 
     expect(
       useChatSessionListStore.getState().snapshot.selectedSessionKey,
-    ).toBeNull();
+    ).toBe("session-1");
     expect(uiManager.navigateTo).toHaveBeenCalledWith(
       "/chat/draft",
       expect.any(Object),

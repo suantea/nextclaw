@@ -2,9 +2,9 @@
 layout: home
 
 hero:
-  name: NextClaw Docs
-  text: Give an agent a task. Inspect a real result.
-  tagline: NextClaw reads source material, uses tools, works with local files, and creates documents, charts, code, and apps on a machine you control. Start with one task and learn each part as you need it.
+  name: NextClaw
+  text: Your long-term personal AI partner
+  tagline: Install and start with built-in free-trial models—no API key required. NextClaw can read source material, use tools, work with local files, and create documents, charts, code, and apps on a machine you control.
   actions:
     - theme: brand
       text: Create your first task
@@ -26,14 +26,14 @@ Provide an outcome, source material, and a working directory. The agent can use 
 </div>
 
 <figure class="nc-docs-product-shot nc-docs-product-shot--wide">
-  <img src="/product-screenshots/nextclaw-hero-workbench-en.png" alt="A NextClaw session with an interactive piano Panel App open beside it">
-  <figcaption>Conversation, execution, and an interactive result stay in one task.</figcaption>
+  <img src="/product-screenshots/nextclaw-hero-workbench-en.png" alt="A NextClaw task showing a data visualization beside a project document">
+  <figcaption>Conversation, generated results, and project documents stay in one task.</figcaption>
 </figure>
 
 ## Start with one real task
 
 <div class="nc-docs-path-grid">
-  <a class="nc-docs-card" href="/en/guide/install"><span class="nc-docs-step">STEP ONE</span><strong>Install and configure a model</strong><span>Use the desktop app directly, or choose npm and Docker for terminal and server environments.</span></a>
+  <a class="nc-docs-card" href="/en/guide/install"><span class="nc-docs-step">STEP ONE</span><strong>Install and start your first task</strong><span>The built-in free trial needs no API key. You can switch to your own hosted or local model later.</span></a>
   <a class="nc-docs-card" href="/en/guide/create-task"><span class="nc-docs-step">STEP TWO</span><strong>Choose a directory and outcome</strong><span>Bring real material and define the output, destination, and acceptance criteria.</span></a>
   <a class="nc-docs-card" href="/en/guide/results"><span class="nc-docs-step">STEP THREE</span><strong>Open the artifact and refine it</strong><span>Review the real file, chart, or page, then continue with the same context.</span></a>
 </div>
@@ -53,6 +53,15 @@ Open local files, Markdown, code, HTML, documents, spreadsheets, and presentatio
   <a class="nc-docs-link" href="/en/guide/results"><strong>Results and previews</strong><span>Inspect documents, source, HTML, spreadsheets, and real files.</span></a>
   <a class="nc-docs-link" href="/en/guide/doc-browser"><strong>Doc Browser</strong><span>Keep websites, documentation, and browser tabs in the global dock.</span></a>
 </div>
+
+## Let background agents deliver finished work
+
+Scheduled tasks, background agents, and long-running monitors can place reports in the AI Inbox. Read them when convenient, manage them with other results, or continue the conversation from the delivered report.
+
+<figure class="nc-docs-product-shot nc-docs-product-shot--wide">
+  <img src="/product-screenshots/nextclaw-island-inbox-workspace-cn.png" alt="NextClaw Island theme showing a daily AI and technology briefing delivered to the AI Inbox">
+  <figcaption>A delivered briefing stays beside conversations and apps in the same desktop workspace.</figcaption>
+</figure>
 
 ## Turn repeated work into your own agents and apps
 
@@ -114,7 +123,8 @@ Scheduled tasks cover briefs, checks, and recurring summaries. Channels let requ
   <a class="nc-docs-link" href="/en/guide/security-and-permissions"><strong>Security and permissions</strong><span>Review directories, secrets, channels, and external tools.</span></a>
   <a class="nc-docs-link" href="/en/guide/troubleshooting"><strong>Troubleshooting</strong><span>Start with runtime status, logs, and connections.</span></a>
   <a class="nc-docs-link" href="/en/guide/configuration"><strong>Configuration</strong><span>Look up complete settings and runtime options.</span></a>
-  <a class="nc-docs-link" href="/en/guide/commands"><strong>Command index</strong><span>Find terminal usage by command name.</span></a>
+  <a class="nc-docs-link" href="/en/guide/resource-usage"><strong>Runtime resource usage</strong><span>Review the tested VPS baseline, idle memory measurements, and workload boundaries.</span></a>
+  <a class="nc-docs-link" href="/en/guide/commands"><strong>CLI capability map</strong><span>Browse the complete NextClaw command surface by capability area.</span></a>
   <a class="nc-docs-link" href="/en/notes/"><strong>Product updates</strong><span>See what each version added, improved, and fixed.</span></a>
   <a class="nc-docs-link" href="/en/project/"><strong>Project and community</strong><span>Explore the vision, roadmap, activity, and community.</span></a>
 </div>

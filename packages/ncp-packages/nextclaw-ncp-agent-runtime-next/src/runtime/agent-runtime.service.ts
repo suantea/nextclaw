@@ -2,8 +2,6 @@ import { randomUUID } from "node:crypto";
 import {
   defaultToolResultContentManager,
   DefaultNcpStreamEncoder,
-  executeCollectedToolCall,
-  type CollectedToolCall,
   type ToolResultContentManager,
 } from "@nextclaw/ncp-agent-runtime";
 import {
@@ -27,6 +25,7 @@ import type {
 } from "./runtime-tool-call-executor.service.js";
 import { runModelRoundWithRecovery } from "./runtime-model-round-recovery.manager.js";
 import { AgentRunExecutionManager } from "./agent-run-execution.manager.js";
+import { RuntimeToolCallExecutionService } from "./runtime-tool-call-execution.service.js";
 
 export type AgentRuntimeSessionStateSnapshot = {
   messages: readonly NcpMessage[];
@@ -34,25 +33,33 @@ export type AgentRuntimeSessionStateSnapshot = {
 
 export type AgentRuntimeSessionState = {
   readonly sessionId: string;
-  readonly inbox: {
-    drain(): NcpMessage[];
-  };
   getSnapshot(): AgentRuntimeSessionStateSnapshot;
   applyEvents(events: readonly NcpEndpointEvent[]): Promise<void>;
+  claimNextStepRequests?(runId: string): readonly {
+    id: string;
+    request: { message: NcpMessage };
+  }[];
+  acknowledgeNextStepRequests?(requestIds: readonly string[]): void;
 };
+
+export type AgentRunPreflightPhase = "pre-run" | "mid-run";
 
 export type DefaultNcpAgentRuntimeRunOptions = {
   sessionRun: AgentRuntimeSessionState;
   contextBlocks: readonly string[];
+  initialMessages?: readonly NcpMessage[];
   tools: readonly NcpTool[];
   signal?: AbortSignal;
 };
 
 export type AgentRunPreflight = (input: {
   contextBlocks: readonly string[];
+  phase: AgentRunPreflightPhase;
+  signal?: AbortSignal;
   spec: DefaultNcpAgentRunSpec;
   sessionRun: AgentRuntimeSessionState;
-}) => Promise<readonly NcpEndpointEvent[]>;
+  tools: readonly NcpTool[];
+}) => AsyncIterable<NcpEndpointEvent>;
 
 export type DefaultNcpAgentRuntimeConfig = {
   llmApi: NcpLLMApi;
@@ -61,11 +68,6 @@ export type DefaultNcpAgentRuntimeConfig = {
   reasoningNormalizationMode?: NcpAssistantReasoningNormalizationMode;
   streamEncoder?: NcpStreamEncoder;
   toolResultContentManager?: ToolResultContentManager;
-};
-
-type InboxDrainResult = {
-  drained: boolean;
-  events: NcpEndpointEvent[];
 };
 
 type RuntimeDrainReady =
@@ -90,8 +92,13 @@ function createDefaultAbortReason(): NcpError {
 }
 
 function readAbortSignalReason(signal?: AbortSignal): NcpError {
-  const reason = (signal as (AbortSignal & { reason?: unknown }) | undefined)?.reason;
-  if (isRecord(reason) && reason.code === "abort-error" && typeof reason.message === "string") {
+  const reason = (signal as (AbortSignal & { reason?: unknown }) | undefined)
+    ?.reason;
+  if (
+    isRecord(reason) &&
+    reason.code === "abort-error" &&
+    typeof reason.message === "string"
+  ) {
     return reason as NcpError;
   }
   if (reason instanceof Error && reason.name === "AbortError") {
@@ -160,7 +167,7 @@ export class DefaultNcpAgentRuntime {
   private readonly runPreflight?: AgentRunPreflight;
   private readonly reasoningNormalizationMode: NcpAssistantReasoningNormalizationMode;
   private readonly streamEncoder: NcpStreamEncoder;
-  private readonly toolResultContentManager: ToolResultContentManager;
+  private readonly toolCallExecution: RuntimeToolCallExecutionService;
 
   constructor(config: DefaultNcpAgentRuntimeConfig) {
     const {
@@ -174,15 +181,17 @@ export class DefaultNcpAgentRuntime {
     this.llmApi = llmApi;
     this.modelInputBuilder = modelInputBuilder;
     this.runPreflight = runPreflight;
-    this.reasoningNormalizationMode = reasoningNormalizationMode ?? "think-tags";
+    this.reasoningNormalizationMode =
+      reasoningNormalizationMode ?? "think-tags";
     this.streamEncoder =
       streamEncoder ??
       new DefaultNcpStreamEncoder({
         reasoningNormalizationMode: this.reasoningNormalizationMode,
         toolCallEndMode: "sequential-index",
       });
-    this.toolResultContentManager =
-      toolResultContentManager ?? defaultToolResultContentManager;
+    this.toolCallExecution = new RuntimeToolCallExecutionService(
+      toolResultContentManager ?? defaultToolResultContentManager,
+    );
   }
 
   // eslint-disable-next-line max-statements
@@ -190,14 +199,9 @@ export class DefaultNcpAgentRuntime {
     spec: DefaultNcpAgentRunSpec,
     options: DefaultNcpAgentRuntimeRunOptions,
   ): AsyncIterable<NcpEndpointEvent> {
-    const {
-      contextBlocks,
-      sessionRun,
-      signal,
-      tools,
-    } = options;
+    const { contextBlocks, sessionRun, signal, tools } = options;
     const sessionId = sessionRun.sessionId;
-    const messageId = `assistant-message-${randomUUID()}`;
+    let messageId = `assistant-message-${randomUUID()}`;
     const executionManager = new AgentRunExecutionManager({
       spec,
       sessionId,
@@ -206,35 +210,49 @@ export class DefaultNcpAgentRuntime {
     let runStartedAt: string | undefined;
 
     try {
-      for (const event of this.drainInbox(sessionRun, spec).events) {
+      for (const event of this.toMessageSentEvents(
+        options.initialMessages ?? [],
+        sessionRun,
+        spec,
+      )) {
         if (this.isAbortRequested(signal)) {
           break;
         }
         yield await this.applyEvent(sessionRun, event);
       }
-      const preflightEvents = this.runPreflight
-        ? await this.runPreflight({ contextBlocks, spec, sessionRun })
-        : [];
-      for (const event of preflightEvents) {
-        if (this.isAbortRequested(signal)) {
-          break;
-        }
-        yield await this.applyEvent(sessionRun, event);
-      }
+      yield* this.runPreflightPhase(
+        { contextBlocks, phase: "pre-run", sessionRun, spec, tools },
+        signal,
+      );
       runStartedAt = new Date().toISOString();
-      yield await this.applyEvent(sessionRun, createRuntimeEvent({
-        type: NcpEventType.RunStarted,
-        payload: {
-          messageId,
-          runId: spec.runId,
-          sessionId,
-          correlationId: spec.correlationId,
-          startedAt: runStartedAt,
-        },
-      }, runStartedAt));
+      yield await this.applyEvent(
+        sessionRun,
+        createRuntimeEvent(
+          {
+            type: NcpEventType.RunStarted,
+            payload: {
+              messageId,
+              runId: spec.runId,
+              sessionId,
+              correlationId: spec.correlationId,
+              startedAt: runStartedAt,
+            },
+          },
+          runStartedAt,
+        ),
+      );
       if (this.isAbortRequested(signal)) {
-        yield await this.applyEvent(sessionRun, executionManager.createMetadataEvent({ outcome: "aborted" }));
-        yield await this.applyEvent(sessionRun, this.toAbortEvent(sessionId, messageId, spec, signal));
+        yield await this.applyEvent(
+          sessionRun,
+          executionManager.createMetadataEvent({
+            outcome: "aborted",
+            messageId,
+          }),
+        );
+        yield await this.applyEvent(
+          sessionRun,
+          this.toAbortEvent(sessionId, messageId, spec, signal),
+        );
         return;
       }
 
@@ -245,20 +263,33 @@ export class DefaultNcpAgentRuntime {
           messages: sessionRun.getSnapshot().messages,
           contextBlocks,
           tools,
+          signal,
         });
         if (this.isAbortRequested(signal)) {
           break;
         }
 
+        const roundMessageId = messageId;
         const toolExecutor = yield* runModelRoundWithRecovery({
           applyEvent: this.applyEvent,
           drainRuntimeEvents: (encoded, toolExecutor) =>
             this.drainRuntimeEvents(sessionRun, encoded, toolExecutor, signal),
-          executeToolCall: (toolCall, publishToolResult) =>
-            this.executeToolCall(tools, sessionId, spec, toolCall, publishToolResult, signal),
+          executeToolCall: (toolCall, publishToolEvent) =>
+            this.toolCallExecution.execute({
+              tools,
+              sessionId,
+              messageId: roundMessageId,
+              spec,
+              toolCall,
+              publishToolEvent,
+              signal,
+            }),
+          supportsParallelToolCalls: (toolCall) =>
+            tools.find((tool) => tool.name === toolCall.toolName)
+              ?.supportsParallelToolCalls === true,
           executionManager,
           llmApi: this.llmApi,
-          messageId,
+          messageId: roundMessageId,
           modelInput,
           runStartedAt,
           sessionId,
@@ -266,23 +297,30 @@ export class DefaultNcpAgentRuntime {
           signal,
           spec,
           streamEncoder: this.streamEncoder,
-          toRunErrorEvent: (error, startedAt) => this.toRunErrorEvent(sessionId, spec, error, startedAt),
+          toRunErrorEvent: (error, startedAt) =>
+            this.toRunErrorEvent(sessionId, spec, error, startedAt),
         });
         if (this.isAbortRequested(signal)) {
           break;
         }
 
-        const drainedInbox = this.drainInbox(sessionRun, spec);
-        for (const event of drainedInbox.events) {
-          if (this.isAbortRequested(signal)) {
-            break;
-          }
-          yield await this.applyEvent(sessionRun, event);
-        }
+        const nextStep = await this.consumeNextStepInputs(
+          sessionRun,
+          roundMessageId,
+          spec,
+        );
+        if (nextStep.completedAssistantEvent)
+          yield nextStep.completedAssistantEvent;
+        for (const event of nextStep.messageSentEvents) yield event;
+        if (nextStep.consumed) messageId = `assistant-message-${randomUUID()}`;
         if (this.isAbortRequested(signal)) {
           break;
         }
-        if (toolExecutor.hasStartedToolCalls() || drainedInbox.drained) {
+        if (toolExecutor.hasStartedToolCalls() || nextStep.consumed) {
+          yield* this.runPreflightPhase(
+            { contextBlocks, phase: "mid-run", sessionRun, spec, tools },
+            signal,
+          );
           continue;
         }
 
@@ -292,28 +330,51 @@ export class DefaultNcpAgentRuntime {
           executionManager.createMetadataEvent({
             outcome: "completed",
             occurredAt: endedAt,
+            messageId,
           }),
         );
-        yield await this.applyEvent(sessionRun, createRuntimeEvent({
-          type: NcpEventType.RunFinished,
-          payload: {
-            messageId,
-            runId: spec.runId,
-            sessionId,
-            correlationId: spec.correlationId,
-            startedAt: runStartedAt,
+        yield await this.completeAssistantStep(sessionRun, messageId, spec);
+        yield await this.applyEvent(
+          sessionRun,
+          createRuntimeEvent(
+            {
+              type: NcpEventType.RunFinished,
+              payload: {
+                messageId,
+                runId: spec.runId,
+                sessionId,
+                correlationId: spec.correlationId,
+                startedAt: runStartedAt,
+                endedAt,
+              },
+            },
             endedAt,
-          },
-        }, endedAt));
+          ),
+        );
         return;
       }
 
-      yield await this.applyEvent(sessionRun, executionManager.createMetadataEvent({ outcome: "aborted" }));
-      yield await this.applyEvent(sessionRun, this.toAbortEvent(sessionId, messageId, spec, signal));
+      yield await this.applyEvent(
+        sessionRun,
+        executionManager.createMetadataEvent({ outcome: "aborted", messageId }),
+      );
+      yield await this.applyEvent(
+        sessionRun,
+        this.toAbortEvent(sessionId, messageId, spec, signal),
+      );
     } catch (error) {
       if (this.isAbortRequested(signal)) {
-        yield await this.applyEvent(sessionRun, executionManager.createMetadataEvent({ outcome: "aborted" }));
-        yield await this.applyEvent(sessionRun, this.toAbortEvent(sessionId, messageId, spec, signal));
+        yield await this.applyEvent(
+          sessionRun,
+          executionManager.createMetadataEvent({
+            outcome: "aborted",
+            messageId,
+          }),
+        );
+        yield await this.applyEvent(
+          sessionRun,
+          this.toAbortEvent(sessionId, messageId, spec, signal),
+        );
         return;
       }
       const endedAt = new Date().toISOString();
@@ -322,19 +383,38 @@ export class DefaultNcpAgentRuntime {
         executionManager.createMetadataEvent({
           outcome: "failed",
           occurredAt: endedAt,
+          messageId,
         }),
       );
-      yield await this.applyEvent(sessionRun, createRuntimeEvent({
-        type: NcpEventType.RunError,
-        payload: {
-          sessionId,
-          runId: spec.runId,
-          correlationId: spec.correlationId,
-          error: error instanceof Error ? error.message : String(error),
-          startedAt: runStartedAt,
+      yield await this.applyEvent(
+        sessionRun,
+        createRuntimeEvent(
+          {
+            type: NcpEventType.RunError,
+            payload: {
+              sessionId,
+              runId: spec.runId,
+              correlationId: spec.correlationId,
+              error: error instanceof Error ? error.message : String(error),
+              startedAt: runStartedAt,
+              endedAt,
+            },
+          },
           endedAt,
-        },
-      }, endedAt));
+        ),
+      );
+    }
+  }
+
+  private async *runPreflightPhase(
+    input: Parameters<AgentRunPreflight>[0],
+    signal?: AbortSignal,
+  ): AsyncIterable<NcpEndpointEvent> {
+    if (!this.runPreflight) {
+      return;
+    }
+    for await (const event of this.runPreflight({ ...input, signal })) {
+      yield await this.applyEvent(input.sessionRun, event);
     }
   }
 
@@ -442,42 +522,96 @@ export class DefaultNcpAgentRuntime {
     }
   };
 
-  private drainInbox = (
+  private toMessageSentEvents = (
+    messages: readonly NcpMessage[],
     sessionRun: AgentRuntimeSessionState,
     spec: DefaultNcpAgentRunSpec,
-  ): InboxDrainResult => {
-    const messages = sessionRun.inbox.drain();
-    return {
-      drained: messages.length > 0,
-      events: messages.map((message) => ({
-        occurredAt: new Date().toISOString(),
-        type: NcpEventType.MessageSent,
-        payload: {
-          sessionId: sessionRun.sessionId,
-          message,
-          correlationId: spec.correlationId,
-        },
-      })),
-    };
+  ): NcpEndpointEvent[] =>
+    messages.map((message) => ({
+      occurredAt: new Date().toISOString(),
+      type: NcpEventType.MessageSent,
+      payload: {
+        sessionId: sessionRun.sessionId,
+        message,
+        correlationId: spec.correlationId,
+      },
+    }));
+
+  private consumeNextStepInputs = async (
+    sessionRun: AgentRuntimeSessionState,
+    messageId: string,
+    spec: DefaultNcpAgentRunSpec,
+  ): Promise<{
+    completedAssistantEvent: NcpEndpointEvent | null;
+    consumed: boolean;
+    messageSentEvents: NcpEndpointEvent[];
+  }> => {
+    const claimedInputs = sessionRun.claimNextStepRequests?.(spec.runId) ?? [];
+    if (claimedInputs.length === 0) {
+      return {
+        completedAssistantEvent: null,
+        consumed: false,
+        messageSentEvents: [],
+      };
+    }
+    const completedAssistantEvent = await this.completeAssistantStep(
+      sessionRun,
+      messageId,
+      spec,
+    );
+    const messageSentEvents = this.toMessageSentEvents(
+      claimedInputs.map(({ request }) => request.message),
+      sessionRun,
+      spec,
+    );
+    await sessionRun.applyEvents(messageSentEvents);
+    sessionRun.acknowledgeNextStepRequests?.(claimedInputs.map(({ id }) => id));
+    return { completedAssistantEvent, consumed: true, messageSentEvents };
   };
 
-  private isAbortRequested = (signal?: AbortSignal): boolean => signal?.aborted ?? false;
+  private completeAssistantStep = async (
+    sessionRun: AgentRuntimeSessionState,
+    messageId: string,
+    spec: DefaultNcpAgentRunSpec,
+  ): Promise<NcpEndpointEvent> => {
+    const message = sessionRun
+      .getSnapshot()
+      .messages.find((candidate) => candidate.id === messageId);
+    if (!message) {
+      throw new Error(`Assistant step completed without message ${messageId}.`);
+    }
+    return await this.applyEvent(
+      sessionRun,
+      createRuntimeEvent({
+        type: NcpEventType.MessageCompleted,
+        payload: {
+          sessionId: sessionRun.sessionId,
+          correlationId: spec.correlationId,
+          message: { ...message, status: "final" },
+        },
+      }),
+    );
+  };
+
+  private isAbortRequested = (signal?: AbortSignal): boolean =>
+    signal?.aborted ?? false;
 
   private toAbortEvent = (
     sessionId: string,
     messageId: string,
     spec: DefaultNcpAgentRunSpec,
     signal?: AbortSignal,
-  ): NcpEndpointEvent => createRuntimeEvent({
-    type: NcpEventType.MessageAbort,
-    payload: {
-      messageId,
-      runId: spec.runId,
-      sessionId,
-      correlationId: spec.correlationId,
-      reason: readAbortSignalReason(signal),
-    },
-  });
+  ): NcpEndpointEvent =>
+    createRuntimeEvent({
+      type: NcpEventType.MessageAbort,
+      payload: {
+        messageId,
+        runId: spec.runId,
+        sessionId,
+        correlationId: spec.correlationId,
+        reason: readAbortSignalReason(signal),
+      },
+    });
 
   private toRunErrorEvent = (
     sessionId: string,
@@ -486,17 +620,20 @@ export class DefaultNcpAgentRuntime {
     startedAt?: string,
   ): NcpEndpointEvent => {
     const endedAt = new Date().toISOString();
-    return createRuntimeEvent({
-      type: NcpEventType.RunError,
-      payload: {
-        sessionId,
-        runId: spec.runId,
-        correlationId: spec.correlationId,
-        error: error instanceof Error ? error.message : String(error),
-        startedAt,
-        endedAt,
+    return createRuntimeEvent(
+      {
+        type: NcpEventType.RunError,
+        payload: {
+          sessionId,
+          runId: spec.runId,
+          correlationId: spec.correlationId,
+          error: error instanceof Error ? error.message : String(error),
+          startedAt,
+          endedAt,
+        },
       },
-    }, endedAt);
+      endedAt,
+    );
   };
 
   private applyEvent = async (
@@ -505,64 +642,5 @@ export class DefaultNcpAgentRuntime {
   ): Promise<NcpEndpointEvent> => {
     await sessionRun.applyEvents([event]);
     return event;
-  };
-
-  private executeToolCall = async (
-    tools: readonly NcpTool[],
-    sessionId: string,
-    spec: DefaultNcpAgentRunSpec,
-    toolCall: CollectedToolCall,
-    publishToolResult: (event: NcpEndpointEvent) => Promise<void>,
-    signal?: AbortSignal,
-  ): Promise<NcpEndpointEvent> => {
-    const tool = tools.find((candidate) => candidate.name === toolCall.toolName);
-    const result = this.toolResultContentManager.normalizeToolCallResult(
-      await executeCollectedToolCall({
-        toolCall,
-        tool,
-        execute: (availableTool, args) => {
-          if (!availableTool) {
-            throw new Error("Tool is not available in this run.");
-          }
-          const updateToolCallResult = async (updatedResult: unknown): Promise<void> => {
-            const normalized = this.toolResultContentManager.normalizeToolCallResult({
-              toolCallId: toolCall.toolCallId,
-              toolName: toolCall.toolName,
-              args: typeof args === "object" && args !== null && !Array.isArray(args)
-                ? args as Record<string, unknown>
-                : null,
-              rawArgsText: toolCall.args,
-              result: updatedResult,
-            });
-            const event = createRuntimeEvent({
-              type: NcpEventType.MessageToolCallResult,
-              payload: {
-                sessionId,
-                toolCallId: toolCall.toolCallId,
-                correlationId: spec.correlationId,
-                content: normalized.result,
-                contentItems: normalized.contentItems,
-              },
-            });
-            await publishToolResult(event);
-          };
-          return availableTool.execute(args, {
-            abortSignal: signal,
-            toolCallId: toolCall.toolCallId,
-            updateToolCallResult,
-          });
-        },
-      }),
-    );
-    return createRuntimeEvent({
-      type: NcpEventType.MessageToolCallResult,
-      payload: {
-        sessionId,
-        toolCallId: toolCall.toolCallId,
-        correlationId: spec.correlationId,
-        content: result.result,
-        contentItems: result.contentItems,
-      },
-    });
   };
 }

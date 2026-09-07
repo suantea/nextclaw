@@ -1,5 +1,11 @@
 export { EventBus } from "./services/event-bus.service.js";
 export { Ingress } from "./services/ingress.service.js";
+export { Contribution, EffectScope } from "./features/lifecycle/index.js";
+export type {
+  Disposer,
+  EffectSetup,
+  IContribution,
+} from "./features/lifecycle/index.js";
 export {
   DisposableOwner,
   DisposableStore,
@@ -37,14 +43,10 @@ export type {
   UiShowContentPurpose,
   UiShowContentTarget,
 } from "./types/ui-show-content.types.js";
-export {
-  INBOX_DELIVERY_SESSION_METADATA_KEY,
-} from "./types/inbox-delivery.types.js";
 export type {
   InboxDelivery,
   InboxDeliveryChangedEventPayload,
   InboxDeliveryContentType,
-  InboxDeliveryContinueResult,
   InboxDeliveryListView,
   InboxDeliverySource,
   InboxDeliveryStateAction,
@@ -55,10 +57,14 @@ export {
   createEventKey,
   eventKeys,
 } from "./configs/event-keys.config.js";
+export type { ProjectWorkChangedEventPayload } from "./configs/event-keys.config.js";
 export {
+  CHAT_CONTINUATION_TARGET_MESSAGE_METADATA_KEY,
   CHAT_SESSION_MATERIALIZATION_METADATA_KEY,
   ingressKeys,
 } from "./configs/ingress-keys.config.js";
+export { DIAGNOSTIC_CORRELATION_METADATA_KEY } from "./configs/ingress-keys.config.js";
+export type { NcpRunTriggerInput } from "@nextclaw/ncp";
 export {
   RUNTIME_DEFAULT_MODEL_VALUE,
   isRuntimeDefaultModelValue,
@@ -67,12 +73,39 @@ export {
 export {
   CHAT_INLINE_TOKENS_METADATA_KEY,
   CHAT_INLINE_TOKENS_SCHEMA_VERSION,
+  CHAT_CONVERSATION_EXCERPT_TOKEN_KIND,
   CHAT_PROJECT_TOKEN_KIND,
+  CHAT_SYSTEM_OBJECT_TOKEN_KIND,
   CHAT_WORKSPACE_DIRECTORY_TOKEN_KIND,
+  CHAT_WORKSPACE_EXCERPT_TOKEN_KIND,
   CHAT_WORKSPACE_FILE_TOKEN_KIND,
 } from "./configs/chat-composer-token.config.js";
+export {
+  CHAT_UI_RESOURCE_TOKEN_KIND,
+  readChatUiResourceReference,
+} from "./configs/chat-ui-resource-reference.config.js";
+export {
+  SYSTEM_OBJECT_REFERENCE_DEFAULT_LIMIT,
+  SYSTEM_OBJECT_REFERENCE_MAX_LIMIT,
+  SYSTEM_OBJECT_REFERENCE_URI_HOST,
+  SYSTEM_OBJECT_REFERENCE_URI_SCHEME,
+  SYSTEM_OBJECT_TYPE_CRON_JOB,
+  SYSTEM_OBJECT_TYPE_INBOX_DELIVERY,
+  createSystemObjectReferenceUri,
+  parseSystemObjectReferenceUri,
+  readSystemObjectResolvedReference,
+} from "./configs/system-object-reference.config.js";
 export { PANEL_APP_INLINE_HOST_CONTRACT } from "./configs/panel-app-inline-host.config.js";
+export { PANEL_APP_SCROLL_RESTORATION_CONTRACT } from "./configs/panel-app-scroll-restoration.config.js";
+export { formatNextClawAppInstallCommand } from "./configs/app-install-command.config.js";
 export { readInlineContentHeight } from "./utils/inline-content-height.utils.js";
+export { classifyDiagnosticError } from "./utils/diagnostic-error.utils.js";
+export type { DiagnosticErrorClassification } from "./utils/diagnostic-error.utils.js";
+export {
+  containsSilentReplyMarker,
+  isSilentReplyNcpMessage,
+  SILENT_REPLY_TOKEN,
+} from "./utils/silent-reply.utils.js";
 export {
   appendUiContentParamsBootstrapQuery,
   createUiContentParamsWindowName,
@@ -83,13 +116,30 @@ export {
 export type {
   ChatInlineTokenMetadata,
   ChatInlineTokensMetadata,
+  ChatConversationExcerptInlineTokenMetadata,
   ChatProjectInlineTokenMetadata,
   ChatSkillInlineTokenMetadata,
   ChatSkillSource,
+  ChatSystemObjectInlineTokenMetadata,
+  ChatUiResourceInlineTokenMetadata,
   ChatWorkspaceInlineTokenMetadata,
+  ChatWorkspaceExcerptInlineTokenMetadata,
 } from "./configs/chat-composer-token.config.js";
+export type { ChatUiResourceReference } from "./configs/chat-ui-resource-reference.config.js";
+export type {
+  SystemObjectReferenceDisplayText,
+  SystemObjectReferenceGroupDescriptor,
+  SystemObjectReferenceGroupIcon,
+  SystemObjectReferenceGroupView,
+  SystemObjectReferenceItem,
+  SystemObjectReferenceListView,
+  SystemObjectReferenceResolveRequest,
+  SystemObjectResolvedReference,
+} from "./configs/system-object-reference.config.js";
 export type { RuntimeModelSelectionMode } from "./configs/runtime-model.config.js";
 export type {
+  AgentRunContinueIngressPayload,
+  AgentRunEditMessageIngressPayload,
   AgentRunSendIngressPayload,
   AgentRunSessionMaterializationMetadata,
   AgentRunSessionMessageRequestPayload,
@@ -105,8 +155,14 @@ export type {
   ExtensionChannelImageContent,
   ExtensionChannelMessageContent,
   ExtensionChannelMessageSubmitIngressPayload,
+  ExtensionDiagnosticIngressPayload,
+  ExtensionDesktopHostInvokeIngressPayload,
+  DiagnosticFactValue,
+  DiagnosticOutcome,
   ExtensionChannelSubmittedAttachment,
   ExtensionChannelTextContent,
+  ExtensionRuntimeReadyIngressPayload,
+  ExtensionObservationEventIngressPayload,
   ExtensionResponseIngressPayload,
 } from "./configs/ingress-keys.config.js";
 export type {

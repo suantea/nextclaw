@@ -1,0 +1,321 @@
+import { describe, expect, it } from "vitest";
+import { AppPlatformTargetService } from "@nextclaw/app-runtime";
+import { parseServiceAppManifest } from "./service-app-manifest.utils.js";
+
+const BASE_MANIFEST = {
+  id: "native-todo",
+  title: "Native Todo",
+  enabled: true,
+  protocol: "mcp",
+  actions: {
+    list_todos: { risk: "read" },
+  },
+};
+
+describe("parseServiceAppManifest target launch", () => {
+  it("parses a portable WASI component without a native launch command", () => {
+    expect(parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+    }))).toMatchObject({
+      protocol: "wasi-component",
+      componentEntry: "service.wasm",
+      command: undefined,
+      args: undefined,
+    });
+  });
+
+  it("parses a portable action execution budget and rejects unsafe values", () => {
+    expect(parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      actions: { run: { risk: "dangerous", timeoutMs: 1_200 } },
+    })).actions.run).toMatchObject({ timeoutMs: 1_200 });
+
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      actions: { run: { timeoutMs: 10 } },
+    }))).toThrow("timeoutMs must be an integer between 100 and 300000");
+  });
+
+  it("keeps portable packages self-contained unless a Service explicitly declares an external requirement", () => {
+    const manifest = { ...BASE_MANIFEST, command: "node" };
+    expect(parseServiceAppManifest(JSON.stringify(manifest)).requires).toBeUndefined();
+
+    expect(parseServiceAppManifest(JSON.stringify({
+      ...manifest,
+      requires: {
+        capabilities: [{
+          id: "redis",
+          version: "1",
+          title: "Shared cache",
+          remediation: { kind: "agent-setup", summary: "Connect a managed cache." },
+        }],
+        resources: [{
+          binding: "cache",
+          type: "redis",
+          title: "Team cache",
+          remediation: {
+            kind: "agent-setup",
+            summary: "Ask the user to sign in to the managed cache.",
+            requiresUserAction: true,
+          },
+        }],
+      },
+    }))).toMatchObject({
+      requires: {
+        capabilities: [{ id: "redis", version: "1", title: "Shared cache" }],
+        resources: [{ binding: "cache", type: "redis", required: true }],
+      },
+    });
+
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...manifest,
+      requires: { capabilities: [{ id: "Redis" }] },
+    }))).toThrow("lowercase identifier");
+  });
+
+  it("parses a Provider capability contract and rejects ambiguous declarations", () => {
+    expect(parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      lifecycle: { mode: "provider" },
+      provides: {
+        capabilities: [{
+          id: "shared-cache",
+          version: "1",
+          resourceTypes: ["cache", "cache"],
+        }],
+      },
+    }))).toMatchObject({
+      provides: { capabilities: [{ id: "shared-cache", version: "1", resourceTypes: ["cache"] }] },
+    });
+
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      command: "node",
+      provides: { capabilities: [{ id: "shared-cache" }] },
+    }))).toThrow("provides.capabilities[0].version is required");
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      command: "node",
+      provides: { capabilities: [{ id: "shared-cache", version: "1", resourceTypes: ["Redis"] }] },
+    }))).toThrow("lowercase identifiers");
+  });
+
+  it("requires exact Provider WIT semver and a Consumer WIT range", () => {
+    const provider = parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      lifecycle: { mode: "provider" },
+      provides: {
+        capabilities: [{
+          id: "contacts.normalize",
+          version: "1",
+          wit: {
+            package: "nextclaw:contacts",
+            interface: "normalize",
+            version: "1.2.0",
+          },
+        }],
+      },
+    }));
+    expect(provider.provides?.capabilities?.[0]?.wit).toEqual({
+      package: "nextclaw:contacts",
+      interface: "normalize",
+      version: "1.2.0",
+    });
+
+    const consumer = parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      requires: {
+        capabilities: [{
+          id: "contacts.normalize",
+          wit: {
+            package: "nextclaw:contacts",
+            interface: "normalize",
+            version: "^1.1.0",
+          },
+        }],
+      },
+    }));
+    expect(consumer.requires?.capabilities?.[0]?.wit?.version).toBe("^1.1.0");
+
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      lifecycle: { mode: "provider" },
+      provides: { capabilities: [{
+        id: "contacts.normalize", version: "1", wit: {
+          package: "nextclaw:contacts", interface: "normalize", version: "^1.1.0",
+        },
+      }] },
+    }))).toThrow("exact semver version");
+
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      command: "node",
+      requires: { capabilities: [{
+        id: "contacts.normalize", wit: {
+          package: "nextclaw:contacts", interface: "normalize", version: "^1.1.0",
+        },
+      }] },
+    }))).toThrow("requires wasi-component protocol");
+
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      requires: { capabilities: [{ id: "contacts.normalize", provider: "contact-provider" }] },
+    }))).toThrow("provider requires WIT metadata");
+  });
+
+});
+
+describe("parseServiceAppManifest portable lifecycle", () => {
+  it("parses an explicit resident lifecycle and rejects native or unsafe intervals", () => {
+    expect(parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      lifecycle: { mode: "resident", eventIntervalMs: 1_000 },
+    })).lifecycle).toEqual({ mode: "resident", eventIntervalMs: 1_000 });
+
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      command: "node",
+      lifecycle: { mode: "resident", eventIntervalMs: 1_000 },
+    }))).toThrow("requires wasi-component protocol");
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      lifecycle: { mode: "resident", eventIntervalMs: 100 },
+    }))).toThrow("between 250 and 60000");
+  });
+
+  it("parses provider registration and explicit consumer dependencies", () => {
+    expect(parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      lifecycle: { mode: "provider" },
+      providers: ["contact-provider", "contact-provider"],
+    }))).toMatchObject({
+      lifecycle: { mode: "provider" },
+      providerIds: ["contact-provider"],
+    });
+
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      command: "node",
+      lifecycle: { mode: "provider" },
+    }))).toThrow("provider service app lifecycle requires wasi-component protocol");
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "service.wasm" },
+      providers: ["Not Valid"],
+    }))).toThrow("kebab-case service app ids");
+  });
+
+  it("rejects portable component entries that escape the package", () => {
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      protocol: "wasi-component",
+      component: { entry: "../service.wasm" },
+    }))).toThrow("package-relative path");
+  });
+
+  it("keeps the existing universal command contract", () => {
+    expect(parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      command: "node",
+      args: ["server.mjs"],
+    }))).toMatchObject({
+      command: "node",
+      args: ["server.mjs"],
+    });
+  });
+
+  it("resolves one target from a multi-target local manifest", () => {
+    const targetService = new AppPlatformTargetService();
+    const manifest = parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      launch: {
+        targets: [
+          {
+            target: { kind: "native", os: "darwin", arch: "arm64" },
+            command: "./bin/darwin-arm64/native-todo",
+            args: ["--stdio"],
+          },
+          {
+            target: { kind: "native", os: "linux", arch: "x64", abi: "gnu" },
+            command: "./bin/linux-x64-gnu/native-todo",
+            args: [],
+          },
+        ],
+      },
+    }), {
+      target: targetService.parseTargetKey("linux-x64-gnu") as ReturnType<AppPlatformTargetService["readHostTarget"]>,
+      platformTargetService: targetService,
+    });
+
+    expect(manifest.command).toBe("./bin/linux-x64-gnu/native-todo");
+    expect(manifest.args).toEqual([]);
+  });
+
+  it("supports a Service App that declares only one platform", () => {
+    const targetService = new AppPlatformTargetService();
+    const manifest = parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      launch: {
+        targets: [
+          {
+            target: { kind: "native", os: "win32", arch: "x64", abi: "msvc" },
+            command: ".\\native-todo.exe",
+            args: [],
+          },
+        ],
+      },
+    }), {
+      target: targetService.parseTargetKey("win32-x64-msvc") as ReturnType<AppPlatformTargetService["readHostTarget"]>,
+      platformTargetService: targetService,
+    });
+
+    expect(manifest.command).toBe(".\\native-todo.exe");
+  });
+
+  it("rejects ambiguous launch declarations and unsupported hosts", () => {
+    const targetService = new AppPlatformTargetService();
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      command: "node",
+      launch: { targets: [] },
+    }))).toThrow("必须且只能声明");
+
+    expect(() => parseServiceAppManifest(JSON.stringify({
+      ...BASE_MANIFEST,
+      launch: {
+        targets: [
+          {
+            target: { kind: "native", os: "darwin", arch: "arm64" },
+            command: "./native-todo",
+          },
+        ],
+      },
+    }), {
+      target: targetService.parseTargetKey("linux-arm64-musl") as ReturnType<AppPlatformTargetService["readHostTarget"]>,
+      platformTargetService: targetService,
+    })).toThrow("不支持当前 target：linux-arm64-musl");
+  });
+});

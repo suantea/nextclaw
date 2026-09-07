@@ -108,6 +108,17 @@ export function normalizeThinkingLevels(values: unknown): ThinkingLevel[] {
   return deduped;
 }
 
+/**
+ * Provider capabilities describe active thinking efforts. NextClaw owns the
+ * explicit off state, so every declared thinking capability exposes it to chat
+ * consumers even when the provider does not repeat it in `supported`.
+ */
+export function resolveSelectableThinkingLevels(
+  supported: readonly ThinkingLevel[]
+): ThinkingLevel[] {
+  return supported.includes('off') ? [...supported] : ['off', ...supported];
+}
+
 export function normalizeModelConfigMap(
   input: ProviderConfigView['modelConfig'],
   aliases: string[]
@@ -201,12 +212,13 @@ export function findProviderByModel(
   return null;
 }
 
-function isProviderConfigured(provider: ProviderConfigView | undefined): boolean {
+export function isProviderConfigured(provider: ProviderConfigView | undefined): boolean {
   if (!provider) {
     return false;
   }
-  // Keep in sync with ProvidersList "已配置" tab: only enabled providers with apiKey count as configured.
-  return provider.enabled !== false && provider.apiKeySet === true;
+  return provider.enabled !== false && (
+    provider.apiKeyRequired === false || provider.apiKeySet === true
+  );
 }
 
 export function buildProviderModelCatalog(params: {

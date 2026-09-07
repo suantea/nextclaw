@@ -1,4 +1,5 @@
 import {
+  adaptNcpMessagePartsForChat,
   adaptNcpMessageToUiMessage,
   adaptNcpSessionSummary,
   readNcpSessionPreferredThinking
@@ -15,6 +16,79 @@ function createSummary(partial: Partial<NcpSessionSummaryView> = {}): NcpSession
     ...partial
   };
 }
+
+it('preserves NCP extension parts for the chat presentation adapter', () => {
+  const extension = {
+    type: 'extension' as const,
+    extensionType: 'nextclaw.context-compaction',
+    data: { id: 'context-compaction-message-1' },
+  };
+
+  expect(adaptNcpMessagePartsForChat([
+    { type: 'text', text: 'before' },
+    extension,
+    { type: 'text', text: 'after' },
+  ])).toEqual([
+    { type: 'text', text: 'before' },
+    extension,
+    { type: 'text', text: 'after' },
+  ]);
+});
+
+it('keeps deferred tool part slots out of the summary card view', () => {
+  const adapted = adaptNcpMessagePartsForChat([
+    {
+      type: 'tool-invocation',
+      toolCallId: 'tool-visible',
+      toolName: 'exec',
+      state: 'result',
+      args: undefined,
+      result: undefined,
+    },
+    {
+      type: 'tool-invocation',
+      toolCallId: 'tool-deferred',
+      toolName: 'read_file',
+      state: 'result',
+      payloadDeferred: true,
+      args: undefined,
+      result: undefined,
+    },
+    { type: 'text', text: 'done' },
+  ]);
+
+  expect(adapted.map((part) => part.type)).toEqual([
+    'tool-invocation',
+    'text',
+  ]);
+});
+
+it('preserves standard tool execution timing without reading opaque result timing', () => {
+  const adapted = adaptNcpMessageToUiMessage({
+    id: 'ncp-message-timing-1',
+    sessionId: 'ncp-session-1',
+    role: 'assistant',
+    status: 'streaming',
+    timestamp: '2026-08-14T00:00:00.000Z',
+    parts: [{
+      type: 'tool-invocation',
+      toolCallId: 'tool-timing-1',
+      toolName: 'exec',
+      state: 'call',
+      args: { command: 'pnpm test' },
+      result: { durationMs: 999_999 },
+      execution: { startedAt: '2026-08-14T00:00:01.000Z' },
+    }],
+  });
+
+  expect(adapted.parts[0]).toMatchObject({
+    type: 'tool-invocation',
+    toolInvocation: {
+      toolCallId: 'tool-timing-1',
+      execution: { startedAt: '2026-08-14T00:00:01.000Z' },
+    },
+  });
+});
 
 describe('adaptNcpSessionSummary', () => {
   it('maps session metadata into shared session entry fields', () => {
@@ -106,7 +180,8 @@ describe('adaptNcpSessionSummary', () => {
           last_activity_preview: {
             state: 'completed',
             replyText: 'Plan is ready',
-            statusText: 'Tool call completed',
+            statusKind: 'tool-completed',
+            statusText: 'read_file',
             timestamp: '2026-05-16T01:00:00.000Z',
           },
         },
@@ -116,7 +191,8 @@ describe('adaptNcpSessionSummary', () => {
     expect(adapted.activityPreview).toEqual({
       state: 'completed',
       replyText: 'Plan is ready',
-      statusText: 'Tool call completed',
+      statusKind: 'tool-completed',
+      statusText: 'read_file',
       timestamp: '2026-05-16T01:00:00.000Z',
     });
   });

@@ -1,5 +1,1041 @@
 # @nextclaw/service
 
+## 0.6.3
+
+### Patch Changes
+
+- db88c76: 完全移除旧项目 Marker 与项目观测机制。Projects 不再读取 `.nextclaw/project.yaml`、扫描项目文件或全部历史会话，也不再提供 observation API 与 `nextclaw projects observe`；历史配置不会再产生 Marker 或未知字段诊断。
+
+  项目材料改为零配置的单一来源：产物只展示 Project Work 工作项显式关联的文件，支持去重、分页与搜索；Skills 固定读取 `.agents/skills`；工作约定固定读取项目根目录 `AGENTS.md`。
+
+  同时简化项目工作项列表与看板的状态分组，移除外层卡片边框和底色，只保留工作项自身的边界与轻量分组标题。
+
+- cb1a9bd: 将项目注册与项目工作项统一存入同一个 SQLite 数据库，并在首次使用时自动、事务化迁移旧 `projects.json`，避免服务启动期间项目列表因旧格式而加载失败。
+- Updated dependencies [236ce18]
+- Updated dependencies [b51f599]
+- Updated dependencies [db88c76]
+- Updated dependencies [cb1a9bd]
+  - @nextclaw/kernel@0.16.0
+  - @nextclaw/shared@0.5.1
+  - @nextclaw/core@0.17.18
+  - @nextclaw/server@0.23.0
+  - @nextclaw/client-sdk@0.12.0
+  - @nextclaw/remote@0.3.57
+  - @nextclaw/channel-extension-dingtalk@0.2.44
+  - @nextclaw/channel-extension-discord@0.2.44
+  - @nextclaw/channel-extension-email@0.2.44
+  - @nextclaw/channel-extension-slack@0.2.44
+  - @nextclaw/channel-extension-telegram@0.2.44
+  - @nextclaw/channel-extension-wecom@0.2.44
+  - @nextclaw/channel-extension-whatsapp@0.2.44
+  - @nextclaw/mcp@0.3.45
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.45
+  - @nextclaw/runtime@0.4.44
+  - @nextclaw/channel-extension-feishu@0.2.33
+  - @nextclaw/channel-extension-qq@0.2.32
+  - @nextclaw/channel-extension-weixin@0.2.33
+  - @nextclaw/ncp-mcp@0.2.45
+
+## 0.6.2
+
+### Patch Changes
+
+- 25a59ef: 新增安全的项目移除能力：用户可在项目页面确认影响后将项目从列表移除，或通过要求精确项目 ID 确认的 CLI 执行同一操作；本地目录、历史会话和 Project Work 保持不变，重新添加同一目录会恢复原项目。
+- 7b960b9: 恢复项目概览中同等重要的当前工作与最近产物双区域，并为 UI、API、Agent Tool 和 CLI 增加按状态分组的有界工作项游标分页。
+- Updated dependencies [25a59ef]
+- Updated dependencies
+- Updated dependencies [7b960b9]
+  - @nextclaw/kernel@0.15.2
+  - @nextclaw/server@0.22.2
+  - @nextclaw/client-sdk@0.11.2
+  - @nextclaw/core@0.17.17
+  - @nextclaw/remote@0.3.56
+  - @nextclaw/channel-extension-dingtalk@0.2.43
+  - @nextclaw/channel-extension-discord@0.2.43
+  - @nextclaw/channel-extension-email@0.2.43
+  - @nextclaw/channel-extension-slack@0.2.43
+  - @nextclaw/channel-extension-telegram@0.2.43
+  - @nextclaw/channel-extension-wecom@0.2.43
+  - @nextclaw/channel-extension-whatsapp@0.2.43
+  - @nextclaw/mcp@0.3.44
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.44
+  - @nextclaw/runtime@0.4.43
+  - @nextclaw/ncp-mcp@0.2.44
+
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [1bac8be]
+  - @nextclaw/kernel@0.15.1
+  - @nextclaw/remote@0.3.55
+  - @nextclaw/server@0.22.1
+  - @nextclaw/client-sdk@0.11.1
+
+## 0.6.0
+
+### Minor Changes
+
+- 3cd57bf: 新增由 NextClaw 独立持久化的项目工作项：支持自定义状态、完整状态变化历史、关注标记、软删除恢复和项目内产物关联，不再依赖扫描会话历史或向项目目录写入追踪文件。
+
+  项目内会话会按条件获得工作项工具；CLI 提供同一套 CRUD、状态与产物入口并强制指定项目 ID。项目主页的概览、列表和看板会响应实时变更，所有工作项统一在右侧详情抽屉中打开，同时保留原有产物、Skills、工作约定与项目会话能力。
+
+- 86d3479: 新增 Projects 项目主页：通过项目配置、项目文件、会话 Marker 和项目 Skills 展示可追溯的工作项、产物、上下文、AI 运行状态、待关注事项与诊断。已有项目会话与旧版观测快照会保持可读。
+
+  新增 `client.projects.getObservation()`、`GET /api/projects/:projectId/observation` 和 `nextclaw projects observe`，三条入口复用同一份 Kernel 快照合同。项目 setup 经用户确认后会建立 `.nextclaw/project.yaml`、根 `AGENTS.md` 与项目内工作追踪 Skill；后续 AI 在每个工作节点开始前输出紧凑 Marker，项目页会在流式输出期间更新。不会新增项目任务数据库、特殊会话类型或运行时 Skill 注入。
+
+### Patch Changes
+
+- c4fb100: 修复 NPM launcher 更新后继续运行旧 runtime bundle 的问题。launcher 版本高于当前 bundle 时，会先通过已配置的更新通道获取匹配 runtime，避免新包与旧执行代码混用。
+- Updated dependencies [3cd57bf]
+- Updated dependencies [86d3479]
+- Updated dependencies [862dbf2]
+- Updated dependencies [7518fc6]
+- Updated dependencies [50f2129]
+- Updated dependencies [3c17608]
+  - @nextclaw/kernel@0.15.0
+  - @nextclaw/server@0.22.0
+  - @nextclaw/client-sdk@0.11.0
+  - @nextclaw/shared@0.5.0
+  - @nextclaw/core@0.17.16
+  - @nextclaw/ncp-agent-runtime@0.4.22
+  - @nextclaw/remote@0.3.54
+  - @nextclaw/channel-extension-dingtalk@0.2.42
+  - @nextclaw/channel-extension-discord@0.2.42
+  - @nextclaw/channel-extension-email@0.2.42
+  - @nextclaw/channel-extension-slack@0.2.42
+  - @nextclaw/channel-extension-telegram@0.2.42
+  - @nextclaw/channel-extension-wecom@0.2.42
+  - @nextclaw/channel-extension-whatsapp@0.2.42
+  - @nextclaw/mcp@0.3.43
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.43
+  - @nextclaw/runtime@0.4.42
+  - @nextclaw/ncp-toolkit@0.6.23
+  - @nextclaw/channel-extension-feishu@0.2.32
+  - @nextclaw/channel-extension-qq@0.2.31
+  - @nextclaw/channel-extension-weixin@0.2.32
+  - @nextclaw/ncp-mcp@0.2.43
+
+## 0.6.0-beta.2
+
+### Minor Changes
+
+- 3cd57bf: 新增由 NextClaw 独立持久化的项目工作项：支持自定义状态、完整状态变化历史、关注标记、软删除恢复和项目内产物关联，不再依赖扫描会话历史或向项目目录写入追踪文件。
+
+  项目内会话会按条件获得工作项工具；CLI 提供同一套 CRUD、状态与产物入口并强制指定项目 ID。项目主页的概览、列表和看板会响应实时变更，所有工作项统一在右侧详情抽屉中打开，同时保留原有产物、Skills、工作约定与项目会话能力。
+
+### Patch Changes
+
+- Updated dependencies [3cd57bf]
+- Updated dependencies [50f2129]
+- Updated dependencies [3c17608]
+  - @nextclaw/kernel@0.15.0-beta.1
+  - @nextclaw/server@0.22.0-beta.1
+  - @nextclaw/client-sdk@0.11.0-beta.1
+  - @nextclaw/shared@0.5.0-beta.0
+  - @nextclaw/core@0.17.16-beta.1
+  - @nextclaw/remote@0.3.54-beta.1
+  - @nextclaw/channel-extension-dingtalk@0.2.42-beta.1
+  - @nextclaw/channel-extension-discord@0.2.42-beta.1
+  - @nextclaw/channel-extension-email@0.2.42-beta.1
+  - @nextclaw/channel-extension-slack@0.2.42-beta.1
+  - @nextclaw/channel-extension-telegram@0.2.42-beta.1
+  - @nextclaw/channel-extension-wecom@0.2.42-beta.1
+  - @nextclaw/channel-extension-whatsapp@0.2.42-beta.1
+  - @nextclaw/mcp@0.3.43-beta.1
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.43-beta.1
+  - @nextclaw/runtime@0.4.42-beta.1
+  - @nextclaw/channel-extension-feishu@0.2.32-beta.0
+  - @nextclaw/channel-extension-qq@0.2.31-beta.0
+  - @nextclaw/channel-extension-weixin@0.2.32-beta.0
+  - @nextclaw/ncp-mcp@0.2.43-beta.1
+
+## 0.6.0-beta.1
+
+### Patch Changes
+
+- c4fb100: 修复 NPM launcher 更新后继续运行旧 runtime bundle 的问题。launcher 版本高于当前 bundle 时，会先通过已配置的更新通道获取匹配 runtime，避免新包与旧执行代码混用。
+
+## 0.6.0-beta.0
+
+### Minor Changes
+
+- 86d3479: 新增 Projects 项目主页：通过项目配置、项目文件、会话 Marker 和项目 Skills 展示可追溯的工作项、产物、上下文、AI 运行状态、待关注事项与诊断。已有项目会话与旧版观测快照会保持可读。
+
+  新增 `client.projects.getObservation()`、`GET /api/projects/:projectId/observation` 和 `nextclaw projects observe`，三条入口复用同一份 Kernel 快照合同。项目 setup 经用户确认后会建立 `.nextclaw/project.yaml`、根 `AGENTS.md` 与项目内工作追踪 Skill；后续 AI 在每个工作节点开始前输出紧凑 Marker，项目页会在流式输出期间更新。不会新增项目任务数据库、特殊会话类型或运行时 Skill 注入。
+
+### Patch Changes
+
+- Updated dependencies [86d3479]
+- Updated dependencies
+  - @nextclaw/kernel@0.15.0-beta.0
+  - @nextclaw/server@0.22.0-beta.0
+  - @nextclaw/client-sdk@0.11.0-beta.0
+  - @nextclaw/core@0.17.16-beta.0
+  - @nextclaw/ncp-agent-runtime@0.4.22-beta.0
+  - @nextclaw/remote@0.3.54-beta.0
+  - @nextclaw/channel-extension-dingtalk@0.2.42-beta.0
+  - @nextclaw/channel-extension-discord@0.2.42-beta.0
+  - @nextclaw/channel-extension-email@0.2.42-beta.0
+  - @nextclaw/channel-extension-slack@0.2.42-beta.0
+  - @nextclaw/channel-extension-telegram@0.2.42-beta.0
+  - @nextclaw/channel-extension-wecom@0.2.42-beta.0
+  - @nextclaw/channel-extension-whatsapp@0.2.42-beta.0
+  - @nextclaw/mcp@0.3.43-beta.0
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.43-beta.0
+  - @nextclaw/runtime@0.4.42-beta.0
+  - @nextclaw/ncp-toolkit@0.6.23
+  - @nextclaw/ncp-mcp@0.2.43-beta.0
+
+## 0.5.0
+
+### Minor Changes
+
+- f38b756: Complete the Portable Capability Runtime with host-mediated files, secrets, networking, SQLite, jobs, streaming, resident events, AI and Agent slots, versioned providers, shared Panel/Agent/CLI invocation, and a current-evidence acceptance contract. Add end-to-end developer commands, real reference apps, cross-platform release gates, and user/developer documentation.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [f38b756]
+  - @nextclaw/core@0.17.15
+  - @nextclaw/kernel@0.14.0
+  - @nextclaw/client-sdk@0.10.0
+  - @nextclaw/server@0.21.0
+  - @nextclaw/channel-extension-dingtalk@0.2.41
+  - @nextclaw/channel-extension-discord@0.2.41
+  - @nextclaw/channel-extension-email@0.2.41
+  - @nextclaw/channel-extension-slack@0.2.41
+  - @nextclaw/channel-extension-telegram@0.2.41
+  - @nextclaw/channel-extension-wecom@0.2.41
+  - @nextclaw/channel-extension-whatsapp@0.2.41
+  - @nextclaw/mcp@0.3.42
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.42
+  - @nextclaw/remote@0.3.53
+  - @nextclaw/runtime@0.4.41
+  - @nextclaw/ncp-mcp@0.2.42
+
+## 0.4.6
+
+### Patch Changes
+
+- Updated dependencies [99a2f2c]
+- Updated dependencies [9180398]
+  - @nextclaw/kernel@0.13.0
+  - @nextclaw/server@0.20.5
+  - @nextclaw/remote@0.3.52
+  - @nextclaw/client-sdk@0.9.5
+
+## 0.4.5
+
+### Patch Changes
+
+- 2e7db68: 修复正式 NPM 与桌面版的匿名活跃回执被错误归入开发环境的问题，使新版客户端的使用数据能进入管理后台默认的 production/stable 统计。
+- Updated dependencies [9377757]
+  - @nextclaw/core@0.17.14
+  - @nextclaw/kernel@0.12.3
+  - @nextclaw/channel-extension-dingtalk@0.2.40
+  - @nextclaw/channel-extension-discord@0.2.40
+  - @nextclaw/channel-extension-email@0.2.40
+  - @nextclaw/channel-extension-slack@0.2.40
+  - @nextclaw/channel-extension-telegram@0.2.40
+  - @nextclaw/channel-extension-wecom@0.2.40
+  - @nextclaw/channel-extension-whatsapp@0.2.40
+  - @nextclaw/mcp@0.3.41
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.41
+  - @nextclaw/remote@0.3.51
+  - @nextclaw/runtime@0.4.40
+  - @nextclaw/server@0.20.4
+  - @nextclaw/ncp-mcp@0.2.41
+  - @nextclaw/client-sdk@0.9.4
+
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies [824f59e]
+  - @nextclaw/server@0.20.3
+  - @nextclaw/client-sdk@0.9.3
+  - @nextclaw/remote@0.3.50
+
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [51fac6a]
+  - @nextclaw/core@0.17.13
+  - @nextclaw/kernel@0.12.2
+  - @nextclaw/server@0.20.2
+  - @nextclaw/channel-extension-dingtalk@0.2.39
+  - @nextclaw/channel-extension-discord@0.2.39
+  - @nextclaw/channel-extension-email@0.2.39
+  - @nextclaw/channel-extension-slack@0.2.39
+  - @nextclaw/channel-extension-telegram@0.2.39
+  - @nextclaw/channel-extension-wecom@0.2.39
+  - @nextclaw/channel-extension-whatsapp@0.2.39
+  - @nextclaw/mcp@0.3.40
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.40
+  - @nextclaw/remote@0.3.49
+  - @nextclaw/runtime@0.4.39
+  - @nextclaw/client-sdk@0.9.2
+  - @nextclaw/ncp-mcp@0.2.40
+
+## 0.4.2
+
+### Patch Changes
+
+- 60febb5: 修复 NPM 安装缺少当前平台 Portable Runtime runner 时无法自愈的问题；Linux runner 改为静态链接，并确保 runner 启动失败不会带崩 NextClaw 主服务。升级 SQLite 原生依赖并恢复真实安装脚本验证，覆盖 Node 26 安装。发布流程会在 macOS、Linux 与 Windows 上验证真实应用启用、持久组件启动和 Action 调用。
+- Updated dependencies [60febb5]
+  - @nextclaw/kernel@0.12.1
+  - @nextclaw/shared@0.4.30
+  - @nextclaw/remote@0.3.48
+  - @nextclaw/server@0.20.1
+  - @nextclaw/client-sdk@0.9.1
+  - @nextclaw/core@0.17.12
+  - @nextclaw/channel-extension-dingtalk@0.2.38
+  - @nextclaw/channel-extension-discord@0.2.38
+  - @nextclaw/channel-extension-email@0.2.38
+  - @nextclaw/channel-extension-slack@0.2.38
+  - @nextclaw/channel-extension-telegram@0.2.38
+  - @nextclaw/channel-extension-wecom@0.2.38
+  - @nextclaw/channel-extension-whatsapp@0.2.38
+  - @nextclaw/mcp@0.3.39
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.39
+  - @nextclaw/runtime@0.4.38
+  - @nextclaw/channel-extension-feishu@0.2.31
+  - @nextclaw/channel-extension-qq@0.2.30
+  - @nextclaw/channel-extension-weixin@0.2.31
+  - @nextclaw/ncp-mcp@0.2.39
+
+## 0.4.1
+
+### Patch Changes
+
+- 97e3b50: Fix stable runtime bundles so Portable Service Apps include an executable native runner on every published platform.
+
+## 0.4.0
+
+### Minor Changes
+
+- 4066c41: 新增 Rust-first Portable Runtime 产品基础：NextClaw 现在可以从产品资源启动共享 Wasmtime runner，在现有 App Package、Panel App 与 Service Action 体系内运行 Rust/WASM Component，不需要手工配置开发者 runner 路径。
+
+  内置「日常小工具箱」提供今日清单、灵感便签、专注小钟和联系人整理四个真实场景，覆盖持久数据、Resident 后台事件、Provider/Consumer 组合、Panel 授权与 Agent Tool 复用。runner 超时或异常退出后会按依赖顺序恢复持久组件，并保留宿主管理的数据。
+
+  应用安装失败时会清理新建的不可变版本目录，避免发布者或实例校验失败阻塞后续合法安装。`nextclaw app check/dev/call` 已复用同一 Runtime 支持 Portable Service，构建合同和 CI 覆盖 macOS arm64、Linux x64 与 Windows x64，并保留 macOS x64、Linux arm64 目标映射；平台 runner 资源使用原子替换，热构建不会覆盖正在执行的二进制。Secret、Blob、长任务、流式能力和生产级资源隔离仍在整体产品计划中保持为未关闭项。
+
+### Patch Changes
+
+- Updated dependencies [4066c41]
+  - @nextclaw/kernel@0.12.0
+  - @nextclaw/server@0.20.0
+  - @nextclaw/client-sdk@0.9.0
+  - @nextclaw/remote@0.3.47
+
+## 0.3.49
+
+### Patch Changes
+
+- bad2c8d: 现在可以直接从聊天侧边栏每个会话的更多菜单删除会话，无需先打开目标会话。删除当前会话会回到会话根页；删除其它会话不会中断当前阅读，并会显示成功或失败提示。删除确认弹窗打开后，可按 Enter 确认或 Escape 取消。命令行也新增 `nextclaw sessions delete <session-id> --confirm <session-id> --json`，确认值必须与会话 ID 完全一致。
+- Updated dependencies
+- Updated dependencies [f80df69]
+- Updated dependencies [4a6fc30]
+- Updated dependencies [882b6e0]
+  - @nextclaw/core@0.17.11
+  - @nextclaw/kernel@0.11.0
+  - @nextclaw/server@0.19.0
+  - @nextclaw/client-sdk@0.8.0
+  - @nextclaw/shared@0.4.29
+  - @nextclaw/channel-extension-dingtalk@0.2.37
+  - @nextclaw/channel-extension-discord@0.2.37
+  - @nextclaw/channel-extension-email@0.2.37
+  - @nextclaw/channel-extension-slack@0.2.37
+  - @nextclaw/channel-extension-telegram@0.2.37
+  - @nextclaw/channel-extension-wecom@0.2.37
+  - @nextclaw/channel-extension-whatsapp@0.2.37
+  - @nextclaw/mcp@0.3.38
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.38
+  - @nextclaw/remote@0.3.46
+  - @nextclaw/runtime@0.4.37
+  - @nextclaw/channel-extension-feishu@0.2.30
+  - @nextclaw/channel-extension-qq@0.2.29
+  - @nextclaw/channel-extension-weixin@0.2.30
+  - @nextclaw/ncp-mcp@0.2.38
+
+## 0.3.48
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [2d292fa]
+- Updated dependencies [a5a03e5]
+- Updated dependencies [c0523dc]
+- Updated dependencies [7d2b9f8]
+  - @nextclaw/client-sdk@0.7.7
+  - @nextclaw/server@0.18.3
+  - @nextclaw/core@0.17.10
+  - @nextclaw/kernel@0.10.3
+  - @nextclaw/remote@0.3.45
+  - @nextclaw/channel-extension-dingtalk@0.2.36
+  - @nextclaw/channel-extension-discord@0.2.36
+  - @nextclaw/channel-extension-email@0.2.36
+  - @nextclaw/channel-extension-slack@0.2.36
+  - @nextclaw/channel-extension-telegram@0.2.36
+  - @nextclaw/channel-extension-wecom@0.2.36
+  - @nextclaw/channel-extension-whatsapp@0.2.36
+  - @nextclaw/mcp@0.3.37
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.37
+  - @nextclaw/runtime@0.4.36
+  - @nextclaw/ncp-mcp@0.2.37
+
+## 0.3.47
+
+### Patch Changes
+
+- 667c4fd: 产品活跃统计改为默认开启的匿名汇总：每个客户端仅为当日、当周和当月生成相互独立的一次性收据，不再上传或保存稳定安装标识、账号、令牌、IP、User-Agent、消息内容或工具参数；隐私设置新增本机投递状态，管理后台同步展示当前自然日、自然周、自然月活跃与成功使用趋势。
+- Updated dependencies [667c4fd]
+- Updated dependencies [8716fb9]
+  - @nextclaw/core@0.17.9
+  - @nextclaw/server@0.18.2
+  - @nextclaw/client-sdk@0.7.6
+  - @nextclaw/kernel@0.10.2
+  - @nextclaw/channel-extension-dingtalk@0.2.35
+  - @nextclaw/channel-extension-discord@0.2.35
+  - @nextclaw/channel-extension-email@0.2.35
+  - @nextclaw/channel-extension-slack@0.2.35
+  - @nextclaw/channel-extension-telegram@0.2.35
+  - @nextclaw/channel-extension-wecom@0.2.35
+  - @nextclaw/channel-extension-whatsapp@0.2.35
+  - @nextclaw/mcp@0.3.36
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.36
+  - @nextclaw/remote@0.3.44
+  - @nextclaw/runtime@0.4.35
+  - @nextclaw/ncp-mcp@0.2.36
+
+## 0.3.46
+
+### Patch Changes
+
+- Updated dependencies [af85fa6]
+- Updated dependencies [50f064c]
+- Updated dependencies [50f064c]
+- Updated dependencies [6e57449]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/kernel@0.10.1
+  - @nextclaw/ncp@0.10.0
+  - @nextclaw/ncp-toolkit@0.6.23
+  - @nextclaw/shared@0.4.28
+  - @nextclaw/core@0.17.8
+  - @nextclaw/remote@0.3.43
+  - @nextclaw/server@0.18.1
+  - @nextclaw/channel-extension-feishu@0.2.29
+  - @nextclaw/channel-extension-weixin@0.2.29
+  - @nextclaw/ncp-agent-runtime@0.4.21
+  - @nextclaw/ncp-mcp@0.2.35
+  - @nextclaw/client-sdk@0.7.5
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.21
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.22
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.35
+  - @nextclaw/channel-extension-dingtalk@0.2.34
+  - @nextclaw/channel-extension-discord@0.2.34
+  - @nextclaw/channel-extension-email@0.2.34
+  - @nextclaw/channel-extension-slack@0.2.34
+  - @nextclaw/channel-extension-telegram@0.2.34
+  - @nextclaw/channel-extension-wecom@0.2.34
+  - @nextclaw/channel-extension-whatsapp@0.2.34
+  - @nextclaw/mcp@0.3.35
+  - @nextclaw/runtime@0.4.34
+  - @nextclaw/channel-extension-qq@0.2.28
+
+## 0.3.45
+
+### Patch Changes
+
+- 5b07b81: Add automatic Windows Desktop host-exit diagnostics, including local crash evidence, restart recovery records, and AI-readable incident reporting.
+- 70dd515: Add the experimental `@nextclaw/harness` SDK with Agent, Session, Run, and Contribution APIs; expose lifecycle-scoped tools, context, model providers, runtimes, and MCP capabilities; and add the non-interactive `nextclaw exec` command for headless tasks.
+- f9c6477: 修复会话历史可靠性问题：保留历史 replay、projection 恢复和压缩消息视图的修复，不再用 journal 目录级 writer ownership 阻止同一 `NEXTCLAW_HOME` 下的第二个 runtime 或新会话启动。
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [5b07b81]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+- Updated dependencies [eabdf41]
+- Updated dependencies [ec60bc1]
+- Updated dependencies [70dd515]
+- Updated dependencies [3817714]
+- Updated dependencies [f9c6477]
+- Updated dependencies [83c0628]
+  - @nextclaw/kernel@0.10.0
+  - @nextclaw/ncp@0.9.0
+  - @nextclaw/core@0.17.7
+  - @nextclaw/server@0.18.0
+  - @nextclaw/runtime@0.4.33
+  - @nextclaw/shared@0.4.27
+  - @nextclaw/remote@0.3.42
+  - @nextclaw/channel-extension-dingtalk@0.2.33
+  - @nextclaw/channel-extension-discord@0.2.33
+  - @nextclaw/channel-extension-email@0.2.33
+  - @nextclaw/channel-extension-feishu@0.2.28
+  - @nextclaw/channel-extension-qq@0.2.27
+  - @nextclaw/channel-extension-slack@0.2.33
+  - @nextclaw/channel-extension-telegram@0.2.33
+  - @nextclaw/channel-extension-wecom@0.2.33
+  - @nextclaw/channel-extension-weixin@0.2.28
+  - @nextclaw/channel-extension-whatsapp@0.2.33
+  - @nextclaw/ncp-agent-runtime@0.4.20
+  - @nextclaw/ncp-mcp@0.2.34
+  - @nextclaw/ncp-toolkit@0.6.22
+  - @nextclaw/client-sdk@0.7.4
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.20
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.21
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.34
+  - @nextclaw/mcp@0.3.34
+
+## 0.3.45-beta.0
+
+### Patch Changes
+
+- 5b07b81: Add automatic Windows Desktop host-exit diagnostics, including local crash evidence, restart recovery records, and AI-readable incident reporting.
+- 70dd515: Add the experimental `@nextclaw/harness` SDK with Agent, Session, Run, and Contribution APIs; expose lifecycle-scoped tools, context, model providers, runtimes, and MCP capabilities; and add the non-interactive `nextclaw exec` command for headless tasks.
+- f9c6477: 修复会话历史可靠性问题：保留历史 replay、projection 恢复和压缩消息视图的修复，不再用 journal 目录级 writer ownership 阻止同一 `NEXTCLAW_HOME` 下的第二个 runtime 或新会话启动。
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [5b07b81]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+- Updated dependencies [ec60bc1]
+- Updated dependencies [70dd515]
+- Updated dependencies [3817714]
+- Updated dependencies [f9c6477]
+- Updated dependencies [83c0628]
+  - @nextclaw/kernel@0.10.0-beta.0
+  - @nextclaw/ncp@0.9.0-beta.0
+  - @nextclaw/core@0.17.7-beta.0
+  - @nextclaw/server@0.18.0-beta.0
+  - @nextclaw/runtime@0.4.33-beta.0
+  - @nextclaw/shared@0.4.27-beta.0
+  - @nextclaw/remote@0.3.42-beta.0
+  - @nextclaw/channel-extension-dingtalk@0.2.33-beta.0
+  - @nextclaw/channel-extension-discord@0.2.33-beta.0
+  - @nextclaw/channel-extension-email@0.2.33-beta.0
+  - @nextclaw/channel-extension-feishu@0.2.28-beta.0
+  - @nextclaw/channel-extension-qq@0.2.27-beta.0
+  - @nextclaw/channel-extension-slack@0.2.33-beta.0
+  - @nextclaw/channel-extension-telegram@0.2.33-beta.0
+  - @nextclaw/channel-extension-wecom@0.2.33-beta.0
+  - @nextclaw/channel-extension-weixin@0.2.28-beta.0
+  - @nextclaw/channel-extension-whatsapp@0.2.33-beta.0
+  - @nextclaw/ncp-agent-runtime@0.4.20-beta.0
+  - @nextclaw/ncp-mcp@0.2.34-beta.0
+  - @nextclaw/ncp-toolkit@0.6.22-beta.0
+  - @nextclaw/client-sdk@0.7.4-beta.0
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.20-beta.0
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.21-beta.0
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.34-beta.0
+  - @nextclaw/mcp@0.3.34-beta.0
+
+## 0.3.44
+
+### Patch Changes
+
+- Updated dependencies [9816eaf]
+  - @nextclaw/kernel@0.9.2
+  - @nextclaw/server@0.17.3
+  - @nextclaw/remote@0.3.41
+  - @nextclaw/client-sdk@0.7.3
+
+## 0.3.43
+
+### Patch Changes
+
+- Updated dependencies [82e8b03]
+  - @nextclaw/server@0.17.2
+  - @nextclaw/client-sdk@0.7.2
+  - @nextclaw/remote@0.3.40
+
+## 0.3.42
+
+### Patch Changes
+
+- 6587602: 新增默认关闭的产品活跃统计与隐私设置：未登录安装使用随机匿名标识，登录后按账号归并，并可将团队和 QA 测试流量从外部 DAU、WAU、MAU 中分开。
+- Updated dependencies [1d63057]
+- Updated dependencies [3e6da7e]
+- Updated dependencies [6587602]
+- Updated dependencies [0f0753a]
+- Updated dependencies [7cc703c]
+  - @nextclaw/server@0.17.1
+  - @nextclaw/kernel@0.9.1
+  - @nextclaw/client-sdk@0.7.1
+  - @nextclaw/core@0.17.6
+  - @nextclaw/ncp@0.8.1
+  - @nextclaw/ncp-toolkit@0.6.21
+  - @nextclaw/remote@0.3.39
+  - @nextclaw/channel-extension-dingtalk@0.2.32
+  - @nextclaw/channel-extension-discord@0.2.32
+  - @nextclaw/channel-extension-email@0.2.32
+  - @nextclaw/channel-extension-slack@0.2.32
+  - @nextclaw/channel-extension-telegram@0.2.32
+  - @nextclaw/channel-extension-wecom@0.2.32
+  - @nextclaw/channel-extension-whatsapp@0.2.32
+  - @nextclaw/mcp@0.3.33
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.33
+  - @nextclaw/runtime@0.4.32
+  - @nextclaw/channel-extension-feishu@0.2.27
+  - @nextclaw/channel-extension-weixin@0.2.27
+  - @nextclaw/ncp-agent-runtime@0.4.19
+  - @nextclaw/ncp-mcp@0.2.33
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.19
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.20
+  - @nextclaw/shared@0.4.26
+  - @nextclaw/channel-extension-qq@0.2.26
+
+## 0.3.41
+
+### Patch Changes
+
+- c10dcaa: 新增统一的结构化运行诊断事件、安全错误分类和日志查询命令，覆盖 Service、扩展、配置、渠道、Agent、全部 kernel 工具、外部 transport 与定时任务关键链路；取消、网络与未知异常都有独立可查询终态。内置 AI 现在可以按时间窗和关联 ID 从日志证据排查运行故障。QQ 渠道首先接入完整投递链路，并默认不记录消息正文、工具参数/结果、完整 URL、用户身份或凭据。
+- Updated dependencies [c19ae8f]
+- Updated dependencies [e8d725a]
+- Updated dependencies [256e2cb]
+- Updated dependencies [c10dcaa]
+  - @nextclaw/kernel@0.9.0
+  - @nextclaw/server@0.17.0
+  - @nextclaw/client-sdk@0.7.0
+  - @nextclaw/channel-extension-qq@0.2.25
+  - @nextclaw/shared@0.4.25
+  - @nextclaw/core@0.17.5
+  - @nextclaw/remote@0.3.38
+  - @nextclaw/channel-extension-dingtalk@0.2.31
+  - @nextclaw/channel-extension-discord@0.2.31
+  - @nextclaw/channel-extension-email@0.2.31
+  - @nextclaw/channel-extension-feishu@0.2.26
+  - @nextclaw/channel-extension-slack@0.2.31
+  - @nextclaw/channel-extension-telegram@0.2.31
+  - @nextclaw/channel-extension-wecom@0.2.31
+  - @nextclaw/channel-extension-weixin@0.2.26
+  - @nextclaw/channel-extension-whatsapp@0.2.31
+  - @nextclaw/mcp@0.3.32
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.32
+  - @nextclaw/runtime@0.4.31
+  - @nextclaw/ncp-mcp@0.2.32
+
+## 0.3.40
+
+### Patch Changes
+
+- Updated dependencies [ae676ff]
+  - @nextclaw/kernel@0.8.7
+  - @nextclaw/remote@0.3.37
+  - @nextclaw/server@0.16.7
+  - @nextclaw/client-sdk@0.6.7
+
+## 0.3.39
+
+### Patch Changes
+
+- @nextclaw/kernel@0.8.6
+- @nextclaw/remote@0.3.36
+- @nextclaw/server@0.16.6
+- @nextclaw/client-sdk@0.6.6
+
+## 0.3.38
+
+### Patch Changes
+
+- Updated dependencies [7da88a5]
+- Updated dependencies [ef5d9ae]
+- Updated dependencies [1df4217]
+- Updated dependencies [65dc8fb]
+  - @nextclaw/server@0.16.5
+  - @nextclaw/core@0.17.4
+  - @nextclaw/kernel@0.8.5
+  - @nextclaw/client-sdk@0.6.5
+  - @nextclaw/remote@0.3.35
+  - @nextclaw/channel-extension-dingtalk@0.2.30
+  - @nextclaw/channel-extension-discord@0.2.30
+  - @nextclaw/channel-extension-email@0.2.30
+  - @nextclaw/channel-extension-slack@0.2.30
+  - @nextclaw/channel-extension-telegram@0.2.30
+  - @nextclaw/channel-extension-wecom@0.2.30
+  - @nextclaw/channel-extension-whatsapp@0.2.30
+  - @nextclaw/mcp@0.3.31
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.31
+  - @nextclaw/runtime@0.4.30
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.19
+  - @nextclaw/ncp-mcp@0.2.31
+
+## 0.3.37
+
+### Patch Changes
+
+- Updated dependencies [80f7660]
+  - @nextclaw/core@0.17.3
+  - @nextclaw/channel-extension-dingtalk@0.2.29
+  - @nextclaw/channel-extension-discord@0.2.29
+  - @nextclaw/channel-extension-email@0.2.29
+  - @nextclaw/channel-extension-slack@0.2.29
+  - @nextclaw/channel-extension-telegram@0.2.29
+  - @nextclaw/channel-extension-wecom@0.2.29
+  - @nextclaw/channel-extension-whatsapp@0.2.29
+  - @nextclaw/kernel@0.8.4
+  - @nextclaw/mcp@0.3.30
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.30
+  - @nextclaw/remote@0.3.34
+  - @nextclaw/runtime@0.4.29
+  - @nextclaw/server@0.16.4
+  - @nextclaw/ncp-mcp@0.2.30
+  - @nextclaw/client-sdk@0.6.4
+
+## 0.3.36
+
+### Patch Changes
+
+- Updated dependencies [56ab5c2]
+  - @nextclaw/core@0.17.2
+  - @nextclaw/kernel@0.8.3
+  - @nextclaw/channel-extension-dingtalk@0.2.28
+  - @nextclaw/channel-extension-discord@0.2.28
+  - @nextclaw/channel-extension-email@0.2.28
+  - @nextclaw/channel-extension-slack@0.2.28
+  - @nextclaw/channel-extension-telegram@0.2.28
+  - @nextclaw/channel-extension-wecom@0.2.28
+  - @nextclaw/channel-extension-whatsapp@0.2.28
+  - @nextclaw/mcp@0.3.29
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.29
+  - @nextclaw/remote@0.3.33
+  - @nextclaw/runtime@0.4.28
+  - @nextclaw/server@0.16.3
+  - @nextclaw/ncp-mcp@0.2.29
+  - @nextclaw/client-sdk@0.6.3
+
+## 0.3.35
+
+### Patch Changes
+
+- ebbe1e0: 优化交互式 CLI 的连续输入体验：Agent 或工具仍在运行时可以继续提交消息；同一会话会按输入顺序处理，不必等上一轮回复结束后再输入。
+- Updated dependencies
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+- Updated dependencies [004d51f]
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.18
+  - @nextclaw/ncp@0.8.0
+  - @nextclaw/ncp-toolkit@0.6.20
+  - @nextclaw/ncp-agent-runtime@0.4.18
+  - @nextclaw/core@0.17.1
+  - @nextclaw/kernel@0.8.2
+  - @nextclaw/server@0.16.2
+  - @nextclaw/client-sdk@0.6.2
+  - @nextclaw/channel-extension-feishu@0.2.25
+  - @nextclaw/channel-extension-weixin@0.2.25
+  - @nextclaw/ncp-mcp@0.2.28
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.18
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.28
+  - @nextclaw/shared@0.4.24
+  - @nextclaw/channel-extension-dingtalk@0.2.27
+  - @nextclaw/channel-extension-discord@0.2.27
+  - @nextclaw/channel-extension-email@0.2.27
+  - @nextclaw/channel-extension-slack@0.2.27
+  - @nextclaw/channel-extension-telegram@0.2.27
+  - @nextclaw/channel-extension-wecom@0.2.27
+  - @nextclaw/channel-extension-whatsapp@0.2.27
+  - @nextclaw/mcp@0.3.28
+  - @nextclaw/remote@0.3.32
+  - @nextclaw/runtime@0.4.27
+  - @nextclaw/channel-extension-qq@0.2.24
+
+## 0.3.34
+
+### Patch Changes
+
+- Updated dependencies [27d7293]
+  - @nextclaw/kernel@0.8.1
+  - @nextclaw/server@0.16.1
+  - @nextclaw/client-sdk@0.6.1
+  - @nextclaw/remote@0.3.31
+
+## 0.3.33
+
+### Patch Changes
+
+- 9c3069d: 修复页面更新后 Agent 与 CLI 仍可能进入旧版 runtime 的问题。launcher 元数据现在只在启动边界消费一次，更新后的页面、Agent shell、服务重启与新开的 `nextclaw` 命令会统一使用当前 runtime。
+
+## 0.3.32
+
+### Patch Changes
+
+- Updated dependencies [ca2c98d]
+  - @nextclaw/kernel@0.8.0
+  - @nextclaw/server@0.16.0
+  - @nextclaw/client-sdk@0.6.0
+  - @nextclaw/core@0.17.0
+  - @nextclaw/remote@0.3.30
+  - @nextclaw/channel-extension-dingtalk@0.2.26
+  - @nextclaw/channel-extension-discord@0.2.26
+  - @nextclaw/channel-extension-email@0.2.26
+  - @nextclaw/channel-extension-slack@0.2.26
+  - @nextclaw/channel-extension-telegram@0.2.26
+  - @nextclaw/channel-extension-wecom@0.2.26
+  - @nextclaw/channel-extension-whatsapp@0.2.26
+  - @nextclaw/mcp@0.3.27
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.27
+  - @nextclaw/runtime@0.4.26
+  - @nextclaw/ncp-mcp@0.2.27
+
+## 0.3.31
+
+### Patch Changes
+
+- Updated dependencies [298233c]
+  - @nextclaw/kernel@0.7.0
+  - @nextclaw/remote@0.3.29
+  - @nextclaw/server@0.15.29
+  - @nextclaw/client-sdk@0.5.29
+
+## 0.3.30
+
+### Patch Changes
+
+- Updated dependencies [4be6947]
+- Updated dependencies [237a931]
+  - @nextclaw/kernel@0.6.28
+  - @nextclaw/server@0.15.28
+  - @nextclaw/core@0.16.0
+  - @nextclaw/remote@0.3.28
+  - @nextclaw/client-sdk@0.5.28
+  - @nextclaw/channel-extension-dingtalk@0.2.25
+  - @nextclaw/channel-extension-discord@0.2.25
+  - @nextclaw/channel-extension-email@0.2.25
+  - @nextclaw/channel-extension-slack@0.2.25
+  - @nextclaw/channel-extension-telegram@0.2.25
+  - @nextclaw/channel-extension-wecom@0.2.25
+  - @nextclaw/channel-extension-whatsapp@0.2.25
+  - @nextclaw/mcp@0.3.26
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.26
+  - @nextclaw/runtime@0.4.25
+  - @nextclaw/ncp-mcp@0.2.26
+
+## 0.3.29
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [2542896]
+  - @nextclaw/mcp@0.3.25
+  - @nextclaw/kernel@0.6.27
+  - @nextclaw/ncp-mcp@0.2.25
+  - @nextclaw/server@0.15.27
+  - @nextclaw/remote@0.3.27
+  - @nextclaw/client-sdk@0.5.27
+
+## 0.3.28
+
+### Patch Changes
+
+- 83c1949: Keep in-app runtime updates restartable on existing Linux systemd installations, including legacy units that still use `Restart=on-failure`.
+
+## 0.3.27
+
+### Patch Changes
+
+- Updated dependencies [9b22a7d]
+- Updated dependencies [efb52a7]
+  - @nextclaw/shared@0.4.23
+  - @nextclaw/kernel@0.6.26
+  - @nextclaw/server@0.15.26
+  - @nextclaw/client-sdk@0.5.26
+  - @nextclaw/core@0.15.24
+  - @nextclaw/remote@0.3.26
+  - @nextclaw/channel-extension-dingtalk@0.2.24
+  - @nextclaw/channel-extension-discord@0.2.24
+  - @nextclaw/channel-extension-email@0.2.24
+  - @nextclaw/channel-extension-slack@0.2.24
+  - @nextclaw/channel-extension-telegram@0.2.24
+  - @nextclaw/channel-extension-wecom@0.2.24
+  - @nextclaw/channel-extension-whatsapp@0.2.24
+  - @nextclaw/mcp@0.3.24
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.25
+  - @nextclaw/runtime@0.4.24
+  - @nextclaw/channel-extension-feishu@0.2.24
+  - @nextclaw/channel-extension-qq@0.2.23
+  - @nextclaw/channel-extension-weixin@0.2.24
+  - @nextclaw/ncp-mcp@0.2.24
+
+## 0.3.26
+
+### Patch Changes
+
+- fb73f89: 改进 Marketplace 技能更新：检测到安装后的本地修改时返回明确冲突，并在用户确认后才覆盖更新；取消操作会保留现有技能文件。
+- 33eb6b2: 修复设置页更新后仍由 systemd 拉起旧运行时的问题。更新现在保持一键完成，并在切换运行时后由稳定 launcher 重新拉起新版本，页面版本、内核版本和实际进程保持一致。
+- 6b3127f: 新增完整的 Apps 与 Mini App 体验：可从内置市场发现、安装、启用、更新、回滚和卸载组合应用，并首发由待办、Markdown 笔记、收藏与日历组成的“个人空间”。应用代码按版本不可变安装，个人数据保存在稳定目录；安装事务、包完整性、运行时授权清理、远程下载预算与日历订阅网络边界也得到强化。
+- Updated dependencies [fb73f89]
+- Updated dependencies [7179c7a]
+- Updated dependencies [6b3127f]
+  - @nextclaw/server@0.15.25
+  - @nextclaw/kernel@0.6.25
+  - @nextclaw/shared@0.4.22
+  - @nextclaw/client-sdk@0.5.25
+  - @nextclaw/remote@0.3.25
+  - @nextclaw/core@0.15.23
+  - @nextclaw/channel-extension-dingtalk@0.2.23
+  - @nextclaw/channel-extension-discord@0.2.23
+  - @nextclaw/channel-extension-email@0.2.23
+  - @nextclaw/channel-extension-slack@0.2.23
+  - @nextclaw/channel-extension-telegram@0.2.23
+  - @nextclaw/channel-extension-wecom@0.2.23
+  - @nextclaw/channel-extension-whatsapp@0.2.23
+  - @nextclaw/mcp@0.3.23
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.24
+  - @nextclaw/runtime@0.4.23
+  - @nextclaw/channel-extension-feishu@0.2.23
+  - @nextclaw/channel-extension-qq@0.2.22
+  - @nextclaw/channel-extension-weixin@0.2.23
+  - @nextclaw/ncp-mcp@0.2.23
+
+## 0.3.25
+
+### Patch Changes
+
+- 7786bdf: 移除无法可靠完成会话恢复的 agent `gateway.restart` 能力；需要重启时，现在统一提示用户在外部终端运行顶层 `nextclaw restart`，并明确 `nextclaw gateway` 仅用于启动前台 gateway、不提供生命周期子命令。
+- Updated dependencies [ffb365c]
+- Updated dependencies [c783019]
+- Updated dependencies [0b7df97]
+- Updated dependencies [7786bdf]
+  - @nextclaw/server@0.15.24
+  - @nextclaw/client-sdk@0.5.24
+  - @nextclaw/core@0.15.22
+  - @nextclaw/kernel@0.6.24
+  - @nextclaw/ncp@0.7.17
+  - @nextclaw/remote@0.3.24
+  - @nextclaw/channel-extension-dingtalk@0.2.22
+  - @nextclaw/channel-extension-discord@0.2.22
+  - @nextclaw/channel-extension-email@0.2.22
+  - @nextclaw/channel-extension-slack@0.2.22
+  - @nextclaw/channel-extension-telegram@0.2.22
+  - @nextclaw/channel-extension-wecom@0.2.22
+  - @nextclaw/channel-extension-whatsapp@0.2.22
+  - @nextclaw/mcp@0.3.22
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.23
+  - @nextclaw/runtime@0.4.22
+  - @nextclaw/channel-extension-feishu@0.2.22
+  - @nextclaw/channel-extension-weixin@0.2.22
+  - @nextclaw/ncp-agent-runtime@0.4.17
+  - @nextclaw/ncp-mcp@0.2.22
+  - @nextclaw/ncp-toolkit@0.6.19
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.17
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.17
+  - @nextclaw/shared@0.4.21
+  - @nextclaw/channel-extension-qq@0.2.21
+
+## 0.3.24
+
+### Patch Changes
+
+- 4ab158d: 渠道扩展改为按需启动：未启用渠道不再常驻独立 Node 进程，运行中启用或禁用渠道会自动创建或回收对应扩展；同时增加 ready/generation 隔离、鉴权会话租约、有限故障恢复和扩展进程内存诊断。
+
+  在 ARM64 Linux、2 vCPU / 2 GiB 限制和无活跃任务的空配置基准中，三轮平均 working set 从旧版本约 865～885 MiB 降至 164.94 MiB，下降约 81%。活跃 Agent runtime、浏览器、MCP、本地模型和已启用渠道仍会按实际工作增加内存占用。
+
+- Updated dependencies [4ab158d]
+- Updated dependencies [c54a1d9]
+  - @nextclaw/kernel@0.6.23
+  - @nextclaw/server@0.15.23
+  - @nextclaw/shared@0.4.20
+  - @nextclaw/channel-extension-dingtalk@0.2.21
+  - @nextclaw/channel-extension-discord@0.2.21
+  - @nextclaw/channel-extension-email@0.2.21
+  - @nextclaw/channel-extension-feishu@0.2.21
+  - @nextclaw/channel-extension-qq@0.2.20
+  - @nextclaw/channel-extension-slack@0.2.21
+  - @nextclaw/channel-extension-telegram@0.2.21
+  - @nextclaw/channel-extension-wecom@0.2.21
+  - @nextclaw/channel-extension-weixin@0.2.21
+  - @nextclaw/channel-extension-whatsapp@0.2.21
+  - @nextclaw/remote@0.3.23
+  - @nextclaw/client-sdk@0.5.23
+  - @nextclaw/core@0.15.21
+  - @nextclaw/mcp@0.3.21
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.22
+  - @nextclaw/runtime@0.4.21
+  - @nextclaw/ncp-mcp@0.2.21
+
+## 0.3.23
+
+### Patch Changes
+
+- Updated dependencies [c3eb33c]
+- Updated dependencies [8049f49]
+- Updated dependencies [ae21568]
+- Updated dependencies [38e3e98]
+- Updated dependencies [db9cab7]
+- Updated dependencies [b507e1c]
+- Updated dependencies [98c5b7f]
+- Updated dependencies [e309470]
+- Updated dependencies [31d5655]
+- Updated dependencies [8e53d92]
+- Updated dependencies [bf3ff68]
+- Updated dependencies [071c144]
+- Updated dependencies [08325d3]
+  - @nextclaw/core@0.15.20
+  - @nextclaw/kernel@0.6.22
+  - @nextclaw/shared@0.4.19
+  - @nextclaw/server@0.15.22
+  - @nextclaw/client-sdk@0.5.22
+  - @nextclaw/ncp-toolkit@0.6.18
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.21
+  - @nextclaw/ncp@0.7.16
+  - @nextclaw/runtime@0.4.20
+  - @nextclaw/channel-extension-dingtalk@0.2.20
+  - @nextclaw/channel-extension-discord@0.2.20
+  - @nextclaw/channel-extension-email@0.2.20
+  - @nextclaw/channel-extension-slack@0.2.20
+  - @nextclaw/channel-extension-telegram@0.2.20
+  - @nextclaw/channel-extension-wecom@0.2.20
+  - @nextclaw/channel-extension-whatsapp@0.2.20
+  - @nextclaw/mcp@0.3.20
+  - @nextclaw/remote@0.3.22
+  - @nextclaw/channel-extension-feishu@0.2.20
+  - @nextclaw/channel-extension-weixin@0.2.20
+  - @nextclaw/ncp-agent-runtime@0.4.16
+  - @nextclaw/ncp-mcp@0.2.20
+  - @nextclaw/nextclaw-hermes-acp-bridge@0.3.16
+  - @nextclaw/nextclaw-ncp-runtime-http-client@0.3.16
+  - @nextclaw/channel-extension-qq@0.2.19
+
+## 0.3.22
+
+### Patch Changes
+
+- 817f30a: Make fresh installs truly ready to use: initialize the packaged workspace templates correctly and tell users that the built-in OpenCode Zen model can be used without an API key.
+
+## 0.3.21
+
+### Patch Changes
+
+- 43b0e1d: 让全新安装的 NextClaw 默认接入 OpenCode Zen 当前可调用的七个免费试用模型，无需填写 API Key 即可在模型选择器中直接选择并开始聊天；已有其他提供商配置保持不变，已失效的 Ling 免费模型会从 OpenCode 配置中移除，并明确提示公共网关的限额、模型变化与数据隐私边界。
+- Updated dependencies [dbececb]
+- Updated dependencies [43b0e1d]
+- Updated dependencies [14f321a]
+  - @nextclaw/shared@0.4.18
+  - @nextclaw/core@0.15.19
+  - @nextclaw/ncp-toolkit@0.6.17
+  - @nextclaw/kernel@0.6.21
+  - @nextclaw/runtime@0.4.19
+  - @nextclaw/server@0.15.21
+  - @nextclaw/client-sdk@0.5.21
+  - @nextclaw/channel-extension-dingtalk@0.2.19
+  - @nextclaw/channel-extension-discord@0.2.19
+  - @nextclaw/channel-extension-email@0.2.19
+  - @nextclaw/channel-extension-slack@0.2.19
+  - @nextclaw/channel-extension-telegram@0.2.19
+  - @nextclaw/channel-extension-wecom@0.2.19
+  - @nextclaw/channel-extension-whatsapp@0.2.19
+  - @nextclaw/mcp@0.3.19
+  - @nextclaw/nextclaw-ncp-runtime-stdio-client@0.3.20
+  - @nextclaw/remote@0.3.21
+  - @nextclaw/channel-extension-feishu@0.2.19
+  - @nextclaw/channel-extension-weixin@0.2.19
+  - @nextclaw/channel-extension-qq@0.2.18
+  - @nextclaw/ncp-mcp@0.2.19
+
 ## 0.3.20
 
 ### Patch Changes

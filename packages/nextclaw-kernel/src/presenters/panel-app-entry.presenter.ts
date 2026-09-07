@@ -1,0 +1,81 @@
+import { readFile } from "node:fs/promises";
+import type { PanelAppEntry } from "@kernel/types/panel-app.types.js";
+import type { PanelAppStateEntry } from "@kernel/stores/panel-app-state.store.js";
+import type { AppPackageComponentSource } from "@kernel/types/app-package.types.js";
+import { resolvePanelAppAppId } from "@kernel/utils/panel-app-content-source.utils.js";
+import { parsePanelAppManifest } from "@kernel/utils/panel-app-manifest.utils.js";
+import {
+  encodePanelAppId,
+  resolvePanelAppIconUrl,
+  toPanelAppTitle,
+  type PanelAppSource,
+} from "@kernel/utils/panel-app-source.utils.js";
+import {
+  resolvePanelAppActivityMs,
+  resolvePanelAppCreatedAt,
+} from "@kernel/utils/panel-app-time.utils.js";
+
+export class PanelAppEntryPresenter {
+  constructor(private readonly params: {
+    contentBasePath: string;
+    createAssetBaseHref: (source: PanelAppSource) => string;
+    isClientGranted: (appId: string, clientDeclared: boolean) => Promise<boolean>;
+  }) {}
+
+  build = async (
+    source: PanelAppSource,
+    state: PanelAppStateEntry,
+    packageSource?: AppPackageComponentSource,
+    mainSidebarAppIds: readonly string[] = [],
+  ): Promise<PanelAppEntry> => {
+    const manifest = source.manifest ?? parsePanelAppManifest(
+      await readFile(source.entryPath, "utf8"),
+    );
+    const id = encodePanelAppId(source.sourceName);
+    const appId = resolvePanelAppAppId(source, manifest);
+    const mainSidebarOrder = mainSidebarAppIds.indexOf(appId);
+    const entry: PanelAppEntry = {
+      id,
+      appId,
+      fileName: source.sourceName,
+      kind: source.kind,
+      title: manifest.title ?? toPanelAppTitle(source.sourceName),
+      contentPath: `${this.params.contentBasePath}/${encodeURIComponent(appId)}/content`,
+      createdAt: resolvePanelAppCreatedAt(source.sourceStat),
+      updatedAt: source.sourceStat.mtime.toISOString(),
+      sizeBytes: source.sourceStat.size,
+      favorite: state.favorite ?? false,
+      mainSidebar: mainSidebarOrder >= 0,
+      clientDeclared: manifest.client,
+      clientGranted: await this.params.isClientGranted(appId, manifest.client),
+      openCount: state.openCount ?? 0,
+      sourceKind: packageSource ? "package" : "workspace",
+      packageId: packageSource?.packageId,
+      packageVersion: packageSource?.packageVersion,
+    };
+    if (manifest.description) {
+      entry.description = manifest.description;
+    }
+    if (manifest.icon) {
+      entry.icon = source.kind === "folder"
+        ? resolvePanelAppIconUrl(
+            id,
+            manifest.icon,
+            packageSource ? this.params.createAssetBaseHref(source) : undefined,
+          )
+        : manifest.icon;
+    }
+    if (state.lastOpenedAt) {
+      entry.lastOpenedAt = state.lastOpenedAt;
+    }
+    if (mainSidebarOrder >= 0) {
+      entry.mainSidebarOrder = mainSidebarOrder;
+    }
+    return entry;
+  };
+
+  compare = (left: PanelAppEntry, right: PanelAppEntry): number =>
+    resolvePanelAppActivityMs(right) - resolvePanelAppActivityMs(left) ||
+    Number(right.favorite) - Number(left.favorite) ||
+    left.title.localeCompare(right.title);
+}

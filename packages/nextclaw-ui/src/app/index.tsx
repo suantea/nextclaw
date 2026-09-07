@@ -10,9 +10,11 @@ import { AppLayout } from "@/app/components/layout/app-layout";
 import { SIDEBAR_RAIL_WIDTH_PX } from "@/app/components/layout/sidebar-rail.styles";
 import { SettingsEntryPage } from "@/app/components/layout/settings-entry-page";
 import { LoginPage } from "@/components/auth/login-page";
-import { AccountPanel } from "@/features/account";
+import { ChatPage } from "@/components/chat/chat-page";
+import { loadAccountPanel } from "@/features/account";
 import { InboxRuntime } from "@/features/inbox";
-import { ServiceActionAuthorizationDialog } from "@/features/service-apps";
+import { PanelAppServiceActionAuthorizationDialog } from "@/features/panel-apps";
+import { DesktopAuthorizationDialog } from "@/features/desktop-capabilities";
 import { runtimeUpdateManager, useSystemStatusSources } from "@/features/system-status";
 import {
   isTransientAuthStatusBootstrapError,
@@ -23,8 +25,14 @@ import {
   PwaInstallBanner,
 } from "@/pwa/components/pwa-install-entry";
 import { startNextClawPwa } from "@/pwa/register-pwa";
+import { pwaShellThemeManager } from "@/features/pwa";
+import { useTheme } from "@/app/components/theme-provider";
 
 const NOTIFICATION_TOASTER_STYLE = { "--width": "320px" } as CSSProperties;
+
+const AccountPanel = lazy(async () => ({
+  default: (await loadAccountPanel()).AccountPanel,
+}));
 
 const ModelConfigPage = lazy(async () => ({
   default: (await import("@/features/settings/pages/model-config-page"))
@@ -34,9 +42,6 @@ const AppearanceSettingsPage = lazy(async () => ({
   default: (await import("@/features/settings/pages/appearance-settings-page"))
     .AppearanceSettingsPage,
 }));
-const ChatPage = lazy(async () => ({
-  default: (await import("@/components/chat/chat-page")).ChatPage,
-}));
 const SearchConfigPage = lazy(async () => ({
   default: (await import("@/features/settings/pages/search-config-page"))
     .SearchConfigPage,
@@ -44,6 +49,9 @@ const SearchConfigPage = lazy(async () => ({
 const ProvidersListPage = lazy(async () => ({
   default: (await import("@/features/settings/pages/providers-config-page"))
     .ProvidersConfigPage,
+}));
+const ExtensionsConfigPage = lazy(async () => ({
+  default: (await import("@/features/extensions")).ExtensionsConfigPage,
 }));
 const ChannelsListPage = lazy(async () => ({
   default: (await import("@/components/config/ChannelsList")).ChannelsList,
@@ -62,6 +70,14 @@ const SecretsConfigPage = lazy(async () => ({
   default: (await import("@/features/settings/pages/secrets-config-page"))
     .SecretsConfigPage,
 }));
+const PrivacySettingsPage = lazy(async () => ({
+  default: (await import("@/features/settings/pages/privacy-settings-page"))
+    .PrivacySettingsPage,
+}));
+const DesktopCapabilitiesPage = lazy(async () => ({
+  default: (await import("@/features/desktop-capabilities/pages/desktop-capabilities-page"))
+    .DesktopCapabilitiesPage,
+}));
 const RemoteAccessPage = lazy(async () => ({
   default: (await import("@/features/remote")).RemoteAccessPage,
 }));
@@ -69,7 +85,6 @@ const McpMarketplacePage = lazy(async () => ({
   default: (await import("@/components/marketplace/mcp/mcp-marketplace-page"))
     .McpMarketplacePage,
 }));
-
 type RedirectRouteDefinition = {
   path: string;
   redirectTo: string;
@@ -99,6 +114,14 @@ function createLazyElement(element: ReactElement): ReactElement {
 }
 
 const protectedRouteDefinitions: ProtectedRouteDefinition[] = [
+  {
+    path: "/projects/:projectId/:tab",
+    element: createLazyElement(<ChatPage view="projects" />),
+  },
+  {
+    path: "/projects",
+    element: createLazyElement(<ChatPage view="projects" />),
+  },
   { path: "/chat/skills", redirectTo: "/skills" },
   { path: "/chat/cron", redirectTo: "/cron" },
   { path: "/chat/agents", redirectTo: "/agents" },
@@ -127,6 +150,10 @@ const protectedRouteDefinitions: ProtectedRouteDefinition[] = [
     element: createLazyElement(<ChatPage view="inbox" />),
   },
   {
+    path: "/apps/panel/:appId",
+    element: createLazyElement(<ChatPage view="panel-app" />),
+  },
+  {
     path: "/appearance",
     element: createLazyElement(<AppearanceSettingsPage />),
   },
@@ -141,6 +168,10 @@ const protectedRouteDefinitions: ProtectedRouteDefinition[] = [
   {
     path: "/providers",
     element: createLazyElement(<ProvidersListPage />),
+  },
+  {
+    path: "/extensions",
+    element: createLazyElement(<ExtensionsConfigPage />),
   },
   {
     path: "/channels",
@@ -161,6 +192,14 @@ const protectedRouteDefinitions: ProtectedRouteDefinition[] = [
   {
     path: "/security",
     element: createLazyElement(<SecurityConfigPage />),
+  },
+  {
+    path: "/privacy",
+    element: createLazyElement(<PrivacySettingsPage />),
+  },
+  {
+    path: "/desktop-capabilities",
+    element: createLazyElement(<DesktopCapabilitiesPage />),
   },
   {
     path: "/secrets",
@@ -233,8 +272,11 @@ function ProtectedApp() {
       <AppLayout>
         <ProtectedRoutes />
       </AppLayout>
-      <AccountPanel />
-      <ServiceActionAuthorizationDialog />
+      <Suspense fallback={null}>
+        <AccountPanel />
+      </Suspense>
+      <PanelAppServiceActionAuthorizationDialog />
+      <DesktopAuthorizationDialog />
     </AppPresenterProvider>
   );
 }
@@ -260,9 +302,15 @@ function AuthGate() {
 }
 
 export default function AppContent() {
+  const { theme } = useTheme();
+
   useEffect(() => {
     startNextClawPwa();
   }, []);
+
+  useEffect(() => {
+    pwaShellThemeManager.syncTheme(theme);
+  }, [theme]);
 
   return (
     <QueryClientProvider client={appQueryClient}>

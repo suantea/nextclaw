@@ -11,8 +11,9 @@ export class GatewayExtensionManager {
 
   authenticateEventStreamCredential = (input: {
     extensionId: string | null;
+    generation: string | null;
     token: string | null;
-  }): { extensionId: string } | null =>
+  }): { extensionId: string; generation: string } | null =>
     this.gateway.kernel.extensions.authenticateEventStreamCredential(input);
 
   load = async (): Promise<void> => {

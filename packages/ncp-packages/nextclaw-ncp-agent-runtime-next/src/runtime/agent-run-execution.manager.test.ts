@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OpenAIChatChunk } from "@nextclaw/ncp";
 import { AgentRunExecutionManager } from "./agent-run-execution.manager.js";
+import { FIXED_NATIVE_TOOL_CALL_LIMIT } from "./runtime-tool-call-executor.service.js";
 
 const spec = {
   agentId: "main",
@@ -17,6 +18,18 @@ async function drain(stream: AsyncIterable<OpenAIChatChunk>): Promise<void> {
 }
 
 describe("AgentRunExecutionManager", () => {
+  it("owns one fixed tool call budget for the entire run", () => {
+    const manager = new AgentRunExecutionManager({
+      spec,
+      sessionId: "session-1",
+      messageId: "message-1",
+    });
+
+    expect(FIXED_NATIVE_TOOL_CALL_LIMIT).toBe(1000);
+    expect(manager.toolCallBudget.limit).toBe(FIXED_NATIVE_TOOL_CALL_LIMIT);
+    expect(manager.toolCallBudget).toBe(manager.toolCallBudget);
+  });
+
   it("uses the last cumulative usage in one call and sums across calls", async () => {
     const manager = new AgentRunExecutionManager({
       spec,
@@ -105,6 +118,35 @@ describe("AgentRunExecutionManager", () => {
       modelCallCount: 2,
       reportedModelCallCount: 1,
       status: "partial",
+    });
+  });
+
+  it("normalizes Anthropic cache-read usage as cached input", async () => {
+    const manager = new AgentRunExecutionManager({
+      spec: { ...spec, model: "anthropic/claude-sonnet-4" },
+      sessionId: "session-1",
+      messageId: "message-1",
+    });
+    await drain(
+      manager.observeModelCall(
+        (async function* () {
+          yield {
+            usage: {
+              input_tokens: 90,
+              output_tokens: 10,
+              cache_read_input_tokens: 40,
+              cache_creation_input_tokens: 12,
+            } as OpenAIChatChunk["usage"],
+          };
+        })(),
+      ),
+    );
+
+    expect(manager.buildMetadata("completed").usage).toMatchObject({
+      inputTokens: 142,
+      outputTokens: 10,
+      cachedInputTokens: 40,
+      totalTokens: 152,
     });
   });
 });

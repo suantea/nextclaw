@@ -1,8 +1,20 @@
 export { ChatInputBar } from './ui/chat-input-bar/chat-input-bar';
 export type { ChatInputBarHandle } from './ui/chat-input-bar/chat-input-bar';
+export { ChatComposerEditor } from './ui/chat-input-bar/chat-composer-editor';
+export type {
+  ChatComposerEditorHandle,
+  ChatComposerEditorProps,
+} from './ui/chat-input-bar/chat-composer-editor';
 export { ChatMessageList } from './ui/chat-message-list/chat-message-list';
 export type { ChatMessageListProps } from './ui/chat-message-list/chat-message-list';
 export { ChatMessageMarkdown } from './ui/chat-message-list/chat-message-markdown';
+export {
+  ChatMessageLightbox,
+  ChatMessagePreviewToolbar,
+} from './ui/chat-message-lightbox';
+export type { ChatMessagePreviewAction } from './ui/chat-message-lightbox';
+export { ChatTextSelectionAction } from './ui/chat-text-selection-action';
+export type { ChatTextSelectionSnapshot } from './ui/chat-text-selection-action';
 export {
   FileOperationCodeSurface,
   FileOperationLinesGrid
@@ -47,6 +59,7 @@ export type {
   ChatSlashItem,
   ChatSelectedItem,
   ChatComposerTokenKind,
+  ChatComposerTokenData,
   ChatComposerTextNode,
   ChatComposerTokenNode,
   ChatComposerNode,
@@ -85,12 +98,14 @@ export type {
   ChatToolPartViewModel,
   ChatMessagePartViewModel,
   ChatMessageProcessSummaryViewModel,
+  ChatMessageActionViewModel,
   ChatMessageDetailActionViewModel,
   ChatMessageMoreActionsViewModel,
   ChatMessageViewModel,
   ChatMessageTexts
 } from './view-models/chat-ui.types';
 export type {
+  ChatInputSurfaceItemIcon,
   ChatInputSurfacePanel,
   ChatInputSurfacePlugin,
   ChatInputSurfacePluginContext,

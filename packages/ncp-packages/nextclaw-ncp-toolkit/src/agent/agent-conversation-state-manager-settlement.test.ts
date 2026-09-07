@@ -13,6 +13,34 @@ const createMessage = (overrides: Partial<NcpMessage> = {}): NcpMessage => ({
 });
 
 describe("DefaultNcpAgentConversationStateManager settlement", () => {
+  it("finalizes one assistant message without settling the active run", async () => {
+    const manager = new DefaultNcpAgentConversationStateManager();
+    await manager.dispatch({
+      type: NcpEventType.RunStarted,
+      payload: { sessionId: "session-1", runId: "run-1" },
+    });
+    await manager.dispatch({
+      type: NcpEventType.MessageTextDelta,
+      payload: { sessionId: "session-1", messageId: "assistant-1", delta: "first" },
+    });
+    await manager.dispatch({
+      type: NcpEventType.MessageCompleted,
+      payload: {
+        sessionId: "session-1",
+        message: createMessage({
+          id: "assistant-1",
+          parts: [{ type: "text", text: "first" }],
+        }),
+      },
+    });
+
+    expect(manager.getSnapshot()).toMatchObject({
+      activeRun: { runId: "run-1" },
+      messages: [{ id: "assistant-1", status: "final" }],
+      streamingMessage: null,
+    });
+  });
+
   it("settles replayed assistant in its timeline position when later user messages arrive", () => {
     const manager = new DefaultNcpAgentConversationStateManager();
 
@@ -74,7 +102,9 @@ describe("DefaultNcpAgentConversationStateManager settlement", () => {
       "user-2",
     ]);
   });
+});
 
+describe("DefaultNcpAgentConversationStateManager metadata settlement", () => {
   it("settles assistant message lifecycle from run timing facts", () => {
     const manager = new DefaultNcpAgentConversationStateManager();
 
@@ -107,6 +137,19 @@ describe("DefaultNcpAgentConversationStateManager settlement", () => {
         sessionId: "session-1",
         runId: "run-1",
         metadata: {
+          run_trigger: {
+            version: 1,
+            actor: "agent",
+            source: "sessions_spawn",
+            triggeredAt: "2026-03-12T00:00:00.000Z",
+            targetRunId: "run-1",
+            sourceSessionId: "parent-session",
+            sourceMessageId: "parent-user-message",
+            sourceRunId: "parent-run",
+            sourceToolCallId: "tool-call-1",
+            sourceRequestId: "request-1",
+            sourceModel: "openai/gpt-5.6",
+          },
           ai_execution: {
             version: 1,
             runId: "run-1",
@@ -152,8 +195,63 @@ describe("DefaultNcpAgentConversationStateManager settlement", () => {
         status: "reported",
       },
     });
+    expect(manager.getSnapshot().messages[0]?.metadata?.run_trigger).toMatchObject({
+      actor: "agent",
+      source: "sessions_spawn",
+      targetRunId: "run-1",
+      sourceModel: "openai/gpt-5.6",
+    });
   });
 
+  it("does not leak trigger provenance into the next run", async () => {
+    const manager = new DefaultNcpAgentConversationStateManager();
+    await manager.dispatchBatch([
+      {
+        type: NcpEventType.RunStarted,
+        payload: { sessionId: "session-1", runId: "run-1" },
+      },
+      {
+        type: NcpEventType.RunMetadata,
+        payload: {
+          sessionId: "session-1",
+          runId: "run-1",
+          metadata: {
+            run_trigger: {
+              version: 1,
+              actor: "automation",
+              source: "observation",
+              triggeredAt: "2026-03-12T00:00:00.000Z",
+              targetRunId: "run-1",
+            },
+          },
+        },
+      },
+      {
+        type: NcpEventType.MessageCompleted,
+        payload: {
+          sessionId: "session-1",
+          message: createMessage({ id: "assistant-1" }),
+        },
+      },
+      {
+        type: NcpEventType.RunStarted,
+        payload: { sessionId: "session-1", runId: "run-2" },
+      },
+      {
+        type: NcpEventType.MessageCompleted,
+        payload: {
+          sessionId: "session-1",
+          message: createMessage({ id: "assistant-2" }),
+        },
+      },
+    ]);
+
+    expect(manager.getSnapshot().messages[0]?.metadata?.run_trigger).toBeDefined();
+    expect(manager.getSnapshot().messages[1]?.metadata?.run_trigger).toBeUndefined();
+  });
+});
+
+describe("DefaultNcpAgentConversationStateManager outcome settlement", () => {
   it("projects execution metadata when an assistant run is aborted", () => {
     const manager = new DefaultNcpAgentConversationStateManager();
     manager.dispatch({
@@ -213,6 +311,61 @@ describe("DefaultNcpAgentConversationStateManager settlement", () => {
           usage: { status: "unavailable" },
         },
       },
+    });
+  });
+});
+
+describe("DefaultNcpAgentConversationStateManager error settlement", () => {
+  it("keeps recovered runtime interruption typed instead of exposing it as a task failure", () => {
+    const manager = new DefaultNcpAgentConversationStateManager();
+
+    manager.dispatch({
+      type: NcpEventType.RunError,
+      payload: {
+        error: "Run interrupted: internal recovery detail.",
+        interrupted: true,
+        runId: "run-interrupted-1",
+        sessionId: "session-1",
+      },
+    });
+
+    expect(manager.getSnapshot().error).toMatchObject({
+      code: "run-interrupted",
+      message: "Run interrupted: internal recovery detail.",
+    });
+  });
+
+  it("cancels unfinished tool calls when a run settles with an error", () => {
+    const manager = new DefaultNcpAgentConversationStateManager();
+    manager.dispatch({
+      type: NcpEventType.MessageTextDelta,
+      payload: { sessionId: "session-1", messageId: "assistant-error", delta: "partial" },
+    });
+    manager.dispatch({
+      type: NcpEventType.MessageToolCallStart,
+      payload: {
+        sessionId: "session-1",
+        messageId: "assistant-error",
+        toolCallId: "tool-interrupted",
+        toolName: "command_execution",
+      },
+    });
+    manager.dispatch({
+      type: NcpEventType.MessageToolCallEnd,
+      payload: { sessionId: "session-1", toolCallId: "tool-interrupted" },
+    });
+    manager.dispatch({
+      type: NcpEventType.RunError,
+      payload: { sessionId: "session-1", error: "interrupted" },
+    });
+
+    expect(manager.getSnapshot().messages[0]).toMatchObject({
+      id: "assistant-error",
+      status: "error",
+      parts: [
+        { type: "text", text: "partial" },
+        { type: "tool-invocation", toolCallId: "tool-interrupted", state: "cancelled" },
+      ],
     });
   });
 });

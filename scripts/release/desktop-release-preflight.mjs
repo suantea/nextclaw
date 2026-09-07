@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 const ROOT_DIR = process.cwd();
 
@@ -15,6 +16,57 @@ function readJsonCommand(command, args) {
   return JSON.parse(run(command, args));
 }
 
+function blockingSleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+export function resolveDesktopReleaseTarget(publishedCommit, sourceCommit, options = {}) {
+  const runCommand = options.runCommand ?? run;
+  runCommand("git", ["merge-base", "--is-ancestor", publishedCommit, sourceCommit]);
+  const paths = runCommand("git", ["diff", "--name-only", publishedCommit, sourceCommit])
+    .split("\n").filter(Boolean);
+  const target = paths.some((path) => /^(apps\/desktop|scripts\/desktop)\//.test(path))
+    ? runCommand("git", ["log", "-1", "--format=%H", sourceCommit, "--", "apps/desktop", "scripts/desktop"])
+    : publishedCommit;
+  const targetPaths = target === publishedCommit ? [] :
+    runCommand("git", ["diff", "--name-only", publishedCommit, target]).split("\n").filter(Boolean);
+  const allowed = /^(apps\/(desktop|docs)\/|scripts\/(desktop|release)\/|\.github\/workflows\/|\.agents\/|docs\/|commands\/|AGENTS\.md$|CLAUDE\.md$)/;
+  const runtimeChanges = [...new Set([...paths, ...targetPaths])].filter((path) => !allowed.test(path));
+  if (runtimeChanges.length > 0) {
+    throw new Error(`Desktop recovery cannot include unpublished runtime changes: ${runtimeChanges.join(", ")}`);
+  }
+  return target;
+}
+
+export function assertPublishedDesktopRuntimeIdentity(channel, runtimeVersion, options = {}) {
+  const distTag = channel === "beta" ? "beta" : "latest";
+  const runCommand = options.runCommand ?? run;
+  const sleep = options.sleep ?? blockingSleep;
+  const attempts = options.attempts ?? 6;
+  let exactVersion = null;
+  let channelVersion = null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    lastError = null;
+    try {
+      exactVersion = runCommand("npm", ["view", `nextclaw@${runtimeVersion}`, "version"]);
+      channelVersion = runCommand("npm", ["view", `nextclaw@${distTag}`, "version"]);
+    } catch (error) {
+      lastError = error;
+    }
+    if (exactVersion === runtimeVersion && channelVersion === runtimeVersion) return;
+    if (attempt < attempts) sleep(2000 * attempt);
+  }
+  if (lastError) {
+    throw new Error(
+      `Could not confirm published NPM identity after ${attempts} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+    );
+  }
+  throw new Error(
+    `Desktop release requires an already published nextclaw ${channel} identity after ${attempts} attempts: exact=${exactVersion || "<missing>"}, ${distTag}=${channelVersion || "<missing>"}, expected=${runtimeVersion}. Publish the NPM/runtime version first; desktop release never republishes NPM.`
+  );
+}
+
 function readWorkflowRun(repo, runId) {
   return readJsonCommand("gh", [
     "run",
@@ -27,8 +79,16 @@ function readWorkflowRun(repo, runId) {
   ]);
 }
 
+export function selectPreflightWorkflowRun(runs, dispatchId, startedAt = 0) {
+  return runs.find(
+    (entry) =>
+      String(entry.displayTitle ?? "").includes(`dispatch=${dispatchId}`) &&
+      Date.parse(entry.createdAt ?? "") >= startedAt - 60_000
+  );
+}
+
 function findWorkflowDispatchRun(options) {
-  const { branch, preflightWorkflow, repo, target } = options;
+  const { dispatchId, dispatchStartedAt, preflightWorkflow, repo } = options;
   const runs = readJsonCommand("gh", [
     "run",
     "list",
@@ -38,14 +98,33 @@ function findWorkflowDispatchRun(options) {
     preflightWorkflow,
     "--event",
     "workflow_dispatch",
-    "--branch",
-    branch,
     "--limit",
     "20",
     "--json",
-    "databaseId,headSha,status,conclusion,url"
+    "databaseId,createdAt,displayTitle,headSha,status,conclusion,url"
   ]);
-  return runs.find((entry) => entry.headSha === target);
+  return selectPreflightWorkflowRun(runs, dispatchId, dispatchStartedAt);
+}
+
+async function waitForWorkflowSuccess(options, runEntry, label) {
+  const { repo, runAttempts, runDelayMs } = options;
+  let previousLine = "";
+  for (let attempt = 1; attempt <= runAttempts; attempt += 1) {
+    const runSummary = readWorkflowRun(repo, runEntry.databaseId);
+    const line = `[desktop:release] ${label} ${runEntry.databaseId}: ${runSummary.status}/${runSummary.conclusion || "pending"}`;
+    if (line !== previousLine) {
+      console.log(line);
+      previousLine = line;
+    }
+    if (runSummary.status === "completed") {
+      if (runSummary.conclusion !== "success") {
+        throw new Error(`Desktop ${label} failed: ${runSummary.url}`);
+      }
+      return;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, runDelayMs));
+  }
+  throw new Error(`Timed out waiting for desktop ${label}: ${runEntry.url}`);
 }
 
 async function waitForPreflightRun(options) {
@@ -61,24 +140,7 @@ async function waitForPreflightRun(options) {
 }
 
 async function waitForPreflightSuccess(options, runEntry) {
-  const { repo, runAttempts, runDelayMs } = options;
-  let previousLine = "";
-  for (let attempt = 1; attempt <= runAttempts; attempt += 1) {
-    const runSummary = readWorkflowRun(repo, runEntry.databaseId);
-    const line = `[desktop:release] preflight ${runEntry.databaseId}: ${runSummary.status}/${runSummary.conclusion || "pending"}`;
-    if (line !== previousLine) {
-      console.log(line);
-      previousLine = line;
-    }
-    if (runSummary.status === "completed") {
-      if (runSummary.conclusion !== "success") {
-        throw new Error(`Desktop release preflight failed: ${runSummary.url}`);
-      }
-      return;
-    }
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, runDelayMs));
-  }
-  throw new Error(`Timed out waiting for desktop release preflight: ${runEntry.url}`);
+  await waitForWorkflowSuccess(options, runEntry, "preflight");
 }
 
 export async function runRemotePreflight(options) {
@@ -103,6 +165,9 @@ export async function runRemotePreflight(options) {
     return;
   }
 
+  const dispatchId = `desktop-preflight-${randomUUID()}`;
+  const dispatchStartedAt = Date.now();
+
   run("gh", [
     "workflow",
     "run",
@@ -120,8 +185,12 @@ export async function runRemotePreflight(options) {
     "-f",
     `minimum_launcher_version=${minimumLauncherVersion}`,
     "-f",
-    `target_sha=${target}`
+    `node_version=${options.nodeVersion}`,
+    "-f",
+    `target_sha=${target}`,
+    "-f",
+    `dispatch_id=${dispatchId}`
   ]);
-  const runEntry = await waitForPreflightRun(options);
+  const runEntry = await waitForPreflightRun({ ...options, dispatchId, dispatchStartedAt });
   await waitForPreflightSuccess(options, runEntry);
 }

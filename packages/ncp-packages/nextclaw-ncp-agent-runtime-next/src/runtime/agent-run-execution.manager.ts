@@ -9,6 +9,10 @@ import {
   type OpenAIChatChunk,
 } from "@nextclaw/ncp";
 import type { DefaultNcpAgentRunSpec } from "./types/agent-model-input.types.js";
+import {
+  FIXED_NATIVE_TOOL_CALL_LIMIT,
+  RuntimeToolCallBudget,
+} from "./runtime-tool-call-executor.service.js";
 
 type ReportedUsage = Pick<
   NcpAiExecutionUsage,
@@ -38,7 +42,7 @@ function normalizeUsage(
     return null;
   }
   const usage = rawUsage as Record<string, unknown>;
-  const inputTokens = readUsageTokenCount(
+  const normalizedInputTokens = readUsageTokenCount(
     usage,
     "prompt_tokens",
     "input_tokens",
@@ -49,8 +53,23 @@ function normalizeUsage(
     "output_tokens",
   );
   const explicitTotalTokens = readTokenCount(usage.total_tokens);
+  const cacheReadInputTokens =
+    readTokenCount(usage.cache_read_input_tokens) ??
+    readTokenCount(usage.cache_read_tokens);
+  const cacheCreationInputTokens = readTokenCount(usage.cache_creation_input_tokens);
+  // Raw Anthropic-compatible streams split cache reads and writes out of input_tokens.
+  const inputTokens =
+    readTokenCount(usage.prompt_tokens) ??
+    (normalizedInputTokens !== null &&
+    (cacheReadInputTokens !== null || cacheCreationInputTokens !== null)
+      ? normalizedInputTokens + (cacheReadInputTokens ?? 0) + (cacheCreationInputTokens ?? 0)
+      : normalizedInputTokens);
   const cachedInputTokens = Object.entries(usage)
-    .filter(([key]) => key.endsWith("cached_tokens"))
+    .filter(([key]) =>
+      key.endsWith("cached_tokens") ||
+      key === "cache_read_input_tokens" ||
+      key === "cache_read_tokens"
+    )
     .reduce<number | null>((maximum, [, value]) => {
       const count = readTokenCount(value);
       if (count === null) return maximum;
@@ -83,6 +102,7 @@ function sumReportedUsage(
 export class AgentRunExecutionManager {
   private modelCallCount = 0;
   private readonly reportedUsages: ReportedUsage[] = [];
+  private currentToolCallBudget: RuntimeToolCallBudget | null = null;
 
   constructor(
     private readonly run: {
@@ -91,6 +111,13 @@ export class AgentRunExecutionManager {
       messageId: string;
     },
   ) {}
+
+  get toolCallBudget(): RuntimeToolCallBudget {
+    this.currentToolCallBudget ??= new RuntimeToolCallBudget(
+      FIXED_NATIVE_TOOL_CALL_LIMIT,
+    );
+    return this.currentToolCallBudget;
+  }
 
   observeModelCall = async function* (
     this: AgentRunExecutionManager,
@@ -150,9 +177,11 @@ export class AgentRunExecutionManager {
   createMetadataEvent = (params: {
     outcome: NcpAiExecutionOutcome;
     occurredAt?: string;
+    messageId?: string;
   }): NcpEndpointEvent => {
     const { occurredAt, outcome } = params;
-    const { messageId, sessionId, spec } = this.run;
+    const { sessionId, spec } = this.run;
+    const messageId = params.messageId ?? this.run.messageId;
     return createNcpEndpointEvent(
       {
         type: NcpEventType.RunMetadata,

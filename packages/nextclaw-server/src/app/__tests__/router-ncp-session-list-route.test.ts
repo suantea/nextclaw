@@ -76,6 +76,89 @@ it("passes peerId filters through the ncp session list route", async () => {
   expect(listSessionCalls).toEqual([{ limit: 10, peerId: "peer-1" }]);
 });
 
+it("passes numbered pagination and search to the session catalog", async () => {
+  const calls: Array<{ page: number; pageSize: number; query?: string }> = [];
+  const app = createUiRouter({
+    configPath: createConfigPath(),
+    appEventBus: new EventBus(),
+    kernel: createRouterTestKernel({
+      sessionManager: {
+        listSessionPage: async (options: { page: number; pageSize: number; query?: string }) => {
+          calls.push(options);
+          return {
+            sessions: [{
+              sessionId: "session-101",
+              messageCount: 1,
+              updatedAt: "2026-03-16T00:00:00.000Z",
+            }],
+            total: 201,
+          };
+        },
+      } as never,
+    }),
+  });
+
+  const response = await app.request(
+    "http://localhost/api/ncp/sessions?page=2&pageSize=100&query=older",
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    ok: true,
+    data: {
+      page: 2,
+      pageSize: 100,
+      total: 201,
+      hasMore: true,
+      sessions: [{ sessionId: "session-101" }],
+    },
+  });
+  expect(calls).toEqual([{ page: 2, pageSize: 100, query: "older" }]);
+});
+
+it("returns session token usage from the kernel owner", async () => {
+  const app = createUiRouter({
+    configPath: createConfigPath(),
+    appEventBus: new EventBus(),
+    kernel: createRouterTestKernel({
+      sessionManager: {
+        getSessionTokenUsage: async (sessionId: string) =>
+          sessionId === "session / 1"
+            ? {
+                sessionId,
+                totals: {
+                  inputTokens: 100,
+                  outputTokens: 20,
+                  cachedInputTokens: 40,
+                  totalTokens: 120,
+                  cacheHitRate: 0.4,
+                },
+                models: [],
+                runCount: 1,
+                modelCallCount: 1,
+                reportedModelCallCount: 1,
+                status: "reported",
+              }
+            : null,
+      } as never,
+    }),
+  });
+
+  const response = await app.request("http://localhost/api/ncp/sessions/session%20%2F%201/usage");
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    ok: true,
+    data: {
+      sessionId: "session / 1",
+      totals: { totalTokens: 120, cachedInputTokens: 40 },
+      status: "reported",
+    },
+  });
+
+  const missingResponse = await app.request("http://localhost/api/ncp/sessions/missing/usage");
+  expect(missingResponse.status).toBe(404);
+});
+
 it("completes idle running previews that already have a final reply", async () => {
   const app = createUiRouter({
     configPath: createConfigPath(),
@@ -107,9 +190,9 @@ it("completes idle running previews that already have a final reply", async () =
 
   expect(payload.data.metadata?.last_activity_preview).toMatchObject({
     state: "completed",
-    statusText: "Thinking",
     replyText: "上一条回复",
   });
+  expect(payload.data.metadata?.last_activity_preview?.statusText).toBeUndefined();
 });
 
 it("marks idle running previews without a final reply as interrupted", async () => {
@@ -137,13 +220,14 @@ it("marks idle running previews without a final reply as interrupted", async () 
 
   const response = await app.request("http://localhost/api/ncp/sessions/session-1");
   const payload = await response.json() as {
-    data: { metadata?: { last_activity_preview?: { state?: string; statusText?: string; replyText?: string } } };
+    data: { metadata?: { last_activity_preview?: { state?: string; statusKind?: string; statusText?: string } } };
   };
 
   expect(payload.data.metadata?.last_activity_preview).toMatchObject({
     state: "failed",
-    statusText: "Run interrupted: no completion or error event was recorded. Please send the message again.",
+    statusKind: "run-interrupted",
   });
+  expect(payload.data.metadata?.last_activity_preview?.statusText).toBeUndefined();
 });
 
 it("normalizes legacy user-cancelled failed previews as cancelled", async () => {
@@ -176,8 +260,8 @@ it("normalizes legacy user-cancelled failed previews as cancelled", async () => 
 
   expect(payload.data.metadata?.last_activity_preview).toMatchObject({
     state: "cancelled",
-    statusText: "Run interrupted: User stopped the current run.",
   });
+  expect(payload.data.metadata?.last_activity_preview?.statusText).toBeUndefined();
 });
 
 it("keeps running previews for sessions that are still active", async () => {

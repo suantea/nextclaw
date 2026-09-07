@@ -4,9 +4,38 @@ import type { ThinkingEffort } from "@kernel/types/agent-run.types.js";
 
 export type SessionMessagePage = {
   messages: NcpMessage[];
+  messageDetailCursors: Record<string, string>;
   total: number;
   pageInfo: NcpSessionMessagePageInfo;
   contextWindow: Record<string, unknown> | null;
+};
+
+export type SessionTokenUsageStatus = "reported" | "partial" | "unavailable";
+
+export type SessionTokenUsageTotals = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedInputTokens: number | null;
+  totalTokens: number | null;
+  cacheHitRate: number | null;
+};
+
+export type SessionModelTokenUsage = SessionTokenUsageTotals & {
+  model: string;
+  runCount: number;
+  modelCallCount: number | null;
+  reportedModelCallCount: number | null;
+  status: SessionTokenUsageStatus;
+};
+
+export type SessionTokenUsageSummary = {
+  sessionId: string;
+  totals: SessionTokenUsageTotals;
+  models: SessionModelTokenUsage[];
+  runCount: number;
+  modelCallCount: number | null;
+  reportedModelCallCount: number | null;
+  status: SessionTokenUsageStatus;
 };
 
 export class SessionMessageCursorError extends Error {
@@ -16,7 +45,9 @@ export class SessionMessageCursorError extends Error {
   }
 }
 
-export function isSessionMessageCursorError(error: unknown): error is SessionMessageCursorError {
+export function isSessionMessageCursorError(
+  error: unknown,
+): error is SessionMessageCursorError {
   return error instanceof SessionMessageCursorError;
 }
 
@@ -27,6 +58,7 @@ export type AgentRunSession = {
   metadata: Record<string, unknown>;
   model?: string;
   projectRoot?: string;
+  projectId?: string;
   workingDir: string;
   thinkingEffort?: ThinkingEffort | null;
 };
@@ -60,13 +92,15 @@ export type SessionSettingsPatch = {
 export class SessionSettingsError extends Error {
   constructor(
     readonly code: "PREFERRED_THINKING_INVALID",
-    message: string
+    message: string,
   ) {
     super(message);
     this.name = "SessionSettingsError";
   }
 }
 
-export function isSessionSettingsError(error: unknown): error is SessionSettingsError {
+export function isSessionSettingsError(
+  error: unknown,
+): error is SessionSettingsError {
   return error instanceof SessionSettingsError;
 }

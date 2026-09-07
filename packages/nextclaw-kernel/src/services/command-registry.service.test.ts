@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { NcpEventType } from "@nextclaw/ncp";
 import { EventBus } from "@nextclaw/shared";
 import { SessionManager } from "@kernel/managers/session.manager.js";
-import { ProjectManager } from "@kernel/managers/project.manager.js";
+import { ProjectManager } from "@kernel/features/projects/index.js";
 import { NcpAgentSessionJournalStore } from "@kernel/stores/ncp-agent-session-journal.store.js";
 import { CommandRegistry } from "./command-registry.service.js";
 
@@ -18,7 +18,6 @@ function createConfig() {
         contextTokens: 200000,
         engine: "native",
         engineConfig: {},
-        maxToolIterations: 1000,
         model: "default-model",
         models: {},
         thinkingDefault: "off",
@@ -33,6 +32,10 @@ function createFixture() {
   const dir = mkdtempSync(join(tmpdir(), "nextclaw-command-registry-"));
   tempDirs.push(dir);
   const sessionManager = new SessionManager({
+    agentContextWindowManager: {
+      forgetSession: () => undefined,
+      previewSession: async () => null,
+    } as never,
     agentManager: {
       resolveAgentProfile: () => ({ workspace: dir }),
       resolveAgentProfileForRun: () => ({
@@ -45,7 +48,8 @@ function createFixture() {
     eventBus: new EventBus(),
     journalStore: new NcpAgentSessionJournalStore(join(dir, "journal")),
     projectManager: new ProjectManager({
-      storePath: join(dir, "projects.json"),
+      databasePath: join(dir, "projects.db"),
+      legacyStorePath: join(dir, "projects.json"),
       getDefaultWorkspacePath: () => dir,
     }),
     sessionSearch: { handleSessionUpdated: async () => undefined } as never,

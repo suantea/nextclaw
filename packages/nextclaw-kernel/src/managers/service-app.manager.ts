@@ -1,12 +1,25 @@
-import { readdir, rm, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
-import {
-  DEFAULT_SERVICE_APPS_DIR,
-  getWorkspacePathFromConfig,
-} from "@nextclaw/core";
+import { join } from "node:path";
+import { DEFAULT_SERVICE_APPS_DIR, getWorkspacePathFromConfig } from "@nextclaw/core";
 import type { ConfigManager } from "@kernel/managers/config.manager.js";
-import { McpServiceAppRuntimeService } from "@kernel/services/mcp-service-app-runtime.service.js";
-import { ServiceActionGrantStore } from "@kernel/stores/service-action-grant.store.js";
+import { type AppPackageComponentSource } from "@kernel/types/app-package.types.js";
+import { ServiceAppRuntimeService } from "@kernel/services/service-app-runtime.service.js";
+import { ServiceAppLifecycleService } from "@kernel/services/service-app-lifecycle.service.js";
+import { ServiceAppAiCapabilityService } from "@kernel/services/service-app-ai-capability.service.js";
+import { ServiceAppJobManager } from "@kernel/managers/service-app-job.manager.js";
+import { ServiceAppActivationManager } from "@kernel/managers/service-app-activation.manager.js";
+import { hasConfiguredServiceModel, ServiceAppAiManager } from "@kernel/managers/service-app-ai.manager.js";
+import type { LlmProviderRuntime } from "@kernel/managers/llm-provider.manager.js";
+import type { LlmUsageManager } from "@kernel/managers/llm-usage.manager.js";
+import type { AgentRunClient } from "@kernel/services/agent-run-client.service.js";
+import { ServiceAppRecordService, type WorkspaceServiceDataOwner } from "@kernel/services/service-app-record.service.js";
+import { type ServiceAppRemovalDiagnostic, ServiceAppRemovalCleanupError, ServiceAppRemovalService } from "@kernel/services/service-app-removal.service.js";
+import { createServiceActionGrantRequest, getCapabilityGrantKey, readServiceActionTargetId, type CapabilityGrant, type CapabilityGrantManager } from "@kernel/features/capability-grants/index.js";
+import { ServiceActionGrantService } from "@kernel/services/service-action-grant.service.js";
+import { ServiceAppPackageRuntimeService } from "@kernel/services/service-app-package-runtime.service.js";
+import type { VerificationRecordService } from "@kernel/services/verification-record.service.js";
+import { ServiceAppJobJournalService, type ServiceAppJobScope } from "@kernel/services/service-app-job-journal.service.js";
+import { ServiceAppResidentEventInboxService, type ResidentEventInput } from "@kernel/services/service-app-resident-event-inbox.service.js";
+import { projectCapabilityProviders } from "@kernel/utils/service-app-capability-provider.utils.js";
 import type {
   ServiceAction,
   ServiceActionCaller,
@@ -14,145 +27,289 @@ import type {
   ServiceActionGrantRequest,
   ServiceActionInvokeRequest,
   ServiceActionInvokeResult,
+  ServiceAppJobCaller,
   ServiceAppManifest,
   ServiceAppRecord,
 } from "@kernel/types/service-app.types.js";
-import {
-  getServiceAppManifestPath,
-  readServiceAppManifest,
-} from "@kernel/utils/service-app-manifest.utils.js";
-import {
-  getServiceActionName,
-  resolveServiceActionGrantState,
-} from "@kernel/utils/service-action.utils.js";
-import {
-  listServiceAppManifestActions,
-  mergeServiceAppRuntimeActions,
-} from "@kernel/utils/service-app-runtime-action.utils.js";
+import { readServiceAppManifest } from "@kernel/utils/service-app-manifest.utils.js";
+import { assertServiceActionCaller, assertServiceActionDeclared, buildServiceActionId, getServiceActionName, resolveServiceActionGrantState } from "@kernel/utils/service-action.utils.js";
+import { listServiceAppManifestActions, mergeServiceAppRuntimeActions } from "@kernel/utils/service-app-runtime-action.utils.js";
+import { ServiceAppError } from "@kernel/utils/service-app-error.utils.js";
+export type { WorkspaceServiceDataOwner } from "@kernel/services/service-app-record.service.js";
+export { isServiceAppError, ServiceAppError, type ServiceAppErrorCode } from "@kernel/utils/service-app-error.utils.js";
 
-const SERVICE_ACTION_GRANTS_FILE_NAME = ".service-action-grants.json";
+const SERVICE_APP_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const DOCUMENT_GUEST_PATH_PATTERN = /^\/documents\/([^/]+)(?:\/|$)/;
 
 export type ServiceAppList = {
   workspacePath: string;
   serviceAppsPath: string;
   entries: ServiceAppRecord[];
+  diagnostics: ServiceAppRemovalDiagnostic[];
 };
 
 export type ServiceAppDeleteResult = {
   deleted: true;
   id: string;
+  dataRemoved: boolean;
 };
 
-export type ServiceAppErrorCode =
-  | "AUTHORIZATION_REQUIRED"
-  | "SERVICE_APP_ACTION_NOT_DECLARED"
-  | "SERVICE_APP_ACTION_NOT_FOUND"
-  | "SERVICE_APP_INVALID_ACTION"
-  | "SERVICE_APP_INVALID_CALLER"
-  | "SERVICE_APP_INVALID_MANIFEST"
-  | "SERVICE_APP_NOT_FOUND"
-  | "SERVICE_APP_READ_FAILED"
-  | "SERVICE_APP_RUNTIME_FAILED";
-
-export class ServiceAppError extends Error {
-  constructor(
-    readonly code: ServiceAppErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = "ServiceAppError";
-  }
-}
-
-export function isServiceAppError(error: unknown): error is ServiceAppError {
-  return error instanceof ServiceAppError;
-}
-
 export class ServiceAppManager {
+  private readonly removalService = new ServiceAppRemovalService();
   private readonly runtimeService: ServiceAppRuntime;
+  private readonly recordService: ServiceAppRecordService;
+  private readonly actionGrants: ServiceActionGrantService;
+  private readonly packageRuntime: ServiceAppPackageRuntimeService;
+  private readonly lifecycleService: ServiceAppLifecycleService;
+  readonly aiCapabilities: ServiceAppAiCapabilityService;
+  private readonly aiManager: ServiceAppAiManager;
+  private readonly verificationRecords?: VerificationRecordService;
+  private readonly jobJournal: ServiceAppJobJournalService;
+  private readonly jobManager: ServiceAppJobManager;
+  private readonly activationManager: ServiceAppActivationManager;
+  private readonly residentInbox: ServiceAppResidentEventInboxService;
+  private reconciliationDiagnostics: ServiceAppRemovalDiagnostic[] = [];
 
-  constructor(private readonly params: {
-    configManager: ConfigManager;
-    runtimeService?: ServiceAppRuntime;
-  }) {
-    this.runtimeService = params.runtimeService ?? new McpServiceAppRuntimeService({
-      getConfig: () => params.configManager.config,
+  constructor(
+    private readonly params: {
+      appHomeDirectory?: string;
+      configManager: ConfigManager;
+      runtimeService?: ServiceAppRuntime;
+      listPackageComponentSources?: () => Promise<AppPackageComponentSource[]>;
+      assertDocumentAccess?: (appId: string, scopeId: string, mode: "read" | "read-write") => Promise<void>;
+      capabilityGrantManager: CapabilityGrantManager;
+      hasAgent?: (agentId: string) => boolean;
+      providerManager?: LlmProviderRuntime;
+      llmUsage?: Pick<LlmUsageManager, "observeProviderManager">;
+      agentRunClient?: Pick<AgentRunClient, "startRun">;
+      portableServiceRunnerPath?: string;
+      verificationRecords?: VerificationRecordService;
+      jobJournal?: ServiceAppJobJournalService;
+      residentInbox?: ServiceAppResidentEventInboxService;
+    },
+  ) {
+    this.residentInbox = params.residentInbox ?? new ServiceAppResidentEventInboxService();
+    this.runtimeService =
+      params.runtimeService ??
+      new ServiceAppRuntimeService({
+        getConfig: () => params.configManager.config,
+        configPath: params.configManager.configPath,
+        appHomeDirectory: params.appHomeDirectory,
+        portableServiceRunnerPath: params.portableServiceRunnerPath,
+        residentInbox: this.residentInbox,
+      });
+    this.recordService = new ServiceAppRecordService({
+      getWorkspacePath: this.getWorkspacePath,
+      runtimeService: this.runtimeService,
+      listPackageComponentSources: this.listPackageComponentSources,
+      listWorkspaceDirectoryNames: this.listServiceAppDirNames,
+    });
+    this.lifecycleService = new ServiceAppLifecycleService({
+      recordService: this.recordService,
+      runtimeService: this.runtimeService,
+    });
+    this.actionGrants = new ServiceActionGrantService({
+      capabilityGrantManager: params.capabilityGrantManager,
+      resolveAction: this.requireServiceAction,
+    });
+    this.aiCapabilities = new ServiceAppAiCapabilityService({
+      capabilityGrantManager: params.capabilityGrantManager,
+      hasAgent: params.hasAgent ?? (() => false),
+      hasModel: (modelId) => hasConfiguredServiceModel(params.configManager.config, modelId),
+      providerManager: params.providerManager,
+      llmUsage: params.llmUsage,
+      agentRunClient: params.agentRunClient,
+    });
+    this.aiManager = new ServiceAppAiManager({
+      capabilities: this.aiCapabilities,
+      records: this.recordService,
+    });
+    this.runtimeService.setPortableHostCallHandler?.(this.aiCapabilities.handlePortableHostCall);
+    this.packageRuntime = new ServiceAppPackageRuntimeService({
+      getStatus: this.runtimeService.getStatus,
+      restore: async (serviceId) => {
+        await this.discoverServiceAppActions(serviceId);
+      },
+      stop: this.runtimeService.stop,
+    });
+    this.verificationRecords = params.verificationRecords;
+    this.jobJournal = params.jobJournal ?? new ServiceAppJobJournalService();
+    this.jobManager = new ServiceAppJobManager({
+      journal: this.jobJournal,
+      residentInbox: this.residentInbox,
+      runtime: this.runtimeService,
+      verificationRecords: this.verificationRecords,
+      requireServiceApp: this.recordService.require,
+      listPackageComponentSources: this.listPackageComponentSources,
+    });
+    this.activationManager = new ServiceAppActivationManager({
+      runtime: this.runtimeService,
+      records: this.recordService,
+      aiCapabilities: this.aiCapabilities,
+      getWorkspaceServiceAppsPath: () => this.getServiceAppsPath(this.getWorkspacePath()),
+      listWorkspaceDirectoryNames: this.listServiceAppDirNames,
+      listPackageComponentSources: this.listPackageComponentSources,
     });
   }
+
+  start = async (): Promise<void> => {
+    this.reconciliationDiagnostics = await this.removalService.reconcile({
+      capabilityGrantManager: this.params.capabilityGrantManager,
+      lockPathForAppId: (appId) => this.getServiceAppLockPath(this.getWorkspacePath(), appId),
+      serviceAppsPath: this.getServiceAppsPath(this.getWorkspacePath()),
+    });
+    const discovered = await this.recordService.listValid();
+    const recoveredScopes = new Map<string, ServiceAppJobScope>();
+    for (const { record } of discovered) {
+      const scope = this.toJobScope(record);
+      if (scope) recoveredScopes.set(scope.stateDirectory, scope);
+    }
+    await this.jobJournal.recoverUnfinished([...recoveredScopes.values()]);
+    const ready = [] as typeof discovered;
+    for (const registration of discovered) {
+      try {
+        await this.aiCapabilities.assertReady(registration.record, registration.manifest);
+        ready.push(registration);
+      } catch {
+        // Required AI slots fail closed. The record remains inspectable and can
+        // be bound through the management surfaces before the next start.
+      }
+    }
+    await this.lifecycleService.startDiscovered(ready);
+  };
 
   listServiceApps = async (): Promise<ServiceAppList> => {
     const workspacePath = this.getWorkspacePath();
     const serviceAppsPath = this.getServiceAppsPath(workspacePath);
     const dirNames = await this.listServiceAppDirNames(serviceAppsPath);
-    const entries = await Promise.all(
-      dirNames.map((dirName) => this.buildServiceAppRecord(serviceAppsPath, dirName)),
-    );
+    const workspaceEntries = await Promise.all(dirNames.map((dirName) => this.recordService.buildWorkspaceRecord(serviceAppsPath, dirName)));
+    const packageSources = (await this.listPackageComponentSources()).filter((component) => component.kind === "service");
+    const packageEntries = await Promise.all(packageSources.map((source) => this.recordService.buildPackageRecord(source)));
     return {
       workspacePath,
       serviceAppsPath,
-      entries: entries
-        .filter((entry): entry is ServiceAppRecord => Boolean(entry))
-        .sort((left, right) => left.title.localeCompare(right.title)),
+      diagnostics: this.reconciliationDiagnostics,
+      entries: [...workspaceEntries, ...packageEntries].filter((entry): entry is ServiceAppRecord => Boolean(entry)).sort((left, right) => left.title.localeCompare(right.title)),
     };
   };
 
+  listCapabilityProviders = async () => projectCapabilityProviders(await this.recordService.listValid());
+
   getServiceApp = async (appId: string): Promise<ServiceAppRecord> => {
-    const { record } = await this.requireServiceApp(appId);
+    const { record } = await this.recordService.require(appId);
     return record;
   };
 
-  listServiceActions = async (params: {
-    caller?: ServiceActionCaller;
-    appId?: string;
-    declaredActions?: readonly string[];
-  } = {}): Promise<ServiceAction[]> => {
-    const manifests = params.appId
-      ? [await this.requireServiceApp(params.appId)]
-      : await this.listValidServiceApps();
-    const actions = manifests.flatMap(({ manifest, record }) =>
-      listServiceAppManifestActions(record, manifest),
-    );
-    return await Promise.all(
-      actions.map(async (action) => await this.withGrantState(action, params)),
-    );
+  inspectServiceAppAiCapabilities = async (appId: string) => await this.aiManager.inspect(appId);
+  verifyServiceAppAiCapabilities = async (appId: string) => await this.aiManager.inspect(appId);
+  bindServiceAppModelSlot = async (appId: string, slotId: string, modelId: string) => await this.aiManager.bindModel(appId, slotId, modelId);
+  bindServiceAppAgentSlot = async (appId: string, slotId: string, agentId: string) => await this.aiManager.bindAgent(appId, slotId, agentId);
+  unbindServiceAppAiSlot = async (appId: string, kind: "model" | "agent", slotId: string) => await this.aiManager.unbind(appId, kind, slotId);
+  completeServiceAppModelSlot = async (params: Parameters<ServiceAppAiManager["completeModel"]>[0]) => await this.aiManager.completeModel(params);
+  startServiceAppAgentSlot = async (params: Parameters<ServiceAppAiManager["startAgent"]>[0]) => await this.aiManager.startAgent(params);
+
+  listServiceActions = async (
+    params: {
+      caller?: ServiceActionCaller;
+      appId?: string;
+      declaredActions?: readonly string[];
+    } = {},
+  ): Promise<ServiceAction[]> => {
+    const manifests = params.appId ? [await this.recordService.require(params.appId)] : await this.recordService.listValid();
+    const actions = manifests.flatMap(({ manifest, record }) => listServiceAppManifestActions(record, manifest));
+    return await Promise.all(actions.map(async (action) => await this.withGrantState(action, params)));
   };
 
   discoverServiceAppActions = async (appId: string): Promise<ServiceAction[]> => {
-    const { manifest, record } = await this.requireServiceApp(appId);
-    const runtimeActions = await this.runtimeService.listActions({ app: record, manifest });
+    const { manifest, record } = await this.recordService.require(appId, true);
+    const runtimeActions = await this.runtimeService.listActions({
+      app: record,
+      manifest,
+    });
     return mergeServiceAppRuntimeActions({ record, manifest, runtimeActions });
   };
 
-  invokeServiceAction = async (
-    actionId: string,
-    request: ServiceActionInvokeRequest,
-  ): Promise<ServiceActionInvokeResult> => {
-    this.assertCaller(request.caller);
-    this.assertDeclaredAction(actionId, request.declaredActions);
-    const { manifest, record } = await this.requireServiceAppForAction(actionId);
+  invokeServiceAction = async (actionId: string, request: ServiceActionInvokeRequest): Promise<ServiceActionInvokeResult> => {
+    assertServiceActionCaller(request.caller, this.params.hasAgent);
+    assertServiceActionDeclared(request.caller, actionId, request.declaredActions);
+    const { manifest, record } = await this.requireServiceAppForAction(actionId, true);
     const actionName = getServiceActionName(actionId, record.id);
     if (!Object.hasOwn(manifest.actions, actionName)) {
       throw new ServiceAppError("SERVICE_APP_ACTION_NOT_FOUND", "service action not found");
     }
-    if (!await this.createGrantStore().isGranted(request.caller, actionId)) {
-      throw new ServiceAppError(
-        "AUTHORIZATION_REQUIRED",
-        `This panel app needs permission to call ${actionId}.`,
-      );
+    const action = listServiceAppManifestActions(record, manifest).find((entry) => entry.id === actionId);
+    if (!action) {
+      throw new ServiceAppError("SERVICE_APP_ACTION_NOT_FOUND", "service action not found");
     }
-    const result = await this.runtimeService.invokeAction({
-      app: record,
-      manifest,
+    if (!(await this.actionGrants.isGranted(request.caller, action))) {
+      throw new ServiceAppError("AUTHORIZATION_REQUIRED", `This panel app needs permission to call ${actionId}.`);
+    }
+    await this.assertDocumentInputAccess(record, action.risk, request.input ?? {});
+    return await this.jobManager.invoke({
+      actionId,
       actionName,
+      record,
+      manifest,
       input: request.input ?? {},
+      role: request.caller.surface === "agent" ? "agent" : "panel",
+      entrySurface: request.caller.surface === "agent" ? "agent" : "panel",
     });
-    return { actionId, result };
   };
 
-  grantServiceAction = async (
-    actionId: string,
-    request: ServiceActionGrantRequest,
-  ): Promise<ServiceActionGrant> => {
+  /**
+   * Calls a Service component belonging to an enabled installed package.
+   * This is deliberately separate from source-tree `nextclaw app call`.
+   */
+  invokeInstalledServiceAction = async (appId: string, actionName: string, input: Record<string, unknown> = {}): Promise<ServiceActionInvokeResult> => {
+    const { manifest, record } = await this.requireInstalledServiceApp(appId, actionName);
+    const action = listServiceAppManifestActions(record, manifest).find((entry) => entry.name === actionName);
+    await this.assertDocumentInputAccess(record, action?.risk ?? "dangerous", input);
+    return await this.jobManager.invoke({
+      actionId: buildServiceActionId(record.id, actionName),
+      actionName,
+      record,
+      manifest,
+      input,
+      role: "cli",
+      entrySurface: "installed-app-cli",
+    });
+  };
+
+  private assertDocumentInputAccess = async (record: ServiceAppRecord, risk: ServiceAction["risk"], input: Record<string, unknown>): Promise<void> => {
+    const path = typeof input.path === "string" ? input.path : undefined;
+    const match = path?.match(DOCUMENT_GUEST_PATH_PATTERN);
+    if (!match || !record.packageId || !this.params.assertDocumentAccess) return;
+    const scopeId = decodeURIComponent(match[1] as string);
+    const requestedMode = risk === "read" ? "read" : "read-write";
+    try {
+      await this.params.assertDocumentAccess(record.packageId, scopeId, requestedMode);
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : "DOCUMENT_SCOPE_NOT_GRANTED";
+      if (code === "DOCUMENT_SCOPE_NOT_GRANTED" || code === "DOCUMENT_SCOPE_MODE_INSUFFICIENT" || code === "DOCUMENT_SCOPE_UNAVAILABLE") {
+        throw new ServiceAppError(code, error instanceof Error ? error.message : code, {
+          appId: record.packageId,
+          scopeId,
+          requestedMode,
+          recoveryActions: code === "DOCUMENT_SCOPE_UNAVAILABLE" ? ["replace", "revoke"] : code === "DOCUMENT_SCOPE_MODE_INSUFFICIENT" ? ["upgrade"] : ["grant"],
+        });
+      }
+      throw error;
+    }
+  };
+
+  listVerificationRecords = async (filters: { acceptanceId?: string; appId?: string; limit?: number } = {}) => await this.jobManager.listVerificationRecords(filters);
+  exportVerificationRecords = async (filters: { acceptanceId?: string; appId?: string; limit?: number } = {}) => await this.jobManager.exportVerificationRecords(filters);
+  listServiceAppJobs = async (appId: string, params: { caller?: ServiceAppJobCaller } = {}) => await this.jobManager.list(appId, params.caller);
+  getServiceAppJob = async (appId: string, jobId: string, params: { caller?: ServiceAppJobCaller } = {}) => await this.jobManager.get(appId, jobId, params.caller);
+  watchServiceAppJob = async (appId: string, jobId: string, afterSequence?: number, params: { caller?: ServiceAppJobCaller } = {}) => await this.jobManager.watch(appId, jobId, afterSequence, params.caller);
+  cancelServiceAppJob = async (appId: string, jobId: string, params: { caller?: ServiceAppJobCaller } = {}) => await this.jobManager.cancel(appId, jobId, params.caller);
+  listResidentInbox = async (appId: string, params: { deadLettersOnly?: boolean } = {}) => await this.jobManager.listResidentInbox(appId, params.deadLettersOnly);
+  replayResidentDeadLetter = async (appId: string, eventId: string) => await this.jobManager.replayResidentDeadLetter(appId, eventId);
+  enqueueResidentEvent = async (appId: string, input: ResidentEventInput) => await this.jobManager.enqueueResidentEvent(appId, input);
+  createServiceAppJob = async (params: Parameters<ServiceAppJobManager["create"]>[0]) => await this.jobManager.create(params);
+  createServiceAppJobEventSink = (record: ServiceAppRecord, jobId: string) => this.jobManager.createEventSink(record, jobId);
+
+  grantServiceAction = async (actionId: string, request: ServiceActionGrantRequest): Promise<ServiceActionGrant> => {
     const [grant] = await this.grantServiceActions([actionId], request);
     if (!grant) {
       throw new ServiceAppError("SERVICE_APP_INVALID_ACTION", "service action id is invalid");
@@ -160,66 +317,94 @@ export class ServiceAppManager {
     return grant;
   };
 
-  grantServiceActions = async (
-    actionIds: readonly string[],
-    request: ServiceActionGrantRequest,
-  ): Promise<ServiceActionGrant[]> => {
-    this.assertCaller(request.caller);
+  grantServiceActions = async (actionIds: readonly string[], request: ServiceActionGrantRequest): Promise<ServiceActionGrant[]> => {
+    assertServiceActionCaller(request.caller, this.params.hasAgent);
     const normalizedActionIds = this.normalizeActionIds(actionIds);
     if (normalizedActionIds.length === 0) {
       throw new ServiceAppError("SERVICE_APP_INVALID_ACTION", "service action id is invalid");
     }
     const actions: ServiceAction[] = [];
     for (const actionId of normalizedActionIds) {
-      this.assertDeclaredAction(actionId, request.declaredActions);
+      assertServiceActionDeclared(request.caller, actionId, request.declaredActions);
       actions.push(await this.requireServiceAction(actionId));
     }
-    const grantedAt = new Date().toISOString();
-    const grantStore = this.createGrantStore();
-    const grants: ServiceActionGrant[] = [];
-    for (const action of actions) {
-      grants.push(await grantStore.grant({
-        caller: request.caller,
-        actionId: action.id,
-        risk: action.risk,
-        grantedAt,
-      }));
+    return await this.actionGrants.grant(request.caller, actions);
+  };
+
+  listServiceActionGrants = async (): Promise<ServiceActionGrant[]> => await this.actionGrants.list();
+
+  revokeServiceAction = async (caller: ServiceActionCaller, actionId: string): Promise<void> => {
+    assertServiceActionCaller(caller, this.params.hasAgent);
+    await this.actionGrants.revoke(caller, actionId);
+  };
+
+  matchesCapabilityGrant = async (grant: CapabilityGrant): Promise<boolean> => {
+    if ((grant.subject.type !== "panel-app" && grant.subject.type !== "agent") || grant.resource.type !== "service.action") {
+      return false;
     }
-    return grants;
-  };
-
-  listServiceActionGrants = async (): Promise<ServiceActionGrant[]> => {
-    return await this.createGrantStore().list();
-  };
-
-  revokeServiceAction = async (
-    caller: ServiceActionCaller,
-    actionId: string,
-  ): Promise<void> => {
-    this.assertCaller(caller);
-    await this.createGrantStore().revoke(caller, actionId);
+    const actionId = readServiceActionTargetId(grant.resource.target);
+    if (!actionId) return false;
+    try {
+      const action = await this.requireServiceAction(actionId);
+      return (
+        getCapabilityGrantKey(grant) ===
+        getCapabilityGrantKey(createServiceActionGrantRequest(grant.subject.type === "panel-app" ? { surface: "panel-app", appId: grant.subject.id } : { surface: "agent", agentId: grant.subject.id }, action))
+      );
+    } catch {
+      return false;
+    }
   };
 
   restartServiceApp = async (appId: string): Promise<ServiceAppRecord> => {
-    const { record } = await this.requireServiceApp(appId);
+    const { record } = await this.recordService.require(appId);
     await this.runtimeService.restart(record.id);
     return await this.getServiceApp(appId);
   };
 
-  deleteServiceApp = async (appId: string): Promise<ServiceAppDeleteResult> => {
-    const { record } = await this.requireServiceApp(appId);
-    await this.runtimeService.restart(record.id);
-    await rm(record.dirPath, { recursive: true });
-    await this.createGrantStore().revokeActionsByPrefix(`${record.id}.`);
-    return {
-      deleted: true,
-      id: record.id,
-    };
+  listWorkspaceDataOwners = async (): Promise<WorkspaceServiceDataOwner[]> =>
+    await this.recordService.listWorkspaceDataOwners(this.getServiceAppsPath(this.getWorkspacePath()), await this.listServiceAppDirNames(this.getServiceAppsPath(this.getWorkspacePath())));
+
+  deleteServiceApp = async (appId: string, purgeData = false): Promise<ServiceAppDeleteResult> => {
+    if (!SERVICE_APP_ID_PATTERN.test(appId)) {
+      throw new ServiceAppError("SERVICE_APP_INVALID_MANIFEST", "service app id must use kebab-case");
+    }
+    const workspacePath = this.getWorkspacePath();
+    let record: ServiceAppRecord;
+    try {
+      record = await this.removalService.remove({
+        capabilityGrantManager: this.params.capabilityGrantManager,
+        lockPath: this.getServiceAppLockPath(workspacePath, appId),
+        purgeData,
+        loadRecord: async () => {
+          const { record } = await this.recordService.require(appId);
+          if (record.sourceKind === "package") {
+            throw new ServiceAppError("SERVICE_APP_MANAGED_SOURCE", `package service must be managed through Apps: ${record.packageId}`);
+          }
+          return record;
+        },
+        stopRuntime: async (loaded) => await this.runtimeService.stop(loaded.id),
+      });
+    } catch (error) {
+      if (error instanceof ServiceAppRemovalCleanupError) {
+        throw new ServiceAppError("SERVICE_APP_RUNTIME_FAILED", `Service App ${appId} 已从 workspace 移除，但${error.message}`);
+      }
+      throw error;
+    }
+    return { deleted: true, id: record.id, dataRemoved: purgeData };
   };
 
-  dispose = async (): Promise<void> => {
-    await this.runtimeService.dispose();
-  };
+  dispose = async (): Promise<void> => await this.runtimeService.dispose();
+
+  assertCanActivatePackageComponents = async (components: AppPackageComponentSource[]): Promise<void> => await this.activationManager.assertCanActivate(components);
+
+  activatePackageComponents = async (components: AppPackageComponentSource[]): Promise<void> => await this.lifecycleService.activatePackageComponents(components);
+
+  deactivatePackageComponents = async (components: AppPackageComponentSource[]): Promise<void> => await this.lifecycleService.deactivatePackageComponents(components);
+
+  preparePackageComponentDeactivation = async (components: AppPackageComponentSource[]): Promise<() => Promise<void>> => await this.packageRuntime.prepareDeactivation(components);
+
+  removePackageComponentGrants = async (components: AppPackageComponentSource[]): Promise<() => Promise<void>> =>
+    await this.actionGrants.removePackageGrants(new Set(components.filter((component) => component.kind === "service").map((component) => component.id)));
 
   private withGrantState = async (
     action: ServiceAction,
@@ -231,7 +416,7 @@ export class ServiceAppManager {
     if (!params.caller) {
       return action;
     }
-    const granted = await this.createGrantStore().isGranted(params.caller, action.id);
+    const granted = await this.actionGrants.isGranted(params.caller, action);
     return {
       ...action,
       grantState: resolveServiceActionGrantState({
@@ -244,198 +429,78 @@ export class ServiceAppManager {
 
   private requireServiceAction = async (actionId: string): Promise<ServiceAction> => {
     const { manifest, record } = await this.requireServiceAppForAction(actionId);
-    const action = listServiceAppManifestActions(record, manifest)
-      .find((entry) => entry.id === actionId);
+    const action = listServiceAppManifestActions(record, manifest).find((entry) => entry.id === actionId);
     if (!action) {
       throw new ServiceAppError("SERVICE_APP_ACTION_NOT_FOUND", "service action not found");
     }
     return action;
   };
 
-  private requireServiceAppForAction = async (
-    actionId: string,
-  ): Promise<{ manifest: ServiceAppManifest; record: ServiceAppRecord }> => {
+  private requireServiceAppForAction = async (actionId: string, materializeStorage = false): Promise<{ manifest: ServiceAppManifest; record: ServiceAppRecord }> => {
     const appId = actionId.split(".")[0]?.trim();
     if (!appId) {
       throw new ServiceAppError("SERVICE_APP_INVALID_ACTION", "service action id is invalid");
     }
-    return await this.requireServiceApp(appId);
+    return await this.recordService.require(appId, materializeStorage);
   };
 
-  private requireServiceApp = async (
-    appId: string,
-  ): Promise<{ manifest: ServiceAppManifest; record: ServiceAppRecord }> => {
-    const serviceAppsPath = this.getServiceAppsPath(this.getWorkspacePath());
-    const dirPath = join(serviceAppsPath, appId);
-    try {
-      const dirStat = await stat(dirPath);
-      if (!dirStat.isDirectory()) {
-        throw new ServiceAppError("SERVICE_APP_NOT_FOUND", "service app not found");
-      }
-      const manifest = await readServiceAppManifest(dirPath);
-      if (manifest.id !== appId) {
-        throw new ServiceAppError(
-          "SERVICE_APP_INVALID_MANIFEST",
-          "service app manifest id must match directory name",
-        );
-      }
-      return {
-        manifest,
-        record: this.toServiceAppRecord(dirPath, manifest),
-      };
-    } catch (error) {
-      if (isServiceAppError(error)) {
-        throw error;
-      }
-      if (this.isMissingFileError(error)) {
-        throw new ServiceAppError("SERVICE_APP_NOT_FOUND", "service app not found");
-      }
-      throw new ServiceAppError(
-        "SERVICE_APP_READ_FAILED",
-        error instanceof Error ? error.message : String(error),
-      );
+  private requireInstalledServiceApp = async (appId: string, actionName: string): Promise<{ manifest: ServiceAppManifest; record: ServiceAppRecord }> => {
+    const candidates = await Promise.all(
+      (await this.listPackageComponentSources())
+        .filter((component) => component.kind === "service" && component.packageId === appId)
+        .map(async (component) => {
+          const manifest = await readServiceAppManifest(component.sourcePath);
+          return Object.hasOwn(manifest.actions, actionName)
+            ? {
+                manifest,
+                record: this.recordService.fromManifest(component.sourcePath, manifest, component, component.storage),
+              }
+            : null;
+        }),
+    );
+    const matching = candidates.filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+    if (matching.length === 0) {
+      throw new ServiceAppError("SERVICE_APP_ACTION_NOT_FOUND", "installed App action not found");
     }
+    if (matching.length > 1) {
+      throw new ServiceAppError("SERVICE_APP_INVALID_ACTION", `installed App ${appId} exposes action ${actionName} from multiple Service components`);
+    }
+    return matching[0]!;
   };
 
-  private listValidServiceApps = async (): Promise<Array<{
-    manifest: ServiceAppManifest;
-    record: ServiceAppRecord;
-  }>> => {
-    const workspacePath = this.getWorkspacePath();
-    const serviceAppsPath = this.getServiceAppsPath(workspacePath);
-    const dirNames = await this.listServiceAppDirNames(serviceAppsPath);
-    const entries = await Promise.all(
-      dirNames.map(async (dirName) => {
-        const dirPath = join(serviceAppsPath, dirName);
-        try {
-          const manifest = await readServiceAppManifest(dirPath);
-          return {
-            manifest,
-            record: this.toServiceAppRecord(dirPath, manifest),
-          };
-        } catch {
-          return null;
+  private normalizeActionIds = (actionIds: readonly string[]): string[] => Array.from(new Set(actionIds.map((actionId) => actionId.trim()).filter((actionId) => actionId.length > 0)));
+
+  private toJobScope = (record: ServiceAppRecord): ServiceAppJobScope | undefined =>
+    record.storage?.stateDirectory && record.instanceId
+      ? {
+          appId: record.packageId ?? record.id,
+          instanceId: record.instanceId,
+          stateDirectory: record.storage.stateDirectory,
         }
-      }),
-    );
-    return entries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
-  };
+      : undefined;
 
-  private buildServiceAppRecord = async (
-    serviceAppsPath: string,
-    dirName: string,
-  ): Promise<ServiceAppRecord | null> => {
-    const dirPath = join(serviceAppsPath, dirName);
+  private getWorkspacePath = (): string => getWorkspacePathFromConfig(this.params.configManager.config);
+
+  private getServiceAppsPath = (workspacePath: string): string => join(workspacePath, DEFAULT_SERVICE_APPS_DIR);
+
+  private getServiceAppLockPath = (workspacePath: string, appId: string): string => join(workspacePath, ".nextclaw", "locks", "service-apps", `${appId}.lock`);
+
+  private listPackageComponentSources = async (): Promise<AppPackageComponentSource[]> => (await this.params.listPackageComponentSources?.()) ?? [];
+
+  private listServiceAppDirNames = async (serviceAppsPath: string): Promise<string[]> => {
     try {
-      const manifest = await readServiceAppManifest(dirPath);
-      return this.toServiceAppRecord(dirPath, manifest);
+      return await this.removalService.listCanonicalDirectoryNames(serviceAppsPath);
     } catch (error) {
-      if (this.isMissingFileError(error)) {
-        return null;
-      }
-      return {
-        id: dirName,
-        title: toTitle(dirName),
-        dirPath,
-        manifestPath: getServiceAppManifestPath(dirPath),
-        cwd: dirPath,
-        enabled: false,
-        protocol: "mcp",
-        status: "failed",
-        lastError: error instanceof Error ? error.message : String(error),
-      };
+      throw new ServiceAppError("SERVICE_APP_READ_FAILED", error instanceof Error ? error.message : String(error));
     }
   };
 
-  private toServiceAppRecord = (
-    dirPath: string,
-    manifest: ServiceAppManifest,
-  ): ServiceAppRecord => {
-    const runtimeStatus = this.runtimeService.getStatus(manifest.id);
-    return {
-      id: manifest.id,
-      title: manifest.title,
-      description: manifest.description,
-      dirPath,
-      manifestPath: getServiceAppManifestPath(dirPath),
-      command: manifest.command,
-      args: manifest.args,
-      cwd: dirPath,
-      enabled: manifest.enabled,
-      protocol: manifest.protocol,
-      status: manifest.enabled ? runtimeStatus.status : "stopped",
-      lastError: runtimeStatus.lastError,
-      lastStartedAt: runtimeStatus.lastStartedAt,
-      lastReadyAt: runtimeStatus.lastReadyAt,
-      lastFailedAt: runtimeStatus.lastFailedAt,
-    };
-  };
-
-  private assertCaller = (caller: ServiceActionCaller): void => {
-    if (caller.surface !== "panel-app" || !caller.appId.trim()) {
-      throw new ServiceAppError("SERVICE_APP_INVALID_CALLER", "service action caller is invalid");
-    }
-  };
-
-  private assertDeclaredAction = (
-    actionId: string,
-    declaredActions: readonly string[],
-  ): void => {
-    if (!declaredActions.includes(actionId)) {
-      throw new ServiceAppError(
-        "SERVICE_APP_ACTION_NOT_DECLARED",
-        "panel app did not declare this service action",
-      );
-    }
-  };
-
-  private normalizeActionIds = (actionIds: readonly string[]): string[] =>
-    Array.from(new Set(
-      actionIds
-        .map((actionId) => actionId.trim())
-        .filter((actionId) => actionId.length > 0),
-    ));
-
-  private getWorkspacePath = (): string =>
-    getWorkspacePathFromConfig(this.params.configManager.config);
-
-  private getServiceAppsPath = (workspacePath: string): string =>
-    join(workspacePath, DEFAULT_SERVICE_APPS_DIR);
-
-  private createGrantStore = (): ServiceActionGrantStore =>
-    new ServiceActionGrantStore(
-      join(this.getServiceAppsPath(this.getWorkspacePath()), SERVICE_ACTION_GRANTS_FILE_NAME),
-    );
-
-  private listServiceAppDirNames = async (
-    serviceAppsPath: string,
-  ): Promise<string[]> => {
-    try {
-      const entries = await readdir(serviceAppsPath, { withFileTypes: true });
-      return entries
-        .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-        .map((entry) => entry.name);
-    } catch (error) {
-      if (this.isMissingFileError(error)) {
-        return [];
-      }
-      throw new ServiceAppError(
-        "SERVICE_APP_READ_FAILED",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  };
-
-  private isMissingFileError = (error: unknown): boolean =>
-    typeof error === "object" && error !== null &&
-    (error as { code?: unknown }).code === "ENOENT";
+  private isMissingFileError = (error: unknown): boolean => typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT";
 }
 
-type ServiceAppRuntime = Pick<
-  McpServiceAppRuntimeService,
-  "dispose" | "getStatus" | "invokeAction" | "listActions" | "restart"
->;
-
-function toTitle(value: string): string {
-  return basename(value).replace(/[-_]+/g, " ").trim() || value;
-}
+type ServiceAppRuntime = Pick<ServiceAppRuntimeService, "dispose" | "getLastObservation" | "getStatus" | "invokeAction" | "listActions" | "restart" | "stop"> &
+  Pick<Partial<ServiceAppRuntimeService>, "start"> & {
+    cancelJob?: (params: { appId: string; instanceId: string; jobId: string }) => Promise<void>;
+    enqueueResidentEvent?: ServiceAppRuntimeService["enqueueResidentEvent"];
+    setPortableHostCallHandler?: ServiceAppRuntimeService["setPortableHostCallHandler"];
+  };

@@ -1,10 +1,10 @@
-import { memo, useState, type ReactNode } from "react";
-import { ListChecks } from "lucide-react";
+import { memo, type ReactNode } from "react";
 import type {
   ChatFileOpenActionViewModel,
   ChatInlineDisplayViewModel,
   ChatInlineTokenViewModel,
   ChatMessageLayout,
+  ChatMessageToolPayloadState,
   ChatPanelAppCardViewModel,
   ChatMessageTexts,
   ChatMessagePartViewModel,
@@ -25,6 +25,7 @@ import {
   groupConsecutiveToolParts,
   type ChatToolActivityGroupLabels,
 } from "./chat-tool-activity-group.utils";
+import { useChatMessageToolPayload } from "@agent-chat-ui/components/chat/hooks/use-chat-message-tool-payload";
 
 type ChatMessageProps = {
   layout: ChatMessageLayout;
@@ -37,6 +38,9 @@ type ChatMessageProps = {
     | "mermaidExpandLabel"
     | "mermaidLoadingLabel"
     | "mermaidRenderErrorLabel"
+    | "previewZoomInLabel"
+    | "previewZoomOutLabel"
+    | "previewResetZoomLabel"
     | "attachmentOpenLabel"
     | "attachmentAttachedLabel"
     | "attachmentExpandLabel"
@@ -45,10 +49,15 @@ type ChatMessageProps = {
     | "toolActivitySegmentTemplates"
     | "toolActivityFailedLabel"
     | "toolActivityCancelledLabel"
+    | "toolPayloadLoadingLabel"
+    | "toolPayloadLoadFailedLabel"
+    | "toolActivityShowMoreTemplate"
     | "reasoningCharacterCountTemplates"
     | "toolStatusLabels"
   >;
   onToolAction?: (action: ChatToolActionViewModel) => void;
+  toolPayloadState?: ChatMessageToolPayloadState;
+  onToolPayloadRequest?: (messageId: string) => Promise<void> | void;
   onFileOpen?: (action: ChatFileOpenActionViewModel) => void;
   resolveFileContentUrl?: (action: ChatFileOpenActionViewModel) => string | null;
   onAttachmentOpen?: (file: Extract<ChatMessagePartViewModel, { type: "file" }>["file"]) => void;
@@ -58,15 +67,16 @@ type ChatMessageProps = {
   ) => ReactNode | undefined;
   renderToolAgent?: (agentId: string) => ReactNode;
   renderPanelAppCard?: (panelApp: ChatPanelAppCardViewModel) => ReactNode;
+  renderCustomPart?: (
+    part: Extract<ChatMessagePartViewModel, { type: "custom" }>,
+  ) => ReactNode | undefined;
 };
 
 type ChatMessageProcessSplit = {
   processParts: ChatMessagePartViewModel[];
   finalParts: ChatMessagePartViewModel[];
 };
-
 type ToolActivityOpenChange = (groupKey: string, open: boolean) => void;
-
 type RenderChatMessagePartParams = {
   part: ChatMessagePartViewModel;
   index: number;
@@ -85,6 +95,7 @@ type RenderChatMessagePartParams = {
   ) => ReactNode | undefined;
   renderToolAgent?: (agentId: string) => ReactNode;
   renderPanelAppCard?: (panelApp: ChatPanelAppCardViewModel) => ReactNode;
+  renderCustomPart?: ChatMessageProps["renderCustomPart"];
 };
 
 const DEFAULT_TOOL_ACTIVITY_LABELS: ChatToolActivityGroupLabels = {
@@ -124,7 +135,9 @@ function isMessageInProgress(status?: string): boolean {
 }
 
 function isProcessPart(part: ChatMessagePartViewModel): boolean {
-  return part.type === "reasoning" || part.type === "tool-card";
+  return part.type === "reasoning" ||
+    part.type === "tool-card" ||
+    (part.type === "custom" && part.process === true);
 }
 
 function splitAssistantProcess(message: ChatMessageViewModel): ChatMessageProcessSplit | null {
@@ -161,6 +174,7 @@ function renderChatMessagePart({
   onInlineTokenClick,
   onToolAction,
   part,
+  renderCustomPart,
   renderInlineDisplay,
   renderPanelAppCard,
   renderToolAgent,
@@ -169,6 +183,15 @@ function renderChatMessagePart({
   texts,
 }: RenderChatMessagePartParams): ReactNode {
   const { type } = part;
+
+  if (type === "custom") {
+    const rendered = renderCustomPart?.(part);
+    return rendered === undefined ? null : (
+      <div key={`custom-${part.customType}-${part.id}`} className="min-w-0">
+        {rendered}
+      </div>
+    );
+  }
 
   if (type === "markdown") {
     const { inlineTokens, text } = part;
@@ -261,6 +284,7 @@ function renderMessageParts(params: {
   ) => ReactNode | undefined;
   renderToolAgent?: (agentId: string) => ReactNode;
   renderPanelAppCard?: (panelApp: ChatPanelAppCardViewModel) => ReactNode;
+  renderCustomPart?: ChatMessageProps["renderCustomPart"];
   indexOffset?: number;
   openToolGroupKeys: ReadonlySet<string>;
   onToolActivityOpenChange: ToolActivityOpenChange;
@@ -275,6 +299,7 @@ function renderMessageParts(params: {
     onToolAction,
     openToolGroupKeys,
     parts,
+    renderCustomPart,
     renderInlineDisplay,
     renderPanelAppCard,
     renderToolAgent,
@@ -310,6 +335,7 @@ function renderMessageParts(params: {
           isUser={isUser}
           reasoningCharacterCountTemplates={texts.reasoningCharacterCountTemplates}
           toolStatusLabels={texts.toolStatusLabels}
+          showMoreTemplate={texts.toolActivityShowMoreTemplate}
           onToolAction={onToolAction}
           onFileOpen={onFileOpen}
           renderToolAgent={renderToolAgent}
@@ -332,22 +358,25 @@ function renderMessageParts(params: {
       onAttachmentOpen,
       onInlineTokenClick,
       resolveFileContentUrl,
+      renderCustomPart,
       renderInlineDisplay,
       renderToolAgent,
       renderPanelAppCard,
     });
   });
 }
-
 export const ChatMessage = memo(function ChatMessage({
   layout,
   message,
   texts,
   onToolAction,
+  toolPayloadState,
+  onToolPayloadRequest,
   onFileOpen,
   onAttachmentOpen,
   onInlineTokenClick,
   renderInlineDisplay,
+  renderCustomPart,
   renderToolAgent,
   renderPanelAppCard,
   resolveFileContentUrl,
@@ -357,26 +386,21 @@ export const ChatMessage = memo(function ChatMessage({
   const isFlat = layout === "flat" && !isUser;
   const isInProgress = isMessageInProgress(message.status);
   const processSplit = splitAssistantProcess(message);
-  // Controlled collapse avoids native <details>/<summary> UA labels like "详情".
-  const [processOpen, setProcessOpen] = useState(false);
-  const [openToolGroupKeys, setOpenToolGroupKeys] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-
-  const handleToolActivityOpenChange: ToolActivityOpenChange = (groupKey, open) => {
-    setOpenToolGroupKeys((current) => {
-      const next = new Set(current);
-      if (open) {
-        next.add(groupKey);
-      } else {
-        next.delete(groupKey);
-      }
-      return next;
-    });
-    if (open) {
-      setProcessOpen(true);
-    }
-  };
+  const {
+    handleProcessToggle,
+    handleToolActivityOpenChange,
+    openToolGroupKeys,
+    processOpen,
+  } = useChatMessageToolPayload({
+    messageId: message.id,
+    state: toolPayloadState,
+    onRequest: onToolPayloadRequest,
+  });
+  const processSummaryLabel = toolPayloadState === "loading"
+    ? `${message.processSummary?.label ?? ""} · ${texts.toolPayloadLoadingLabel ?? "Loading details"}`
+    : toolPayloadState === "error"
+      ? `${message.processSummary?.label ?? ""} · ${texts.toolPayloadLoadFailedLabel ?? "Couldn’t load details. Try again"}`
+      : message.processSummary?.label;
 
   return (
     <div
@@ -402,10 +426,8 @@ export const ChatMessage = memo(function ChatMessage({
                 <ChatCollapsibleMetaSummary
                   openGroup="process"
                   open={processOpen}
-                  icon={ListChecks}
-                  leadingIconClassName="bg-card"
-                  label={message.processSummary?.label}
-                  onClick={() => setProcessOpen((current) => !current)}
+                  label={processSummaryLabel}
+                  onClick={handleProcessToggle}
                 />
               </div>
               {processOpen ? (
@@ -423,6 +445,7 @@ export const ChatMessage = memo(function ChatMessage({
                     resolveFileContentUrl,
                     openToolGroupKeys,
                     onToolActivityOpenChange: handleToolActivityOpenChange,
+                    renderCustomPart,
                     renderInlineDisplay,
                     renderToolAgent,
                     renderPanelAppCard,
@@ -443,6 +466,7 @@ export const ChatMessage = memo(function ChatMessage({
               resolveFileContentUrl,
               openToolGroupKeys,
               onToolActivityOpenChange: handleToolActivityOpenChange,
+              renderCustomPart,
               renderInlineDisplay,
               renderToolAgent,
               renderPanelAppCard,
@@ -463,6 +487,7 @@ export const ChatMessage = memo(function ChatMessage({
             resolveFileContentUrl,
             openToolGroupKeys,
             onToolActivityOpenChange: handleToolActivityOpenChange,
+            renderCustomPart,
             renderInlineDisplay,
             renderToolAgent,
             renderPanelAppCard,

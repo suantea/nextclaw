@@ -1,4 +1,4 @@
-import type { PointerEventHandler, ReactNode, Ref } from 'react';
+import type { PointerEventHandler, ReactNode, Ref, ReactEventHandler } from 'react';
 import {
   RefreshCw,
   Search,
@@ -30,6 +30,7 @@ type DocBrowserFrameContentProps = {
   iframeSandbox?: string;
   isDragging: boolean;
   isResizing: boolean;
+  onIframeLoad?: ReactEventHandler<HTMLIFrameElement>;
   onIframePointerOver?: PointerEventHandler<HTMLIFrameElement>;
 };
 
@@ -55,7 +56,7 @@ export function DocBrowserAddressToolbar({
           onChange={(e) => onUrlInputChange(e.target.value)}
           aria-label={t('docBrowserAddressLabel')}
           placeholder={placeholder}
-          className="h-8 w-full rounded-lg border border-border/75 bg-background pl-8 pr-3 text-xs text-foreground transition-colors placeholder:text-muted-foreground/55 focus:border-border focus:outline-none focus:ring-0"
+          className="h-8 w-full rounded-lg border border-border/75 bg-background pl-8 pr-3 text-xs text-foreground transition-colors placeholder:text-muted-foreground/55 focus:outline-none focus:ring-0"
         />
       </form>
       <IconActionButton
@@ -76,6 +77,7 @@ export function DocBrowserFrameContent({
   iframeSandbox,
   isDragging,
   isResizing,
+  onIframeLoad,
   onIframePointerOver,
 }: DocBrowserFrameContentProps) {
   return (
@@ -92,6 +94,7 @@ export function DocBrowserFrameContent({
           title={currentTab?.title || 'NextClaw Docs'}
           sandbox={iframeSandbox}
           tabIndex={onIframePointerOver ? 0 : undefined}
+          onLoad={onIframeLoad}
           onPointerOver={onIframePointerOver}
           allow="clipboard-read; clipboard-write"
           allowFullScreen

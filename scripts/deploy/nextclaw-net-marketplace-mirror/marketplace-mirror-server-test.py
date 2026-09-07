@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -72,6 +74,117 @@ class MarketplaceMirrorServerTest(unittest.TestCase):
         ):
             with self.assertRaises(URLError):
                 MIRROR.resolve_cached_response("/api/v1/skills/items?page=1")
+
+    def test_removed_skill_evicts_slug_package_and_file_cache(self):
+        previous_manifest = {
+            "skills": {
+                "slugs": ["bird", "weather"],
+                "packageNames": {
+                    "bird": "@nextclaw/bird",
+                    "weather": "@nextclaw/weather",
+                },
+            },
+        }
+        current_package_names = {"weather": "@nextclaw/weather"}
+        cached_paths = [
+            "/api/v1/skills/items/bird",
+            "/api/v1/skills/items/%40nextclaw%2Fbird",
+            "/api/v1/skills/items/bird/content",
+            "/api/v1/skills/items/bird/files",
+            "/api/v1/skills/items/bird/files/blob?path=SKILL.md",
+            "/api/v1/skills/items/weather",
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            responses_dir = Path(temp_dir) / "responses"
+            responses_dir.mkdir()
+            with patch.object(MIRROR, "RESPONSES_DIR", responses_dir):
+                for path in cached_paths:
+                    MIRROR.write_cache(path, {
+                        "status": 200,
+                        "contentType": "application/json",
+                        "contentDisposition": None,
+                        "skillFileSha256": None,
+                        "body": json.dumps({"path": path}).encode("utf-8"),
+                    })
+
+                evicted = MIRROR.evict_removed_skill_cache(
+                    previous_manifest,
+                    ["weather"],
+                    current_package_names,
+                )
+
+                self.assertEqual(evicted, {"slugs": ["bird"], "cacheEntries": 5})
+                for path in cached_paths[:-1]:
+                    self.assertIsNone(MIRROR.read_cache(path))
+                self.assertIsNotNone(MIRROR.read_cache("/api/v1/skills/items/weather"))
+
+    def test_old_manifest_still_evicts_legacy_official_package_selector(self):
+        previous_manifest = {"skills": {"slugs": ["bird"]}}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            responses_dir = Path(temp_dir) / "responses"
+            responses_dir.mkdir()
+            with patch.object(MIRROR, "RESPONSES_DIR", responses_dir):
+                MIRROR.write_cache("/api/v1/skills/items/%40nextclaw%2Fbird/files", {
+                    "status": 200,
+                    "contentType": "application/json",
+                    "contentDisposition": None,
+                    "skillFileSha256": None,
+                    "body": b"{}",
+                })
+
+                evicted = MIRROR.evict_removed_skill_cache(previous_manifest, [], {})
+
+                self.assertEqual(evicted, {"slugs": ["bird"], "cacheEntries": 1})
+                self.assertIsNone(MIRROR.read_cache("/api/v1/skills/items/%40nextclaw%2Fbird/files"))
+
+    def test_sync_refreshes_file_manifest_before_prewarming_blobs(self):
+        def cached(body):
+            return {
+                "body": json.dumps(body).encode("utf-8"),
+                "meta": {"sizeBytes": 1},
+            }
+
+        def prewarm(path):
+            if path == "/api/v1/skills/items?page=1&pageSize=100":
+                return cached({
+                    "data": {
+                        "total": 1,
+                        "totalPages": 1,
+                        "items": [{
+                            "slug": "weather",
+                            "packageName": "@nextclaw/weather",
+                        }],
+                    },
+                })
+            if path == "/api/v1/skills/items/weather/files":
+                return cached({
+                    "data": {
+                        "files": [{
+                            "path": "scripts/new-file.mjs",
+                            "downloadPath": "/api/v1/skills/items/weather/files/blob?path=scripts%2Fnew-file.mjs",
+                        }],
+                    },
+                })
+            return cached({})
+
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            MIRROR, "MANIFEST_PATH", Path(temp_dir) / "manifest.json"
+        ), patch.object(
+            MIRROR, "prewarm_path", side_effect=prewarm
+        ) as prewarm_path, patch.object(
+            MIRROR,
+            "evict_removed_skill_cache",
+            return_value={"slugs": [], "cacheEntries": 0},
+        ):
+            manifest = MIRROR.sync_snapshot()
+
+        self.assertEqual(manifest["skills"]["fileCount"], 1)
+        prewarm_path.assert_any_call("/api/v1/skills/items/weather/files")
+        prewarm_path.assert_any_call(
+            "/api/v1/skills/items/weather/files/blob?path=scripts%2Fnew-file.mjs"
+        )
 
 
 if __name__ == "__main__":

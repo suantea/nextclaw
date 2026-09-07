@@ -1,15 +1,18 @@
 import {
   type AgentSessionEventRecord,
   type AgentSessionRecord,
-  DefaultNcpAgentConversationStateManager
 } from "@nextclaw/ncp-toolkit";
-import { type NcpEndpointEvent, NcpEventType, type NcpMessage, type NcpSessionSummary } from "@nextclaw/ncp";
+import {
+  type NcpEndpointEvent,
+  NcpEventType,
+  type NcpMessage,
+  type NcpSessionSummary,
+} from "@nextclaw/ncp";
 import { AGENT_RUN_PEER_ID_METADATA_KEY } from "./agent-peer-session.utils.js";
+import { resolveNcpAgentSessionLabel } from "./ncp-agent-session-label.utils.js";
 
 export const NCP_AGENT_SESSION_JOURNAL_ENTRY_VERSION = 1;
 export const NCP_AGENT_SESSION_JOURNAL_INDEX_FILE = ".ncp-agent-session-index.json";
-
-const AUTO_SESSION_LABEL_MAX_LENGTH = 64;
 
 export type NcpAgentSessionJournalMetadataEntry = {
   _type: "metadata";
@@ -47,12 +50,6 @@ export type NcpAgentSessionJournalReplayEvent =
   | NcpAgentSessionSnapshotMessageEvent
   | NcpSessionRequestJournalEvent;
 
-type NcpAgentSessionReplayableEvent = NcpEndpointEvent | NcpAgentSessionSnapshotMessageEvent;
-type NcpToolCallResultReplayPayload = Extract<
-  NcpEndpointEvent,
-  { type: NcpEventType.MessageToolCallResult }
->["payload"];
-
 export type NcpAgentSessionJournalEventEntry = {
   _type: "event";
   version: typeof NCP_AGENT_SESSION_JOURNAL_ENTRY_VERSION;
@@ -69,6 +66,7 @@ export type NcpAgentSessionJournalIndex = {
 export type LoadedNcpAgentJournalSession = {
   record: AgentSessionRecord;
   nextSeq: number;
+  journalOffset: number;
   projectedJournalOffset: number;
 };
 
@@ -95,7 +93,7 @@ export function toIsoString(value: unknown, fallback: string): string {
 
 export function createNcpAgentSessionSummary(record: AgentSessionRecord): NcpSessionSummary {
   const metadata = structuredClone(record.metadata ?? {});
-  const label = readOptionalText(metadata.label) ?? resolveAutoSessionLabel(record.messages);
+  const label = readOptionalText(metadata.label) ?? resolveNcpAgentSessionLabel(record.messages);
   const peerId = readNcpAgentSessionPeerId(metadata);
   if (label) {
     metadata.label = label;
@@ -155,183 +153,7 @@ export function upsertNcpAgentSessionSummaryEvent(params: {
   };
 }
 
-export async function replayNcpAgentSessionEvents(
-  events: readonly NcpAgentSessionJournalReplayEvent[],
-  seedMessages: readonly NcpMessage[] = []
-): Promise<NcpMessage[]> {
-  const stateManager = new DefaultNcpAgentConversationStateManager();
-  if (seedMessages.length > 0) {
-    stateManager.hydrate({
-      sessionId: seedMessages[0]?.sessionId ?? "",
-      messages: seedMessages
-    });
-  }
-  const knownMessageIds = new Set(seedMessages.map((message) => message.id));
-  const toolResultsByCallId = new Map<string, NcpToolCallResultReplayPayload>();
-  for (const event of events) {
-    if (isJournalOnlyEvent(event)) {
-      continue;
-    }
-    const replayEvent = createReplayEvent(event, toolResultsByCallId);
-    const bootstrap = createReplayStreamingBootstrapEvent(replayEvent, knownMessageIds);
-    if (bootstrap) {
-      knownMessageIds.add(bootstrap.messageId);
-      await stateManager.dispatch(bootstrap.event);
-    }
-    const replayMessageId = readReplayMessageId(replayEvent);
-    if (replayMessageId) {
-      knownMessageIds.add(replayMessageId);
-    }
-    await stateManager.dispatch(replayEvent);
-    if (replayEvent.type === NcpEventType.MessageToolCallResult) {
-      toolResultsByCallId.set(replayEvent.payload.toolCallId, replayEvent.payload);
-    }
-  }
-  const snapshot = stateManager.getSnapshot();
-  return [
-    ...snapshot.messages.map((message) => structuredClone(message)),
-    ...(snapshot.streamingMessage ? [structuredClone(snapshot.streamingMessage)] : [])
-  ];
-}
-
-function createReplayEvent(
-  event: NcpAgentSessionReplayableEvent,
-  toolResultsByCallId: ReadonlyMap<string, NcpToolCallResultReplayPayload>
-): NcpEndpointEvent {
-  const replayEvent = structuredClone(event);
-  const occurredAt = readReplayEventOccurredAt(replayEvent);
-  const replayMessage = readMessageFromSummaryEvent(replayEvent);
-  const legacyCompactionMessageId = readLegacyContextCompactionMessageId(replayMessage);
-  if (replayMessage && legacyCompactionMessageId) {
-    replayMessage.id = legacyCompactionMessageId;
-  }
-  if (
-    replayMessage?.role === "assistant" &&
-    (replayMessage.status === "pending" || replayMessage.status === "streaming")
-  ) {
-    replayMessage.status = "final";
-  }
-  if (
-    replayEvent.type === NCP_AGENT_SESSION_SNAPSHOT_MESSAGE_EVENT_TYPE ||
-    replayEvent.type === NcpEventType.MessageCompleted
-  ) {
-    replayEvent.payload.message = mergeReplayCompletedToolResults(replayEvent.payload.message, toolResultsByCallId);
-    return {
-      occurredAt,
-      type: NcpEventType.MessageSent,
-      payload: replayEvent.payload
-    };
-  }
-  return replayEvent;
-}
-
-function readReplayEventOccurredAt(event: NcpAgentSessionReplayableEvent): string | undefined {
-  if (!("occurredAt" in event) || typeof event.occurredAt !== "string") {
-    return undefined;
-  }
-  return event.occurredAt;
-}
-
-function mergeReplayCompletedToolResults(
-  message: NcpMessage,
-  toolResultsByCallId: ReadonlyMap<string, NcpToolCallResultReplayPayload>
-): NcpMessage {
-  let changed = false;
-  const parts = message.parts.map((part) => {
-    if (part.type !== "tool-invocation" || part.state === "result" || !part.toolCallId) {
-      return part;
-    }
-    const result = toolResultsByCallId.get(part.toolCallId);
-    if (!result) {
-      return part;
-    }
-    changed = true;
-    return {
-      ...part,
-      state: "result" as const,
-      result: result.content,
-      resultContentItems: result.contentItems
-    };
-  });
-  return changed ? { ...message, parts } : message;
-}
-
-function readLegacyContextCompactionMessageId(message: NcpMessage | undefined): string | null {
-  const checkpoint = isRecord(message?.metadata?.checkpoint) ? message.metadata.checkpoint : null;
-  const checkpointId = typeof checkpoint?.id === "string" ? checkpoint.id : "";
-  const coveredCount = checkpoint?.coveredSessionMessageCount;
-  const legacyId = `${message?.sessionId}:service:context-compaction:${checkpointId}`;
-  return typeof coveredCount === "number" && message?.id === legacyId ? `${legacyId}:${coveredCount}` : null;
-}
-
-function createReplayStreamingBootstrapEvent(
-  event: NcpEndpointEvent,
-  knownMessageIds: Set<string>
-): { event: NcpEndpointEvent; messageId: string } | null {
-  const messageId = readStreamingMessageId(event);
-  if (!messageId || knownMessageIds.has(messageId)) {
-    return null;
-  }
-  return {
-    messageId,
-    event: {
-      occurredAt: event.occurredAt,
-      type: NcpEventType.MessageSent,
-      payload: {
-        sessionId: readEventSessionId(event),
-        message: {
-          id: messageId,
-          sessionId: readEventSessionId(event),
-          role: "assistant",
-          status: "streaming",
-          parts: [],
-          timestamp: readReplayPayloadTimestamp(event) ?? new Date().toISOString()
-        }
-      }
-    }
-  };
-}
-
-function readReplayMessageId(event: NcpEndpointEvent): string | null {
-  const message = readMessageFromSummaryEvent(event);
-  return message?.id ?? null;
-}
-
-function readEventSessionId(event: NcpEndpointEvent): string {
-  const payload: Record<string, unknown> | null = "payload" in event && isRecord(event.payload) ? event.payload : null;
-  const sessionId = payload?.sessionId;
-  return typeof sessionId === "string" ? sessionId : "";
-}
-
-function readReplayPayloadTimestamp(event: NcpEndpointEvent): string | null {
-  const payload: Record<string, unknown> | null = "payload" in event && isRecord(event.payload) ? event.payload : null;
-  const timestamp = typeof payload?.timestamp === "string" ? payload.timestamp : "";
-  return Number.isFinite(Date.parse(timestamp)) ? new Date(timestamp).toISOString() : null;
-}
-
-function readStreamingMessageId(event: NcpEndpointEvent): string | null {
-  switch (event.type) {
-    case NcpEventType.MessageTextStart:
-    case NcpEventType.MessageTextDelta:
-    case NcpEventType.MessageTextEnd:
-    case NcpEventType.MessageReasoningStart:
-    case NcpEventType.MessageReasoningDelta:
-    case NcpEventType.MessageReasoningEnd:
-    case NcpEventType.MessageToolCallStart:
-    case NcpEventType.MessageToolCallArgsDelta:
-      return event.payload.messageId?.trim() || null;
-    default:
-      return null;
-  }
-}
-
-function isJournalOnlyEvent(event: NcpAgentSessionJournalReplayEvent): event is NcpSessionRequestJournalEvent {
-  return (
-    event.type === NCP_SESSION_REQUEST_ACCEPTED_EVENT_TYPE ||
-    event.type === NCP_SESSION_REQUEST_COMPLETED_EVENT_TYPE ||
-    event.type === NCP_SESSION_REQUEST_FAILED_EVENT_TYPE
-  );
-}
+export { replayNcpAgentSessionEvents } from "./ncp-agent-session-replay.utils.js";
 
 export function readNcpSessionSummaryActivityAt(summary: NcpSessionSummary): string {
   return summary.lastMessageAt ?? summary.createdAt ?? summary.updatedAt;
@@ -341,33 +163,9 @@ function readMessageTimestamp(message: NcpMessage | undefined): string | undefin
   return message?.status === "final" ? toIsoString(message.timestamp, "") || undefined : undefined;
 }
 
-function truncateLabel(value: string): string {
-  const chars = Array.from(value);
-  return chars.length <= AUTO_SESSION_LABEL_MAX_LENGTH
-    ? value
-    : `${chars.slice(0, AUTO_SESSION_LABEL_MAX_LENGTH).join("")}...`;
-}
-
 function readOptionalText(value: unknown): string | null {
   const trimmed = typeof value === "string" ? value.trim() : "";
   return trimmed || null;
-}
-
-function resolveAutoSessionLabel(messages: readonly NcpMessage[]): string | null {
-  for (const message of messages) {
-    if (message.role !== "user") {
-      continue;
-    }
-    for (const part of message.parts) {
-      if (part.type === "text" || part.type === "rich-text") {
-        const text = readOptionalText(part.text);
-        if (text) {
-          return truncateLabel(text);
-        }
-      }
-    }
-  }
-  return null;
 }
 
 function readMessageFromSummaryEvent(event: NcpAgentSessionJournalReplayEvent): NcpMessage | undefined {

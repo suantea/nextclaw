@@ -8,14 +8,47 @@ import type {
   DocBrowserTab,
 } from "@/shared/components/doc-browser/doc-browser-context";
 import { PANEL_APPS_DOC_BROWSER_RENDERERS } from "@/features/panel-apps";
+import { PANEL_APP_SCROLL_RESTORATION_CONTRACT } from "@nextclaw/shared";
 
 const { navigateMock } = vi.hoisted(() => ({
   navigateMock: vi.fn(),
 }));
 
+const panelAppHooks = vi.hoisted(() => ({
+  mutate: vi.fn(),
+}));
+
 vi.mock("react-router-dom", async () => ({
   ...((await vi.importActual("react-router-dom")) as object),
   useNavigate: () => navigateMock,
+}));
+
+vi.mock("@/features/panel-apps/hooks/use-panel-apps", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  usePanelApps: () => ({
+    data: {
+      entries: [{
+        appId: "piano",
+        clientDeclared: false,
+        clientGranted: false,
+        contentPath: "/api/panel-apps/piano/content",
+        createdAt: "2026-08-19T00:00:00.000Z",
+        favorite: false,
+        fileName: "piano.panel.html",
+        id: "piano",
+        kind: "single-file",
+        mainSidebar: false,
+        openCount: 0,
+        sizeBytes: 10,
+        title: "Piano",
+        updatedAt: "2026-08-19T00:00:00.000Z",
+      }],
+    },
+  }),
+  useUpdatePanelAppPreferences: () => ({
+    isPending: false,
+    mutate: panelAppHooks.mutate,
+  }),
 }));
 
 const { docBrowserState } = vi.hoisted<{
@@ -155,6 +188,9 @@ describe("DocBrowser", () => {
     render(<DocBrowser />);
 
     expect(screen.getByTestId("doc-browser-panel").style.width).toBe("420px");
+    expect(
+      screen.getByTestId("doc-browser-panel").getAttribute("data-theme-surface"),
+    ).toBe("doc-browser");
     expect(screen.getByTestId("resizable-right-panel-handle")).toBeTruthy();
   });
 
@@ -460,7 +496,142 @@ describe("DocBrowser", () => {
 
     expect(screen.getByTitle("Local App").getAttribute("tabindex")).toBeNull();
   });
+});
 
+describe("DocBrowser panel app navigation", () => {
+  beforeEach(() => {
+    resetDocBrowserTestState();
+    installDocBrowserPointerTestEnvironment();
+  });
+
+  it("uses browser history as the only back contract for panel apps", async () => {
+    const user = userEvent.setup();
+    const panelAppTab: DocBrowserTab = {
+      id: "piano",
+      kind: "panel-app" as const,
+      title: "Piano",
+      currentUrl: "/api/panel-apps/piano/content",
+      resourceUri: "nextclaw://panel-app/piano",
+      history: ["/api/panel-apps/piano/content"],
+      historyIndex: 0,
+      navVersion: 0,
+    };
+    docBrowserState.tabs = [panelAppTab];
+    docBrowserState.activeTabId = panelAppTab.id;
+    docBrowserState.activeHistory = [
+      { kind: "apps", tabId: "apps", url: "nextclaw://apps?tab=panel-apps" },
+      { kind: "panel-app", tabId: "piano", resourceUri: "nextclaw://panel-app/piano", url: panelAppTab.currentUrl },
+    ];
+    docBrowserState.activeHistoryIndex = 1;
+    docBrowserState.currentTab = panelAppTab;
+
+    render(<DocBrowser customTabRenderers={PANEL_APPS_DOC_BROWSER_RENDERERS} />);
+
+    expect(screen.getAllByRole("button", { name: "Back" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Apps" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(docBrowserState.goBack).toHaveBeenCalledTimes(1);
+
+    expect(screen.queryByRole("button", { name: "Add to main sidebar" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "More panel app actions" }));
+    await user.click(screen.getByRole("button", { name: "Add to main sidebar" }));
+    expect(panelAppHooks.mutate).toHaveBeenCalledWith({
+      id: "piano",
+      preferences: { mainSidebar: true },
+    });
+  });
+
+  it("keeps placement actions when a restored shortcut only has a stable current URL", async () => {
+    const user = userEvent.setup();
+    const panelAppTab: DocBrowserTab = {
+      id: "piano",
+      kind: "panel-app",
+      title: "Piano",
+      currentUrl: "/api/panel-apps/piano/content",
+      resourceUri: "nextclaw://panel-app",
+      history: ["/api/panel-apps/piano/content"],
+      historyIndex: 0,
+      navVersion: 0,
+    };
+    docBrowserState.tabs = [panelAppTab];
+    docBrowserState.activeTabId = panelAppTab.id;
+    docBrowserState.currentTab = panelAppTab;
+
+    render(<DocBrowser customTabRenderers={PANEL_APPS_DOC_BROWSER_RENDERERS} />);
+
+    await user.click(screen.getByRole("button", { name: "More panel app actions" }));
+    await user.click(screen.getByRole("button", { name: "Add to main sidebar" }));
+    expect(panelAppHooks.mutate).toHaveBeenCalledWith({
+      id: "piano",
+      preferences: { mainSidebar: true },
+    });
+  });
+});
+
+describe("DocBrowser scroll restoration", () => {
+  beforeEach(() => {
+    resetDocBrowserTestState();
+    installDocBrowserPointerTestEnvironment();
+  });
+
+  it("restores the active Panel App scroll surface after refresh", () => {
+    const panelAppTab: DocBrowserTab = {
+      id: "piano",
+      kind: "panel-app" as const,
+      title: "Piano",
+      currentUrl: "/api/panel-apps/piano/content",
+      history: ["/api/panel-apps/piano/content"],
+      historyIndex: 0,
+      navVersion: 0,
+    };
+    docBrowserState.tabs = [panelAppTab];
+    docBrowserState.activeTabId = panelAppTab.id;
+    docBrowserState.currentTab = panelAppTab;
+
+    const { container } = render(<DocBrowser customTabRenderers={PANEL_APPS_DOC_BROWSER_RENDERERS} />);
+
+    const initialIframe = container.querySelector('iframe[title="Piano"]') as HTMLIFrameElement;
+    const initialWindow = {} as Window;
+    Object.defineProperty(initialIframe, "contentWindow", {
+      configurable: true,
+      value: initialWindow,
+    });
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        type: PANEL_APP_SCROLL_RESTORATION_CONTRACT.scrollMessageType,
+        version: PANEL_APP_SCROLL_RESTORATION_CONTRACT.version,
+        target: {
+          kind: "element",
+          path: [{ index: 0, tagName: "main" }],
+        },
+        x: 24,
+        y: 360,
+      },
+      source: initialWindow,
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh current panel app" }));
+
+    const refreshedIframe = container.querySelector('iframe[title="Piano"]') as HTMLIFrameElement;
+    const refreshedPostMessage = vi.fn();
+    Object.defineProperty(refreshedIframe, "contentWindow", {
+      configurable: true,
+      value: { postMessage: refreshedPostMessage },
+    });
+    fireEvent.load(refreshedIframe);
+
+    expect(refreshedIframe).not.toBe(initialIframe);
+    expect(refreshedPostMessage).toHaveBeenCalledWith({
+      type: PANEL_APP_SCROLL_RESTORATION_CONTRACT.restoreScrollMessageType,
+      version: PANEL_APP_SCROLL_RESTORATION_CONTRACT.version,
+      target: {
+        kind: "element",
+        path: [{ index: 0, tagName: "main" }],
+      },
+      x: 24,
+      y: 360,
+    }, "*");
+  });
 });
 
 describe("DocBrowser floating interactions", () => {
@@ -503,6 +674,40 @@ describe("DocBrowser floating interactions", () => {
     fireEvent.pointerDown(headerDragSurface as HTMLElement);
 
     expect(onDragStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the same tab action from right click and the more button", () => {
+    const onAddToChat = vi.fn();
+
+    render(
+      <DocBrowserTabStrip
+        tabs={docBrowserState.tabs}
+        activeTabId="docs"
+        canGoBack={false}
+        canGoForward={false}
+        isDocked={true}
+        isFullscreen={false}
+        onGoBack={vi.fn()}
+        onGoForward={vi.fn()}
+        onOpenNewTab={vi.fn()}
+        onSetActiveTab={vi.fn()}
+        onCloseTab={vi.fn()}
+        onClose={vi.fn()}
+        onDragStart={vi.fn()}
+        onToggleMode={vi.fn()}
+        getTabMenuGroups={() => [{
+          key: "chat",
+          items: [{ key: "add", label: "Add to Chat", onSelect: onAddToChat }],
+        }]}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Docs" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add to Chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "More tab actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add to Chat" }));
+
+    expect(onAddToChat).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the floating panel left edge stable when resizing from the right", () => {

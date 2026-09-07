@@ -1,6 +1,6 @@
 ---
 name: react-rendering-lifecycle-safety
-description: 当编写、修改或审查 React 组件类型、动态 renderer/component map、列表 key、条件包装、streaming UI、ReactMarkdown、自定义 render prop，或 iframe/canvas/editor/audio/video/Panel App 等必须保持实例状态的界面时使用；也适用于排查流式更新、受控 editor、beforeinput/composition/IME 输入法导致的焦点、文字选区、弹层或内嵌应用状态丢失。用于保证 React 元素身份、DOM 连续性和用户交互状态不被后台更新破坏。
+description: 当任务触达动态 React 组件类型、列表 key、streaming UI，或 iframe/editor/media 等需要保持实例状态的界面时使用；也用于排查重渲染导致的焦点、选区、输入法或内嵌状态丢失。普通 React 修改不自动触发。
 ---
 
 # React Rendering Lifecycle Safety
@@ -77,10 +77,12 @@ React 数据更新不应自动等价为结构重建。除非产品明确要求�
 
 ## 与其他 Skill 的关系
 
+以下是超出本合同后的单一路由，不是并行依赖；一次只选择当前需要的一个 owner：
+
 - 状态、query/store、streaming flow owner：联动 `mvp-view-logic-decoupling`。
 - Popover、焦点、键盘和交互反馈：联动 `frontend-interaction-quality`。
-- 组件拆分与抽象必要性：联动 `writing-beautiful-code`。
-- bugfix 验证与浏览器验收：联动 `nextclaw-validation-workflow`。
+- 组件拆分与抽象必要性：由标准开发流程按需读取实现工艺 reference。
+- bugfix 验证与浏览器验收：返回当前生命周期，由 Validation 阶段负责。
 
 ## 输出要求
 

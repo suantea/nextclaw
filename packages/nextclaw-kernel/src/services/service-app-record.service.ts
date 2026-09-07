@@ -1,0 +1,276 @@
+import { access, stat } from "node:fs/promises";
+import { basename, join } from "node:path";
+import { AppInstanceStorageService } from "@nextclaw/app-runtime";
+import { DEFAULT_SERVICE_APPS_DIR } from "@nextclaw/core";
+import type { AppStorageContext } from "@nextclaw/app-runtime";
+import type { AppPackageComponentSource } from "@kernel/types/app-package.types.js";
+import type { ServiceAppManifest, ServiceAppRecord } from "@kernel/types/service-app.types.js";
+import {
+  getServiceAppManifestPath,
+  readServiceAppManifest,
+} from "@kernel/utils/service-app-manifest.utils.js";
+import { isServiceAppError, ServiceAppError } from "@kernel/utils/service-app-error.utils.js";
+type ServiceAppStatusReader = {
+  getStatus: (appId: string) => {
+    status: ServiceAppRecord["status"];
+    lastError?: string;
+    lastStartedAt?: string;
+    lastReadyAt?: string;
+    lastFailedAt?: string;
+  };
+};
+
+export type WorkspaceServiceDataOwner = {
+  id: string;
+  title: string;
+};
+
+export class ServiceAppRecordService {
+  private readonly instanceStorageService = new AppInstanceStorageService();
+
+  constructor(private readonly params: {
+    getWorkspacePath: () => string;
+    runtimeService: ServiceAppStatusReader;
+    listPackageComponentSources?: () => Promise<AppPackageComponentSource[]>;
+    listWorkspaceDirectoryNames?: (serviceAppsPath: string) => Promise<string[]>;
+  }) {}
+
+  buildWorkspaceRecord = async (
+    serviceAppsPath: string,
+    dirName: string,
+  ): Promise<ServiceAppRecord | null> => {
+    const dirPath = join(serviceAppsPath, dirName);
+    try {
+      const manifest = await readServiceAppManifest(dirPath);
+      if (manifest.id !== dirName) {
+        throw new Error(`service app manifest id must match directory name: ${dirName}`);
+      }
+      return this.fromManifest(
+        dirPath,
+        manifest,
+        undefined,
+        await this.inspectWorkspaceStorage(manifest.id),
+      );
+    } catch (error) {
+      if (this.isMissingFileError(error)) {
+        return null;
+      }
+      return this.failedWorkspaceRecord(dirName, dirPath, error);
+    }
+  };
+
+  buildPackageRecord = async (
+    source: AppPackageComponentSource,
+  ): Promise<ServiceAppRecord | null> => {
+    try {
+      const manifest = await readServiceAppManifest(source.sourcePath);
+      if (manifest.id !== source.id) {
+        throw new Error(`service component id mismatch: ${source.id}`);
+      }
+      return this.fromManifest(source.sourcePath, manifest, source, source.storage);
+    } catch (error) {
+      return this.failedPackageRecord(source, error);
+    }
+  };
+
+  require = async (appId: string, materializeStorage = false): Promise<{
+    manifest: ServiceAppManifest;
+    record: ServiceAppRecord;
+  }> => {
+    const serviceAppsPath = join(this.params.getWorkspacePath(), DEFAULT_SERVICE_APPS_DIR);
+    let dirPath = join(serviceAppsPath, appId);
+    let packageSource: AppPackageComponentSource | undefined;
+    try {
+      if (!(await stat(dirPath)).isDirectory()) throw new ServiceAppError("SERVICE_APP_NOT_FOUND", "service app not found");
+    } catch (error) {
+      if (!this.isMissingFileError(error)) throw error;
+      packageSource = (await this.params.listPackageComponentSources?.() ?? [])
+        .find((component) => component.kind === "service" && component.id === appId);
+      if (!packageSource) throw new ServiceAppError("SERVICE_APP_NOT_FOUND", "service app not found");
+      dirPath = packageSource.sourcePath;
+    }
+    try {
+      if (!(await stat(dirPath)).isDirectory()) throw new ServiceAppError("SERVICE_APP_NOT_FOUND", "service app not found");
+      const manifest = await readServiceAppManifest(dirPath);
+      if (manifest.id !== appId) throw new ServiceAppError("SERVICE_APP_INVALID_MANIFEST", "service app manifest id must match directory name");
+      const storage = packageSource?.storage ?? (materializeStorage
+        ? await this.materializeWorkspaceStorage(manifest.id)
+        : await this.inspectWorkspaceStorage(manifest.id));
+      return { manifest, record: this.fromManifest(dirPath, manifest, packageSource, storage) };
+    } catch (error) {
+      if (isServiceAppError(error)) throw error;
+      if (this.isMissingFileError(error)) throw new ServiceAppError("SERVICE_APP_NOT_FOUND", "service app not found");
+      throw new ServiceAppError("SERVICE_APP_READ_FAILED", error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  listValid = async (): Promise<Array<{ manifest: ServiceAppManifest; record: ServiceAppRecord }>> => {
+    const serviceAppsPath = join(this.params.getWorkspacePath(), DEFAULT_SERVICE_APPS_DIR);
+    const dirNames = await this.params.listWorkspaceDirectoryNames?.(serviceAppsPath) ?? [];
+    const workspaceEntries = await Promise.all(dirNames.map(async (dirName) => {
+      const dirPath = join(serviceAppsPath, dirName);
+      try {
+        const manifest = await readServiceAppManifest(dirPath);
+        return { manifest, record: this.fromManifest(dirPath, manifest, undefined, await this.inspectWorkspaceStorage(manifest.id)) };
+      } catch { return null; }
+    }));
+    const packageEntries = await Promise.all((await this.params.listPackageComponentSources?.() ?? [])
+      .filter((component) => component.kind === "service")
+      .map(async (component) => {
+        try {
+          const manifest = await readServiceAppManifest(component.sourcePath);
+          return { manifest, record: this.fromManifest(component.sourcePath, manifest, component, component.storage) };
+        } catch { return null; }
+      }));
+    return [...workspaceEntries, ...packageEntries]
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+  };
+
+  listWorkspaceDataOwners = async (
+    serviceAppsPath: string,
+    dirNames: string[],
+  ): Promise<WorkspaceServiceDataOwner[]> => {
+    const owners = await Promise.all(dirNames.map(async (dirName) => {
+      try {
+        const manifest = await readServiceAppManifest(join(serviceAppsPath, dirName));
+        return manifest.id === dirName
+          ? { id: manifest.id, title: manifest.title }
+          : null;
+      } catch {
+        return null;
+      }
+    }));
+    return owners.filter((entry): entry is WorkspaceServiceDataOwner => Boolean(entry));
+  };
+
+  materializeWorkspaceStorage = async (serviceId: string): Promise<AppStorageContext> => {
+    const instanceDirectory = this.getWorkspaceInstanceDirectory(serviceId);
+    return (await this.instanceStorageService.materialize({
+      appId: serviceId,
+      instanceId: "default",
+      instanceDirectory,
+    })).storage;
+  };
+
+  inspectWorkspaceStorage = async (serviceId: string): Promise<AppStorageContext | undefined> => {
+    const instanceDirectory = this.getWorkspaceInstanceDirectory(serviceId);
+    if (!await this.pathExists(instanceDirectory)) {
+      return undefined;
+    }
+    return (await this.instanceStorageService.inspect({
+      appId: serviceId,
+      instanceId: "default",
+      instanceDirectory,
+    })).storage;
+  };
+
+  fromManifest = (
+    dirPath: string,
+    manifest: ServiceAppManifest,
+    packageSource?: AppPackageComponentSource,
+    storage?: AppStorageContext,
+  ): ServiceAppRecord => {
+    const runtimeStatus = this.params.runtimeService.getStatus(manifest.id);
+    return {
+      id: manifest.id,
+      title: manifest.title,
+      description: manifest.description,
+      dirPath,
+      manifestPath: getServiceAppManifestPath(dirPath),
+      command: manifest.command,
+      args: manifest.args,
+      cwd: dirPath,
+      enabled: packageSource ? true : manifest.enabled,
+      protocol: manifest.protocol,
+      status: packageSource || manifest.enabled ? runtimeStatus.status : "stopped",
+      lastError: runtimeStatus.lastError,
+      lastStartedAt: runtimeStatus.lastStartedAt,
+      lastReadyAt: runtimeStatus.lastReadyAt,
+      lastFailedAt: runtimeStatus.lastFailedAt,
+      sourceKind: packageSource ? "package" : "workspace",
+      packageId: packageSource?.packageId,
+      packageVersion: packageSource?.packageVersion,
+      packageDirectory: packageSource ? join(packageSource.sourcePath, "..", "..") : undefined,
+      dataDirectory: storage?.dataDirectory,
+      instanceId: packageSource?.instanceId ?? storage?.instanceId,
+      storage,
+      isolation: packageSource?.isolation ?? "full-user",
+      runtimeProfile: packageSource?.runtimeProfile ?? "native-process",
+      permissions: packageSource?.permissions ?? {},
+      componentPath: manifest.componentEntry ? join(dirPath, manifest.componentEntry) : undefined,
+      providerIds: Array.from(new Set([
+        ...(manifest.providerIds ?? []),
+        ...(packageSource?.resolvedProviderIds ?? []),
+      ])),
+      lifecycle: manifest.lifecycle,
+    };
+  };
+
+  private failedWorkspaceRecord = (
+    id: string,
+    dirPath: string,
+    error: unknown,
+  ): ServiceAppRecord => ({
+    id,
+    title: this.toTitle(id),
+    dirPath,
+    manifestPath: getServiceAppManifestPath(dirPath),
+    cwd: dirPath,
+    enabled: false,
+    protocol: "mcp",
+    status: "failed",
+    lastError: error instanceof Error ? error.message : String(error),
+  });
+
+  private failedPackageRecord = (
+    source: AppPackageComponentSource,
+    error: unknown,
+  ): ServiceAppRecord => ({
+    id: source.id,
+    title: this.toTitle(source.id),
+    dirPath: source.sourcePath,
+    manifestPath: source.manifestPath,
+    cwd: source.sourcePath,
+    enabled: false,
+    protocol: "mcp",
+    status: "failed",
+    lastError: error instanceof Error ? error.message : String(error),
+    sourceKind: "package",
+    packageId: source.packageId,
+    packageVersion: source.packageVersion,
+    packageDirectory: join(source.sourcePath, "..", ".."),
+    dataDirectory: source.dataDirectory,
+    instanceId: source.instanceId,
+    storage: source.storage,
+    isolation: source.isolation,
+    runtimeProfile: source.runtimeProfile,
+    permissions: source.permissions,
+  });
+
+  private toTitle = (value: string): string =>
+    basename(value).replace(/[-_]+/g, " ").trim() || value;
+
+  private getWorkspaceInstanceDirectory = (serviceId: string): string => join(
+    this.params.getWorkspacePath(),
+    ".nextclaw",
+    "app-instances",
+    serviceId,
+    "default",
+  );
+
+  private pathExists = async (targetPath: string): Promise<boolean> => {
+    try {
+      await access(targetPath);
+      return true;
+    } catch (error) {
+      if (this.isMissingFileError(error)) {
+        return false;
+      }
+      throw error;
+    }
+  };
+
+  private isMissingFileError = (error: unknown): boolean =>
+    typeof error === "object" && error !== null &&
+    (error as { code?: unknown }).code === "ENOENT";
+}

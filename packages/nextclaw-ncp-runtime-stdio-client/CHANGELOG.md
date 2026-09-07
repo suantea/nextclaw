@@ -1,5 +1,253 @@
 # @nextclaw/nextclaw-ncp-runtime-stdio-client
 
+## 0.3.45
+
+### Patch Changes
+
+- Updated dependencies [b51f599]
+- Updated dependencies [db88c76]
+  - @nextclaw/core@0.17.18
+
+## 0.3.44
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.17
+
+## 0.3.43
+
+### Patch Changes
+
+- Updated dependencies [862dbf2]
+- Updated dependencies [3c17608]
+  - @nextclaw/core@0.17.16
+  - @nextclaw/ncp-toolkit@0.6.23
+
+## 0.3.43-beta.1
+
+### Patch Changes
+
+- Updated dependencies [3c17608]
+  - @nextclaw/core@0.17.16-beta.1
+
+## 0.3.43-beta.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.16-beta.0
+  - @nextclaw/ncp-toolkit@0.6.23
+
+## 0.3.42
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.15
+
+## 0.3.41
+
+### Patch Changes
+
+- Updated dependencies [9377757]
+  - @nextclaw/core@0.17.14
+
+## 0.3.40
+
+### Patch Changes
+
+- Updated dependencies [51fac6a]
+  - @nextclaw/core@0.17.13
+
+## 0.3.39
+
+### Patch Changes
+
+- @nextclaw/core@0.17.12
+
+## 0.3.38
+
+### Patch Changes
+
+- Updated dependencies
+  - @nextclaw/core@0.17.11
+
+## 0.3.37
+
+### Patch Changes
+
+- Updated dependencies [2d292fa]
+- Updated dependencies [c0523dc]
+- Updated dependencies [7d2b9f8]
+  - @nextclaw/core@0.17.10
+
+## 0.3.36
+
+### Patch Changes
+
+- Updated dependencies [667c4fd]
+  - @nextclaw/core@0.17.9
+
+## 0.3.35
+
+### Patch Changes
+
+- Updated dependencies [50f064c]
+- Updated dependencies [9ee3a68]
+  - @nextclaw/ncp@0.10.0
+  - @nextclaw/ncp-toolkit@0.6.23
+  - @nextclaw/core@0.17.8
+
+## 0.3.34
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [5b07b81]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+- Updated dependencies [eabdf41]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0
+  - @nextclaw/core@0.17.7
+  - @nextclaw/ncp-toolkit@0.6.22
+
+## 0.3.34-beta.0
+
+### Patch Changes
+
+- Updated dependencies [2c7ce8c]
+- Updated dependencies [5b07b81]
+- Updated dependencies [eeac1f6]
+- Updated dependencies [5f68b2f]
+- Updated dependencies [41cb756]
+- Updated dependencies [037d93e]
+- Updated dependencies [ec60bc1]
+  - @nextclaw/ncp@0.9.0-beta.0
+  - @nextclaw/core@0.17.7-beta.0
+  - @nextclaw/ncp-toolkit@0.6.22-beta.0
+
+## 0.3.33
+
+### Patch Changes
+
+- Updated dependencies [6587602]
+- Updated dependencies [0f0753a]
+- Updated dependencies [7cc703c]
+  - @nextclaw/core@0.17.6
+  - @nextclaw/ncp@0.8.1
+  - @nextclaw/ncp-toolkit@0.6.21
+
+## 0.3.32
+
+### Patch Changes
+
+- Updated dependencies [c10dcaa]
+  - @nextclaw/core@0.17.5
+
+## 0.3.31
+
+### Patch Changes
+
+- Updated dependencies [ef5d9ae]
+- Updated dependencies [1df4217]
+  - @nextclaw/core@0.17.4
+
+## 0.3.30
+
+### Patch Changes
+
+- Updated dependencies [80f7660]
+  - @nextclaw/core@0.17.3
+
+## 0.3.29
+
+### Patch Changes
+
+- Updated dependencies [56ab5c2]
+  - @nextclaw/core@0.17.2
+
+## 0.3.28
+
+### Patch Changes
+
+- Updated dependencies [aa08a3f]
+- Updated dependencies [e2a7c8e]
+- Updated dependencies [004d51f]
+  - @nextclaw/ncp@0.8.0
+  - @nextclaw/ncp-toolkit@0.6.20
+  - @nextclaw/core@0.17.1
+
+## 0.3.27
+
+### Patch Changes
+
+- Updated dependencies [ca2c98d]
+  - @nextclaw/core@0.17.0
+
+## 0.3.26
+
+### Patch Changes
+
+- Updated dependencies [237a931]
+  - @nextclaw/core@0.16.0
+
+## 0.3.25
+
+### Patch Changes
+
+- @nextclaw/core@0.15.24
+
+## 0.3.24
+
+### Patch Changes
+
+- @nextclaw/core@0.15.23
+
+## 0.3.23
+
+### Patch Changes
+
+- Updated dependencies [c783019]
+- Updated dependencies [7786bdf]
+  - @nextclaw/core@0.15.22
+  - @nextclaw/ncp@0.7.17
+  - @nextclaw/ncp-toolkit@0.6.19
+
+## 0.3.22
+
+### Patch Changes
+
+- @nextclaw/core@0.15.21
+
+## 0.3.21
+
+### Patch Changes
+
+- 38e3e98: 修复通过 NARP stdio 运行时发送图片时附件被降级为纯文本的问题，保留附件顺序和文件元数据，并在本地资源无法解析时返回明确错误。
+- Updated dependencies [c3eb33c]
+- Updated dependencies [ae21568]
+- Updated dependencies [98c5b7f]
+- Updated dependencies [e309470]
+- Updated dependencies [31d5655]
+- Updated dependencies [8e53d92]
+- Updated dependencies [071c144]
+  - @nextclaw/core@0.15.20
+  - @nextclaw/ncp-toolkit@0.6.18
+  - @nextclaw/ncp@0.7.16
+
+## 0.3.20
+
+### Patch Changes
+
+- Updated dependencies [dbececb]
+- Updated dependencies [43b0e1d]
+  - @nextclaw/core@0.15.19
+  - @nextclaw/ncp-toolkit@0.6.17
+
 ## 0.3.19
 
 ### Patch Changes

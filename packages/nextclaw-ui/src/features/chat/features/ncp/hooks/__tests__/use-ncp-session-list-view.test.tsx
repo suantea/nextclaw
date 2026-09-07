@@ -9,12 +9,20 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/chat/features/ncp/hooks/use-ncp-session-queries", () => ({
-  useNcpSessions: () => ({
+  useInfiniteNcpSessions: () => ({
     data: {
-      sessions: mocks.sessions,
-      total: mocks.sessions.length,
+      pages: [{
+        sessions: mocks.sessions,
+        total: mocks.sessions.length,
+        page: 1,
+        pageSize: 100,
+        hasMore: false,
+      }],
     },
     isLoading: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
   }),
 }));
 
@@ -62,13 +70,34 @@ describe("useNcpSessionListView", () => {
   it("can override the hidden sidebar query for header switching", () => {
     useChatSessionListStore.getState().setSnapshot({ query: "Alpha" });
 
-    const { result } = renderHook(() =>
-      useNcpSessionListView({ query: "" }),
-    );
+    const { result } = renderHook(() => useNcpSessionListView({ query: "" }));
 
     expect(result.current.items.map((item) => item.session.key)).toEqual([
       "session:alpha",
       "session:beta",
+    ]);
+  });
+
+  it("keeps hidden child sessions available for sidebar context counts", () => {
+    mocks.sessions.push({
+      ...createSummary("session:alpha:child", "Child Task"),
+      metadata: {
+        label: "Child Task",
+        session_type: "native",
+        parent_session_id: "session:alpha",
+      },
+    });
+
+    const { result } = renderHook(() => useNcpSessionListView());
+
+    expect(result.current.items.map((item) => item.session.key)).toEqual([
+      "session:alpha",
+      "session:beta",
+    ]);
+    expect(result.current.allItems.map((item) => item.session.key)).toEqual([
+      "session:alpha",
+      "session:beta",
+      "session:alpha:child",
     ]);
   });
 });
