@@ -10,10 +10,18 @@ export const LEARNING_LOOP_LAST_REVIEW_SESSION_ID_METADATA_KEY =
 export const LEARNING_LOOP_SOURCE_SESSION_ID_METADATA_KEY =
   "learning_loop_source_session_id";
 export const DEFAULT_LEARNING_LOOP_TOOL_CALL_THRESHOLD = 15;
+export const DEFAULT_MEMORY_CAPTURE_INTERVAL = 3;
+export const DEFAULT_MEMORY_DIGEST_WINDOW_DAYS = 3;
 
 export type LearningLoopRuntimeConfig = {
   enabled: boolean;
   toolCallThreshold: number;
+};
+
+export type MemoryCaptureRuntimeConfig = {
+  enabled: boolean;
+  captureInterval: number;
+  digestWindowDays: number;
 };
 
 export function readLearningLoopRuntimeConfig(
@@ -24,5 +32,16 @@ export function readLearningLoopRuntimeConfig(
     toolCallThreshold:
       config.agents.learningLoop.toolCallThreshold ??
       DEFAULT_LEARNING_LOOP_TOOL_CALL_THRESHOLD,
+  };
+}
+
+export function readMemoryCaptureRuntimeConfig(
+  config: Config,
+): MemoryCaptureRuntimeConfig {
+  const mem = config.agents.memoryCapture;
+  return {
+    enabled: mem?.enabled ?? false,
+    captureInterval: mem?.captureInterval ?? DEFAULT_MEMORY_CAPTURE_INTERVAL,
+    digestWindowDays: mem?.digestWindowDays ?? DEFAULT_MEMORY_DIGEST_WINDOW_DAYS,
   };
 }
