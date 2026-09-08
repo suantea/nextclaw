@@ -131,6 +131,13 @@ export async function testProviderConnection(
   return await nextclawClient.providers.testConnection(provider, data);
 }
 
+export async function testModelLatency(
+  provider: string,
+  model: string,
+): Promise<{ latencyMs: number; ok: boolean; error?: string }> {
+  return await nextclawClient.providers.testModelLatency(provider, model);
+}
+
 export async function discoverProviderModels(
   provider: string,
   data: ProviderModelDiscoveryRequest

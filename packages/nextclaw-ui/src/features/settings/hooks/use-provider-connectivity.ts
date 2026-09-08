@@ -122,11 +122,34 @@ export function useProviderConnectivity(params: UseProviderConnectivityParams) {
     }
   }, [apiBase, apiKey, apiKeyRequired, apiKeySet, discoverProviderModels, discoveryKey, extraHeaders, providerName]);
 
+  const [latencyResults, setLatencyResults] = useState<Map<string, { latencyMs: number; ok: boolean; error?: string }>>(new Map());
+  const [testingModel, setTestingModel] = useState<string | null>(null);
+
+  const testModelLatency = useCallback(async (model: string) => {
+    if (!providerName) {
+      return;
+    }
+    setTestingModel(model);
+    try {
+      const { testModelLatency: apiTestModelLatency } = await import('@/shared/lib/api/utils/config.utils');
+      const result = await apiTestModelLatency(providerName, model);
+      setLatencyResults((prev) => new Map(prev).set(model, result));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLatencyResults((prev) => new Map(prev).set(model, { latencyMs: 0, ok: false, error: message }));
+    } finally {
+      setTestingModel(null);
+    }
+  }, [providerName]);
+
   return {
     discoverModels,
     fetchedModels: modelDiscovery?.key === discoveryKey ? modelDiscovery.models : [],
     isDiscoveringModels: discoverProviderModels.isPending,
     isTestPending: testProviderConnection.isPending,
-    testConnection
+    latencyResults,
+    testingModel,
+    testConnection,
+    testModelLatency,
   };
 }

@@ -230,6 +230,21 @@ export class ProviderConnectivityService {
     }
   };
 
+  testModelLatency = async (
+    providerId: string,
+    model: string,
+  ): Promise<{ latencyMs: number; ok: boolean; error?: string }> => {
+    const result = await this.testConnection(providerId, { model });
+    if (!result) {
+      return { latencyMs: 0, ok: false, error: "Provider not found." };
+    }
+    return {
+      latencyMs: result.latencyMs,
+      ok: result.success,
+      error: result.success ? undefined : result.message,
+    };
+  };
+
   discoverModels = async (
     providerId: string,
     patch: ProviderModelDiscoveryRequest,
