@@ -1,6 +1,5 @@
 export * from "./services/route-resolver.service.js";
 export * from "./utils/tool-catalog.utils.js";
-export * from "./utils/skill-context.utils.js";
 export { SkillsLoader } from "./services/skills-loader.service.js";
 export type {
   SkillInfo,
@@ -8,6 +7,7 @@ export type {
   SkillsLoaderOptions,
 } from "./services/skills-loader.service.js";
 export { MemoryStore } from "./features/memory/memory.store.js";
+export { Bm25Index } from "./features/memory/bm25.index.js";
 export { resolveNextclawSelfManageGuidePaths } from "./features/self-manage/guide-path.js";
 export { SILENT_REPLY_TOKEN } from "./types/tokens.js";
 export * from "./services/silent-reply-policy.js";

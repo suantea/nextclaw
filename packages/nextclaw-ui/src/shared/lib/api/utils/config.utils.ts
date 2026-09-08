@@ -17,6 +17,9 @@ import type {
   ProviderConfigUpdate,
   ProviderConnectionTestRequest,
   ProviderConnectionTestResult,
+  ProviderModelDiscoveryRequest,
+  ProviderModelDiscoveryResult,
+  ProviderModelCatalogView,
   ProviderAuthStartRequest,
   ProviderAuthStartResult,
   ProviderAuthPollRequest,
@@ -27,6 +30,9 @@ import type {
   ProviderCreateRequest,
   ProviderCreateResult,
   ProviderDeleteResult,
+  ProductAnalyticsConfigUpdate,
+  ProductAnalyticsStatusView,
+  ProductAnalyticsView,
   RuntimeConfigUpdate,
   SecretsConfigUpdate,
   SecretsView,
@@ -90,6 +96,10 @@ export async function fetchProviderTemplates(): Promise<ProviderTemplatesView> {
   return await nextclawClient.providers.listTemplates();
 }
 
+export async function fetchProviderModelCatalog(): Promise<ProviderModelCatalogView> {
+  return await nextclawClient.providers.listModelCatalog();
+}
+
 export async function fetchConfigSchema(): Promise<ConfigSchemaResponse> {
   return await nextclawClient.config.fetchSchema();
 }
@@ -119,6 +129,20 @@ export async function testProviderConnection(
   data: ProviderConnectionTestRequest
 ): Promise<ProviderConnectionTestResult> {
   return await nextclawClient.providers.testConnection(provider, data);
+}
+
+export async function testModelLatency(
+  provider: string,
+  model: string,
+): Promise<{ latencyMs: number; ok: boolean; error?: string }> {
+  return await nextclawClient.providers.testModelLatency(provider, model);
+}
+
+export async function discoverProviderModels(
+  provider: string,
+  data: ProviderModelDiscoveryRequest
+): Promise<ProviderModelDiscoveryResult> {
+  return await nextclawClient.providers.discoverModels(provider, data);
 }
 
 export async function startProviderAuth(
@@ -154,6 +178,16 @@ export async function updateRuntime(
 
 export async function updateSecrets(data: SecretsConfigUpdate): Promise<SecretsView> {
   return await nextclawClient.config.updateSecrets(data);
+}
+
+export async function updateProductAnalytics(
+  data: ProductAnalyticsConfigUpdate,
+): Promise<ProductAnalyticsView> {
+  return await nextclawClient.config.updateProductAnalytics(data);
+}
+
+export async function fetchProductAnalyticsStatus(): Promise<ProductAnalyticsStatusView> {
+  return await nextclawClient.config.fetchProductAnalyticsStatus();
 }
 
 export async function executeConfigAction(

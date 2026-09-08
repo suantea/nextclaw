@@ -1,63 +1,54 @@
 import { Hono, type Handler } from "hono";
-import type {
-  NcpMessageAbortPayload,
-  NcpRunHandle,
-  NcpStreamRequestPayload,
-} from "@nextclaw/ncp";
+import type { NcpMessageAbortPayload, NcpRunHandle, NcpStreamRequestPayload } from "@nextclaw/ncp";
 import { AccessManager } from "@nextclaw/kernel";
-import {
-  ingressKeys,
-  type AgentRunSendIngressPayload,
-  type IngressEnvelope,
-} from "@nextclaw/shared";
+import { ingressKeys, type AgentRunContinueIngressPayload, type AgentRunEditMessageIngressPayload, type AgentRunSendIngressPayload, type IngressEnvelope } from "@nextclaw/shared";
 import { AgentsRoutesController } from "@nextclaw-server/features/agents/index.js";
 import { AppRoutesController } from "@nextclaw-server/app/controllers/app.controller.js";
+import { CapabilityAccessRoutesController } from "@nextclaw-server/app/controllers/capability-access.controller.js";
+import { FeatureControlsRoutesController } from "@nextclaw-server/features/feature-controls/index.js";
+import { AppPackagesRoutesController } from "@nextclaw-server/features/app-packages/index.js";
+import { AppDataRoutesController } from "@nextclaw-server/features/app-data/index.js";
+import { SystemObjectReferencesRoutesController } from "@nextclaw-server/app/controllers/system-object-references.controller.js";
 import { AuthRoutesController, UiAuthService } from "@nextclaw-server/features/auth/index.js";
 import { ConfigRoutesController } from "@nextclaw-server/features/config/index.js";
 import { CronRoutesController } from "@nextclaw-server/features/cron/index.js";
 import { InboxDeliveriesRoutesController } from "@nextclaw-server/features/inbox-deliveries/index.js";
 import { NcpAssetRoutesController } from "@nextclaw-server/features/attachments/index.js";
 import { NcpSessionRoutesController } from "@nextclaw-server/features/sessions/index.js";
-import {
-  McpMarketplaceController,
-  mountMarketplaceRoutes,
-  resolveMarketplaceBaseUrls,
-  SkillMarketplaceController
-} from "@nextclaw-server/features/marketplace/index.js";
+import { McpMarketplaceController, mountMarketplaceRoutes, resolveMarketplaceBaseUrls, SkillMarketplaceController } from "@nextclaw-server/features/marketplace/index.js";
+import { McpRoutesController, mountMcpRoutes } from "@nextclaw-server/features/mcp/index.js";
 import { RemoteRoutesController } from "@nextclaw-server/features/remote-access/index.js";
 import { RuntimeControlRoutesController } from "@nextclaw-server/features/runtime-control/index.js";
 import { RuntimeUpdateRoutesController } from "@nextclaw-server/features/runtime-update/index.js";
 import { PanelAppsRoutesController } from "@nextclaw-server/features/panel-apps/index.js";
 import { PreferencesRoutesController } from "@nextclaw-server/features/preferences/index.js";
-import { ProjectsRoutesController } from "@nextclaw-server/features/projects/index.js";
+import { ProjectMaterialRoutesController, ProjectWorkRoutesController, ProjectsRoutesController } from "@nextclaw-server/features/projects/index.js";
 import { ServiceAppsRoutesController } from "@nextclaw-server/features/service-apps/index.js";
 import { err, ok, readJson } from "@nextclaw-server/shared/utils/http-response.utils.js";
 import { createNcpSessionEventStreamResponse } from "@nextclaw-server/app/utils/ncp-session-event-stream.utils.js";
-import { ServerPathRoutesController } from "@nextclaw-server/features/server-path/index.js";
+import { ServerPathRoutesController, type ServerPathWatchService } from "@nextclaw-server/features/server-path/index.js";
 import type { UiRouterOptions } from "@nextclaw-server/app/types/router-options.types.js";
 
 const NCP_AGENT_BASE_PATH = "/api/ncp/agent";
 const AGENT_RUNS_BASE_PATH = "/api/agent-runs";
 
-function createUiRouteControllers(
-  options: UiRouterOptions,
-  authService: UiAuthService,
-  marketplaceBaseUrls: readonly string[]
-) {
-  const {
-    kernel,
-    panelAppClientSdkScript,
-    remoteAccess,
-    runtimeControl,
-    runtimeUpdate,
-  } = options;
+function createUiRouteControllers(options: UiRouterOptions, authService: UiAuthService, marketplaceBaseUrls: readonly string[], serverPathWatchService?: ServerPathWatchService) {
+  const { kernel, panelAppClientSdkScript, remoteAccess, runtimeControl, runtimeUpdate } = options;
   return {
     app: new AppRoutesController(options),
+    capabilityAccess: new CapabilityAccessRoutesController({
+      capabilityGrantManager: kernel.capabilityGrants,
+      getDesktopHost: () => kernel.extensions.getDesktopHost(),
+    }),
+    featureControls: new FeatureControlsRoutesController(kernel.featureControls),
+    appPackages: new AppPackagesRoutesController(kernel.appPackageManager),
+    appData: new AppDataRoutesController(kernel.appDataManager),
     agents: new AgentsRoutesController(options),
     auth: new AuthRoutesController(authService),
     config: new ConfigRoutesController(options),
     cron: new CronRoutesController(options),
     inboxDeliveries: new InboxDeliveriesRoutesController(kernel.inboxDeliveryManager),
+    systemObjectReferences: new SystemObjectReferencesRoutesController(kernel.systemObjectReferenceManager),
     ncpSession: new NcpSessionRoutesController(options),
     ncpAsset: new NcpAssetRoutesController(options),
     panelApps: new PanelAppsRoutesController(kernel.panelAppManager, {
@@ -65,19 +56,22 @@ function createUiRouteControllers(
     }),
     preferences: new PreferencesRoutesController(kernel.preferenceManager),
     projects: new ProjectsRoutesController(kernel.projectManager),
+    projectMaterials: new ProjectMaterialRoutesController(kernel.projectMaterials),
+    projectWork: new ProjectWorkRoutesController(kernel.projectWorkManager),
     serviceApps: new ServiceAppsRoutesController({
       panelAppManager: kernel.panelAppManager,
       serviceAppManager: kernel.serviceAppManager,
+      portableRuntimeAcceptance: kernel.portableRuntimeAcceptance,
     }),
-    serverPath: new ServerPathRoutesController(),
+    serverPath: new ServerPathRoutesController(serverPathWatchService),
     remote: remoteAccess ? new RemoteRoutesController(remoteAccess) : null,
     runtimeControl: runtimeControl ? new RuntimeControlRoutesController(runtimeControl) : null,
     runtimeUpdate: runtimeUpdate ? new RuntimeUpdateRoutesController(runtimeUpdate) : null,
     skillMarketplace: new SkillMarketplaceController(options, marketplaceBaseUrls),
-    mcpMarketplace: new McpMarketplaceController(options, marketplaceBaseUrls)
+    mcpMarketplace: new McpMarketplaceController(options, marketplaceBaseUrls),
+    mcp: new McpRoutesController(options),
   };
 }
-
 type UiRouteControllers = ReturnType<typeof createUiRouteControllers>;
 type HttpMethod = "delete" | "get" | "patch" | "post" | "put";
 type RouteDefinition = readonly [HttpMethod, string, Handler];
@@ -85,7 +79,6 @@ type RouteDefinition = readonly [HttpMethod, string, Handler];
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
-
 function hasOwn(value: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
@@ -107,10 +100,7 @@ function isValidSendEnvelope(value: unknown): value is AgentRunSendIngressPayloa
   return hasMessage ? isRecord(value.message) : Array.isArray(value.content);
 }
 
-function readOptionalSendIdentity(
-  value: Record<string, unknown>,
-  key: "peerId" | "sessionId",
-): string | null | undefined {
+function readOptionalSendIdentity(value: Record<string, unknown>, key: "peerId" | "sessionId"): string | null | undefined {
   if (!hasOwn(value, key)) {
     return undefined;
   }
@@ -131,6 +121,18 @@ function isAbortPayload(value: unknown): value is NcpMessageAbortPayload {
   return isRecord(value) && typeof value.sessionId === "string" && value.sessionId.trim().length > 0;
 }
 
+function isContinuePayload(value: unknown): value is AgentRunContinueIngressPayload {
+  return isRecord(value) && typeof value.sessionId === "string" && value.sessionId.trim().length > 0;
+}
+
+function isEditMessagePayload(value: unknown): value is AgentRunEditMessageIngressPayload {
+  if (!isRecord(value) || typeof value.sessionId !== "string" || !value.sessionId.trim() || typeof value.messageId !== "string" || !value.messageId.trim() || !isRecord(value.message)) {
+    return false;
+  }
+  const message = value.message;
+  return typeof message.id === "string" && message.id.trim().length > 0 && message.role === "user" && Array.isArray(message.parts) && message.parts.length > 0;
+}
+
 class UiRouteRegistry {
   constructor(
     private readonly app: Hono,
@@ -144,10 +146,7 @@ class UiRouteRegistry {
     }
   };
 
-  private readonly mountAgentRunRoutes = (
-    basePath: string,
-    kernel: UiRouterOptions["kernel"],
-  ): void => {
+  private readonly mountAgentRunRoutes = (basePath: string, kernel: UiRouterOptions["kernel"]): void => {
     this.app.post(`${basePath}/send`, async (c) => {
       const body = await readJson<AgentRunSendIngressPayload>(c.req.raw);
       if (!body.ok || !isValidSendEnvelope(body.data)) {
@@ -183,12 +182,37 @@ class UiRouteRegistry {
       );
       return c.json(ok({ accepted: true }));
     });
+    this.app.post(`${basePath}/edit-message`, async (c) => {
+      const body = await readJson<AgentRunEditMessageIngressPayload>(c.req.raw);
+      if (!body.ok || !isEditMessagePayload(body.data)) {
+        return c.json(err("INVALID_BODY", "A valid sessionId, messageId, and user message are required."), 400);
+      }
+      const handle = await kernel.ingress.handle<AgentRunEditMessageIngressPayload, NcpRunHandle>(
+        {
+          type: ingressKeys.agentRun.editMessage,
+          payload: body.data,
+        },
+        { source: "ui-http" },
+      );
+      return c.json(ok(handle));
+    });
+    this.app.post(`${basePath}/continue`, async (c) => {
+      const body = await readJson<AgentRunContinueIngressPayload>(c.req.raw);
+      if (!body.ok || !isContinuePayload(body.data)) {
+        return c.json(err("INVALID_BODY", "sessionId is required."), 400);
+      }
+      const handle = await kernel.ingress.handle<AgentRunContinueIngressPayload, NcpRunHandle>(
+        {
+          type: ingressKeys.agentRun.continue,
+          payload: body.data,
+        },
+        { source: "ui-http" },
+      );
+      return c.json(ok(handle));
+    });
   };
 
-  private readonly mountNcpAgentRoutes = (
-    kernel: UiRouterOptions["kernel"],
-    ncpAsset: UiRouteControllers["ncpAsset"],
-  ): void => {
+  private readonly mountNcpAgentRoutes = (kernel: UiRouterOptions["kernel"], ncpAsset: UiRouteControllers["ncpAsset"]): void => {
     this.mountAgentRunRoutes(NCP_AGENT_BASE_PATH, kernel);
     this.mountRoutes([
       ["post", "/api/ncp/assets", ncpAsset.putAssets],
@@ -197,32 +221,66 @@ class UiRouteRegistry {
   };
 
   private readonly mountResourceRoutes = (): void => {
-    const {
-      ncpSession,
-      inboxDeliveries,
-      panelApps,
-      preferences,
-      projects,
-      serviceApps,
-      serverPath,
-    } = this.controllers;
+    const { appData, appPackages, capabilityAccess, featureControls, ncpSession, inboxDeliveries, panelApps, preferences, projects, projectMaterials, projectWork, serviceApps, serverPath, systemObjectReferences } = this.controllers;
     this.mountRoutes([
       ["get", "/api/ncp/session-types", ncpSession.getSessionTypes],
       ["get", "/api/ncp/sessions", ncpSession.listSessions],
       ["get", "/api/ncp/sessions/:sessionId", ncpSession.getSession],
       ["put", "/api/ncp/sessions/:sessionId", ncpSession.patchSession],
       ["post", "/api/ncp/sessions/:sessionId/context/compact", ncpSession.compactSessionContext],
+      ["get", "/api/ncp/sessions/:sessionId/observations", ncpSession.listSessionObservations],
+      ["patch", "/api/ncp/sessions/:sessionId/observations/:kind/:id", ncpSession.updateSessionObservation],
+      ["get", "/api/ncp/sessions/:sessionId/usage", ncpSession.getSessionTokenUsage],
       ["get", "/api/ncp/sessions/:sessionId/messages", ncpSession.listSessionMessages],
       ["get", "/api/ncp/sessions/:sessionId/queued-inputs", ncpSession.listSessionQueuedInputs],
       ["delete", "/api/ncp/sessions/:sessionId/queued-inputs/:queuedInputId", ncpSession.deleteSessionQueuedInput],
+      ["post", "/api/ncp/sessions/:sessionId/queued-inputs/:queuedInputId/steer", ncpSession.steerSessionQueuedInput],
+      ["get", "/api/ncp/sessions/:sessionId/pending-inputs", ncpSession.listSessionPendingInputs],
       ["get", "/api/ncp/sessions/:sessionId/skills", ncpSession.getSessionSkills],
       ["delete", "/api/ncp/sessions/:sessionId", ncpSession.deleteSession],
       ["get", "/api/inbox/deliveries", inboxDeliveries.list],
       ["get", "/api/inbox/deliveries/:deliveryId", inboxDeliveries.get],
       ["patch", "/api/inbox/deliveries/:deliveryId", inboxDeliveries.updateState],
       ["delete", "/api/inbox/deliveries/:deliveryId", inboxDeliveries.delete],
-      ["post", "/api/inbox/deliveries/:deliveryId/continue", inboxDeliveries.continueInChat],
+      ["get", "/api/system-object-references", systemObjectReferences.list],
+      ["post", "/api/system-object-references/resolve", systemObjectReferences.resolve],
+      ["get", "/api/capability-grants", capabilityAccess.listGrants],
+      ["post", "/api/capability-grants", capabilityAccess.grant],
+      ["delete", "/api/capability-grants", capabilityAccess.revoke],
+      ["get", "/api/feature-controls", featureControls.get],
+      ["get", "/api/desktop-host/status", capabilityAccess.getDesktopStatus],
+      ["get", "/api/desktop-host/permissions", capabilityAccess.getDesktopPermissions],
+      ["post", "/api/desktop-host/permissions/request", capabilityAccess.requestDesktopPermissions],
+      ["post", "/api/desktop-host/permissions/open-settings", capabilityAccess.openDesktopPermissionSettings],
+      ["get", "/api/app-packages", appPackages.list],
+      ["get", "/api/app-data", appData.list],
+      ["delete", "/api/app-data/:dataId", appData.deleteRetained],
+      ["get", "/api/app-package-operations", appPackages.listOperations],
+      ["post", "/api/app-package-operations/install", appPackages.startInstallOperation],
+      ["post", "/api/app-package-operations/:appId/update", appPackages.startUpdateOperation],
+      ["post", "/api/app-package-operations/:appId/rollback", appPackages.startRollbackOperation],
+      ["post", "/api/app-package-operations/:appId/uninstall", appPackages.startUninstallOperation],
+      ["post", "/api/app-packages/install", appPackages.install],
+      ["get", "/api/app-packages/:appId", appPackages.get],
+      ["get", "/api/app-packages/:appId/dependencies", appPackages.inspectDependencies],
+      ["get", "/api/app-packages/:appId/dependencies/verify", appPackages.verifyDependencies],
+      ["post", "/api/app-packages/:appId/dependencies/setup", appPackages.setupDependencies],
+      ["post", "/api/app-packages/:appId/dependencies/bind", appPackages.bindDependency],
+      ["post", "/api/app-packages/:appId/dependencies/unbind", appPackages.unbindDependency],
+      ["get", "/api/app-packages/:appId/secrets", appPackages.inspectSecrets],
+      ["get", "/api/app-packages/:appId/document-access", appPackages.inspectDocumentAccess],
+      ["post", "/api/app-packages/:appId/document-access/grant", appPackages.grantDocumentAccess],
+      ["post", "/api/app-packages/:appId/document-access/revoke", appPackages.revokeDocumentAccess],
+      ["post", "/api/app-packages/:appId/secrets/verify", appPackages.verifySecrets],
+      ["post", "/api/app-packages/:appId/secrets/bind", appPackages.bindSecret],
+      ["post", "/api/app-packages/:appId/secrets/unbind", appPackages.unbindSecret],
+      ["post", "/api/app-packages/:appId/enable", appPackages.enable],
+      ["post", "/api/app-packages/:appId/disable", appPackages.disable],
+      ["post", "/api/app-packages/:appId/update", appPackages.update],
+      ["post", "/api/app-packages/:appId/rollback", appPackages.rollback],
+      ["delete", "/api/app-packages/:appId", appPackages.uninstall],
       ["get", "/api/panel-apps", panelApps.list],
+      ["get", "/api/panel-apps/:id", panelApps.get],
       ["get", "/api/panel-app-bridge.js", panelApps.getPanelAppBridgeScript],
       ["get", "/api/panel-app-client-sdk.js", panelApps.getPanelAppClientSdkScript],
       ["post", "/api/panel-app-bridge-sessions", panelApps.createBridgeSession],
@@ -237,6 +295,24 @@ class UiRouteRegistry {
       ["put", "/api/preferences/:key", preferences.update],
       ["delete", "/api/preferences/:key", preferences.delete],
       ["get", "/api/projects", projects.list],
+      ["delete", "/api/projects/:projectId", projects.remove],
+      ["get", "/api/projects/:projectId/agreement", projectMaterials.agreement],
+      ["get", "/api/projects/:projectId/skills", projectMaterials.skills],
+      ["get", "/api/projects/:projectId/work", projectWork.list],
+      ["get", "/api/projects/:projectId/work/summary", projectWork.summary],
+      ["get", "/api/projects/:projectId/work/artifacts", projectWork.artifacts],
+      ["post", "/api/projects/:projectId/work/items", projectWork.create],
+      ["get", "/api/projects/:projectId/work/items/:workItemId", projectWork.get],
+      ["patch", "/api/projects/:projectId/work/items/:workItemId", projectWork.update],
+      ["delete", "/api/projects/:projectId/work/items/:workItemId", projectWork.delete],
+      ["post", "/api/projects/:projectId/work/items/:workItemId/restore", projectWork.restore],
+      ["get", "/api/projects/:projectId/work/items/:workItemId/activities", projectWork.activities],
+      ["post", "/api/projects/:projectId/work/items/:workItemId/artifacts", projectWork.linkArtifact],
+      ["delete", "/api/projects/:projectId/work/items/:workItemId/artifacts/:artifactLinkId", projectWork.unlinkArtifact],
+      ["get", "/api/projects/:projectId/work/states", projectWork.listStates],
+      ["post", "/api/projects/:projectId/work/states", projectWork.createState],
+      ["patch", "/api/projects/:projectId/work/states/:stateId", projectWork.updateState],
+      ["delete", "/api/projects/:projectId/work/states/:stateId", projectWork.deleteState],
       ["post", "/api/projects", projects.create],
       ["post", "/api/projects/existing", projects.addExisting],
       ["delete", "/api/panel-apps/:id", panelApps.deletePanelApp],
@@ -245,20 +321,43 @@ class UiRouteRegistry {
       ["get", "/api/panel-apps/:id/assets/*", panelApps.getPanelAppAsset],
       ["get", "/api/panel-app-assets/:token/*", panelApps.getPanelAppAssetByToken],
       ["get", "/api/service-apps", serviceApps.listServiceApps],
+      ["get", "/api/service-apps/:appId/ai-capabilities", serviceApps.inspectServiceAppAiCapabilities],
+      ["post", "/api/service-apps/:appId/ai-capabilities/verify", serviceApps.verifyServiceAppAiCapabilities],
+      ["post", "/api/service-apps/:appId/ai-capabilities/bind", serviceApps.bindServiceAppAiCapability],
+      ["post", "/api/service-apps/:appId/ai-capabilities/unbind", serviceApps.unbindServiceAppAiCapability],
       ["post", "/api/service-apps/:appId/restart", serviceApps.restartServiceApp],
       ["post", "/api/service-apps/:appId/actions/discover", serviceApps.discoverServiceAppActions],
+      ["get", "/api/service-apps/:appId/jobs", serviceApps.listServiceAppJobs],
+      ["get", "/api/service-apps/:appId/jobs/:jobId", serviceApps.getServiceAppJob],
+      ["get", "/api/service-apps/:appId/jobs/:jobId/watch", serviceApps.watchServiceAppJob],
+      ["post", "/api/service-apps/:appId/jobs/:jobId/cancel", serviceApps.cancelServiceAppJob],
+      ["get", "/api/service-apps/:appId/resident-inbox", serviceApps.listResidentInbox],
+      ["post", "/api/service-apps/:appId/resident-inbox/:eventId/replay", serviceApps.replayResidentDeadLetter],
       ["get", "/api/service-apps/:appId", serviceApps.getServiceApp],
       ["delete", "/api/service-apps/:appId", serviceApps.deleteServiceApp],
       ["get", "/api/service-actions", serviceApps.listServiceActions],
       ["post", "/api/service-actions/:actionId/invoke", serviceApps.invokeServiceAction],
+      ["post", "/api/service-apps/:appId/actions/:actionName/invoke", serviceApps.invokeInstalledServiceAction],
+      ["get", "/api/runtime-verification-records", serviceApps.listVerificationRecords],
+      ["get", "/api/portable-runtime/acceptance/contract", serviceApps.getPortableRuntimeAcceptanceContract],
+      ["get", "/api/portable-runtime/acceptance/status", serviceApps.getPortableRuntimeAcceptanceStatus],
+      ["get", "/api/portable-runtime/acceptance/export", serviceApps.exportPortableRuntimeAcceptance],
       ["post", "/api/service-actions/:actionId/grant", serviceApps.grantServiceAction],
       ["delete", "/api/service-actions/:actionId/grant", serviceApps.revokeServiceAction],
       ["get", "/api/service-action-grants", serviceApps.listServiceActionGrants],
       ["post", "/api/service-action-grants", serviceApps.grantServiceActions],
+      ["post", "/api/agents/:agentId/service-action-grants", serviceApps.grantAgentServiceActions],
+      ["post", "/api/agents/:agentId/service-actions/:actionId/invoke", serviceApps.invokeAgentServiceAction],
       ["delete", "/api/service-action-grants/:actionId", serviceApps.revokeServiceActionGrant],
       ["get", "/api/server-paths/browse", serverPath.browse],
       ["get", "/api/server-paths/search", serverPath.search],
+      ["post", "/api/server-paths/watch", serverPath.watch],
+      ["delete", "/api/server-paths/watch", serverPath.unwatch],
       ["post", "/api/server-paths/directory", serverPath.createDirectory],
+      ["post", "/api/server-paths/file", serverPath.createFile],
+      ["post", "/api/server-paths/files", serverPath.uploadFiles],
+      ["patch", "/api/server-paths/entry", serverPath.renameEntry],
+      ["delete", "/api/server-paths/entry", serverPath.deleteEntry],
       ["get", "/api/server-paths/read", serverPath.read],
       ["get", "/api/server-paths/content", serverPath.contentByPath],
       ["get", "/api/server-paths/content/*", serverPath.content],
@@ -266,21 +365,13 @@ class UiRouteRegistry {
   };
 
   readonly register = (): void => {
-    const {
-      agents,
-      app,
-      auth,
-      config,
-      cron,
-      ncpAsset,
-      remote,
-      runtimeControl,
-      runtimeUpdate,
-    } = this.controllers;
+    const { agents, app, auth, config, cron, ncpAsset, remote, runtimeControl, runtimeUpdate } = this.controllers;
     this.mountRoutes([
       ["get", "/api/health", app.health],
       ["get", "/api/app/meta", app.appMeta],
       ["get", "/api/runtime/bootstrap-status", app.bootstrapStatus],
+      ["get", "/api/runtime/extensions", app.extensionRuntimeStatus],
+      ["get", "/api/runtime/extensions/catalog", app.extensionCatalog],
       ["get", "/api/auth/status", auth.getStatus],
       ["post", "/api/auth/setup", auth.setup],
       ["post", "/api/auth/login", auth.login],
@@ -298,12 +389,16 @@ class UiRouteRegistry {
       ["get", "/api/config", config.getConfig],
       ["get", "/api/config/meta", config.getConfigMeta],
       ["get", "/api/config/schema", config.getConfigSchema],
+      ["get", "/api/config/product-analytics/status", config.getProductAnalyticsStatus],
       ["get", "/api/providers", config.listProviders],
       ["get", "/api/provider-templates", config.listProviderTemplates],
+      ["get", "/api/provider-model-catalog", config.listProviderModelCatalog],
       ["post", "/api/providers", config.createProvider],
       ["put", "/api/providers/:providerId", config.updateProvider],
       ["delete", "/api/providers/:providerId", config.deleteProvider],
       ["post", "/api/providers/:providerId/test", config.testProviderConnection],
+      ["post", "/api/providers/:providerId/models/:model/test-latency", config.testProviderModelLatency],
+      ["post", "/api/providers/:providerId/models/discover", config.discoverProviderModels],
       ["post", "/api/providers/:providerId/auth/start", config.startProviderAuth],
       ["post", "/api/providers/:providerId/auth/poll", config.pollProviderAuth],
       ["post", "/api/providers/:providerId/auth/import-cli", config.importProviderAuthFromCli],
@@ -314,6 +409,7 @@ class UiRouteRegistry {
       ["post", "/api/config/channels/:channel/auth/connect", config.connectChannelAuth],
       ["post", "/api/config/channels/:channel/auth/poll", config.pollChannelAuth],
       ["put", "/api/config/secrets", config.updateSecrets],
+      ["put", "/api/config/product-analytics", config.updateProductAnalytics],
       ["put", "/api/config/runtime", config.updateRuntime],
       ["post", "/api/config/actions/:actionId/execute", config.executeAction],
     ]);
@@ -377,29 +473,23 @@ class UiRouteRegistry {
     });
     mountMarketplaceRoutes(this.app, {
       skill: this.controllers.skillMarketplace,
-      mcp: this.controllers.mcpMarketplace
+      mcp: this.controllers.mcpMarketplace,
     });
+    mountMcpRoutes(this.app, this.controllers.mcp);
   };
 }
 
-export function createUiRouter(options: UiRouterOptions, authServiceOverride?: UiAuthService): Hono {
+export function createUiRouter(options: UiRouterOptions, authServiceOverride?: UiAuthService, internal?: { serverPathWatchService?: ServerPathWatchService }): Hono {
   const app = new Hono();
   const marketplaceBaseUrls = resolveMarketplaceBaseUrls(options);
-  const authService = authServiceOverride ?? options.authService ?? new UiAuthService(
-    options.kernel.accessManager ?? new AccessManager({ configPath: options.configPath }),
-  );
-  const controllers = createUiRouteControllers(options, authService, marketplaceBaseUrls);
+  const authService = authServiceOverride ?? options.authService ?? new UiAuthService(options.kernel.accessManager ?? new AccessManager({ configPath: options.configPath }));
+  const controllers = createUiRouteControllers(options, authService, marketplaceBaseUrls, internal?.serverPathWatchService);
 
   app.notFound((c) => c.json(err("NOT_FOUND", "endpoint not found"), 404));
 
   app.use("/api/*", async (c, next) => {
     const path = c.req.path;
-    if (
-      path === "/api/health" ||
-      path === "/api/runtime/bootstrap-status" ||
-      path.startsWith("/api/auth/") ||
-      path.startsWith("/api/panel-app-assets/")
-    ) {
+    if (path === "/api/health" || path === "/api/runtime/bootstrap-status" || path.startsWith("/api/auth/") || path.startsWith("/api/panel-app-assets/")) {
       await next();
       return;
     }

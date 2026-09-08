@@ -7,6 +7,9 @@ import type {
   ProviderConfigUpdate,
   ProviderConnectionTestRequest,
   ProviderConnectionTestResult,
+  ProviderModelDiscoveryRequest,
+  ProviderModelDiscoveryResult,
+  ProviderModelCatalogView,
   ProviderCreateRequest,
   ProviderCreateResult,
   ProviderDeleteResult,
@@ -25,6 +28,10 @@ export class ProviderService {
 
   readonly listTemplates = async (): Promise<ProviderTemplatesView> => {
     return await this.requestService.get<ProviderTemplatesView>("/api/provider-templates");
+  };
+
+  readonly listModelCatalog = async (): Promise<ProviderModelCatalogView> => {
+    return await this.requestService.get<ProviderModelCatalogView>("/api/provider-model-catalog");
   };
 
   readonly update = async (providerId: string, data: ProviderConfigUpdate): Promise<ProviderInstanceView> => {
@@ -51,6 +58,25 @@ export class ProviderService {
     return await this.requestService.post<ProviderConnectionTestResult>(
       `/api/providers/${encodeURIComponent(providerId)}/test`,
       data
+    );
+  };
+
+  readonly testModelLatency = async (
+    providerId: string,
+    model: string,
+  ): Promise<{ latencyMs: number; ok: boolean; error?: string }> => {
+    return await this.requestService.post<{ latencyMs: number; ok: boolean; error?: string }>(
+      `/api/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(model)}/test-latency`,
+    );
+  };
+
+  discoverModels = async (
+    providerId: string,
+    data: ProviderModelDiscoveryRequest,
+  ): Promise<ProviderModelDiscoveryResult> => {
+    return await this.requestService.post<ProviderModelDiscoveryResult>(
+      `/api/providers/${encodeURIComponent(providerId)}/models/discover`,
+      data,
     );
   };
 
