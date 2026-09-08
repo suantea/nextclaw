@@ -38,7 +38,7 @@ export class Bm25Index {
     Object.assign(this.params, { k1, b });
   }
 
-  addDocument(doc: Bm25Document): void {
+  addDocument = (doc: Bm25Document): void => {
     this.documents.push(doc);
     const tokens = tokenize(doc.content);
     const docId = doc.id;
@@ -57,7 +57,7 @@ export class Bm25Index {
       this.avgDocLen * ((this.docCount - 1) / this.docCount) + tokens.length / this.docCount;
   }
 
-  removeDocument(docId: string): void {
+  removeDocument = (docId: string): void => {
     const idx = this.documents.findIndex((d) => d.id === docId);
     if (idx === -1) return;
     this.documents.splice(idx, 1);
@@ -66,7 +66,7 @@ export class Bm25Index {
     this.rebuild();
   }
 
-  private rebuild(): void {
+  private rebuild = (): void => {
     this.invertedIndex.clear();
     this.docLens.clear();
     let totalLen = 0;
@@ -88,7 +88,7 @@ export class Bm25Index {
     this.avgDocLen = this.docCount > 0 ? totalLen / this.docCount : 0;
   }
 
-  search(query: string, k: number = 10): Bm25Document[] {
+  search = (query: string, k: number = 10): Bm25Document[] => {
     if (this.docCount === 0) return [];
     const tokens = tokenize(query);
     if (tokens.length === 0) return [];

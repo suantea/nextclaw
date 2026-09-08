@@ -1,7 +1,7 @@
 import { NcpEventType, type NcpEndpointEvent } from "@nextclaw/ncp";
 import { Contribution, eventKeys, type Unsubscribe } from "@nextclaw/shared";
 import type { NextclawKernel } from "@kernel/app/nextclaw-kernel.js";
-import { readMemoryCaptureRuntimeConfig, type MemoryCaptureRuntimeConfig } from "../learning-loop/config.js";
+import { readMemoryCaptureRuntimeConfig, type MemoryCaptureRuntimeConfig } from "@kernel/contributions/learning-loop/index.js";
 import type { MemoryStore } from "@nextclaw/core";
 
 type SessionStore = {

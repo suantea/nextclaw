@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from "node:fs";
 import { join, relative } from "node:path";
-import { ensureDir, todayDate } from "../../../../shared/lib/core-utils/utils/helpers.utils.js";
+import { ensureDir, todayDate } from "@core/shared/lib/core-utils/index.js";
 
 const readTextIfExists = (path: string): string => (existsSync(path) ? readFileSync(path, "utf-8") : "");
 

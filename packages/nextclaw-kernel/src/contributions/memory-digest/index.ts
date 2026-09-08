@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { Contribution, eventKeys, type Unsubscribe } from "@nextclaw/shared";
 import { NcpEventType, type NcpEndpointEvent } from "@nextclaw/ncp";
 import type { NextclawKernel } from "@kernel/app/nextclaw-kernel.js";
-import { readMemoryCaptureRuntimeConfig, type MemoryCaptureRuntimeConfig } from "../learning-loop/config.js";
+import { readMemoryCaptureRuntimeConfig, type MemoryCaptureRuntimeConfig } from "@kernel/contributions/learning-loop/index.js";
 import type { MemoryDigestCategory, MemoryStore } from "@nextclaw/core";
 
 type DigestNode = {
