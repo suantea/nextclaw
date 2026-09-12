@@ -32,7 +32,7 @@ import type { AgentRunRequest } from "@kernel/types/agent-run.types.js";
 
 const tempWorkspaces: string[] = [];
 const NATIVE_CONTEXT_SECTION_ORDER = [
-  "You are a personal assistant running inside nextclaw.",
+  "You are nextclaw, a long-term personal partner.",
   "## Tool Call Style",
   "## Chat Composer Tokens",
   "## Safety",
@@ -308,7 +308,7 @@ describe("ContextProviderContribution native prompt contract", () => {
       .join("\n\n");
 
     for (const expected of [
-      "You are a personal assistant running inside nextclaw.",
+      "You are nextclaw, a long-term personal partner.",
       "provider tool schemas are the complete policy-filtered tool catalog",
       "# Project Context",
       "NextClaw Resource Protocol (NextClaw 资源协议)",

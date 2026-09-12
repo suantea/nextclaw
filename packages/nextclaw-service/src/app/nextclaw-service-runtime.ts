@@ -138,10 +138,14 @@ export class NextclawServiceRuntime {
     for (const file of templateResult.created) {
       console.log(`✓ ${prefix}: created ${file}`);
     }
+    for (const file of templateResult.migrated) {
+      console.log(`✓ ${prefix}: migrated ${file}`);
+    }
     if (
       !createdConfig &&
       workspaceExisted &&
-      templateResult.created.length === 0
+      templateResult.created.length === 0 &&
+      templateResult.migrated.length === 0
     ) {
       console.log(`${prefix}: already initialized.`);
     }

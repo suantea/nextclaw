@@ -8,7 +8,7 @@ import { SystemObjectReferenceContextProvider } from "./providers/system-object-
 import { UiResourceReferenceContextProvider } from "./providers/ui-resource-reference-context.provider.js";
 import { ExecutionPolicyContextProvider } from "./providers/execution-policy-context.provider.js";
 import {
-  createAssistantIdentityContextProvider,
+  createPartnerIdentityContextProvider,
   createChatComposerTokensContextProvider,
   createCliQuickReferenceContextProvider,
   createMemoryRecallContextProvider,
@@ -44,7 +44,7 @@ export class ContextProviderContribution extends Contribution {
     const context = new ContextProviderRunContextService(this.kernel);
 
     for (const provider of [
-      createAssistantIdentityContextProvider(),
+      createPartnerIdentityContextProvider(),
       createToolCallStyleContextProvider(),
       createChatComposerTokensContextProvider(),
       createSafetyContextProvider(),

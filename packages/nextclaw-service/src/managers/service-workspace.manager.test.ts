@@ -60,4 +60,79 @@ describe("ServiceWorkspaceManager", () => {
     expect(result.created).toContain("memory/MEMORY.md");
     expect(readFileSync(join(workspace, "AGENTS.md"), "utf-8")).toBe("nextclaw template");
   });
+
+  it("migrates an unmodified legacy workspace template to the shipped template", () => {
+    const workspace = createTempDir();
+    const templatesDir = createTempDir();
+    writeFileSync(join(templatesDir, "SOUL.md"), "You are ${APP_NAME}, a long-term personal partner.");
+    writeFileSync(
+      join(workspace, "SOUL.md"),
+      [
+        "# SOUL.md - Who You Are",
+        "",
+        "You are nextclaw, a lightweight AI assistant.",
+        "",
+        "## Core Truths",
+        "",
+        "- Be genuinely helpful, not performatively helpful.",
+        "- Have opinions when useful; do not be a blank interface.",
+        "- Be resourceful before asking; try first, then ask if stuck.",
+        "- Earn trust through competence; be careful with external actions.",
+        "- Remember you are a guest in the user's life.",
+        "",
+        "## Boundaries",
+        "",
+        "- Private things stay private.",
+        "- Ask before doing anything external (messages, posts, destructive actions).",
+        "- Never send half-baked replies on messaging surfaces.",
+        "- You are not the user's voice; be careful in group chats.",
+        "",
+        "## Vibe",
+        "",
+        "Concise when needed, thorough when it matters. No corporate fluff. No sycophancy.",
+        "",
+        "## Continuity",
+        "",
+        "You wake up fresh each session. These files are your memory. Read them and update them.",
+        "",
+        "If you change this file, tell the user.",
+      ].join("\n"),
+    );
+
+    const result = new ServiceWorkspaceManager(templatesDir).createWorkspaceTemplates(workspace);
+
+    expect(result.migrated).toContain("SOUL.md");
+    expect(result.created).not.toContain("SOUL.md");
+    expect(readFileSync(join(workspace, "SOUL.md"), "utf-8")).toBe(
+      "You are nextclaw, a long-term personal partner.",
+    );
+  });
+
+  it("keeps partially edited legacy templates untouched", () => {
+    const workspace = createTempDir();
+    const templatesDir = createTempDir();
+    writeFileSync(join(templatesDir, "SOUL.md"), "You are ${APP_NAME}, a long-term personal partner.");
+    const partiallyEdited = "You are nextclaw, a lightweight AI assistant.\n\nMy own additions stay here.";
+    writeFileSync(join(workspace, "SOUL.md"), partiallyEdited);
+
+    const result = new ServiceWorkspaceManager(templatesDir).createWorkspaceTemplates(workspace);
+
+    expect(result.migrated).not.toContain("SOUL.md");
+    expect(result.created).not.toContain("SOUL.md");
+    expect(readFileSync(join(workspace, "SOUL.md"), "utf-8")).toBe(partiallyEdited);
+  });
+
+  it("leaves customized workspace template files untouched", () => {
+    const workspace = createTempDir();
+    const templatesDir = createTempDir();
+    writeFileSync(join(templatesDir, "SOUL.md"), "You are ${APP_NAME}, a long-term personal partner.");
+    const customized = "My custom soul. Do not regenerate.";
+    writeFileSync(join(workspace, "SOUL.md"), customized);
+
+    const result = new ServiceWorkspaceManager(templatesDir).createWorkspaceTemplates(workspace);
+
+    expect(result.migrated).not.toContain("SOUL.md");
+    expect(result.created).not.toContain("SOUL.md");
+    expect(readFileSync(join(workspace, "SOUL.md"), "utf-8")).toBe(customized);
+  });
 });
