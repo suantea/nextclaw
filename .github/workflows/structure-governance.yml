@@ -53,6 +53,9 @@ jobs:
       - name: Governance backlog ratchet
         run: pnpm check:governance-backlog-ratchet
 
+      - name: Maintainability hotspot registry integrity
+        run: pnpm lint:maintainability:hotspots
+
       - name: Generate topology report
         run: pnpm report:topology -- --top 50 > topology-governance-report.txt
 

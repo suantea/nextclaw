@@ -12,20 +12,20 @@ export const HOTSPOT_LOG_REQUIRED_FIELDS = ["本次是否减债", "说明", "下
 
 export const MAINTAINABILITY_HOTSPOTS = [
   {
-    chain: "core-runtime",
-    path: "packages/nextclaw-core/src/agent/loop.ts",
-    rationale: "主循环同时承担 session 驱动、tool orchestration、事件分发与响应收尾。",
-    allowedAdditions: ["主循环既有阶段内的 bug fix", "拆分为独立阶段模块所需的最小接线代码"],
-    prohibitedAdditions: ["新增 prompt 组装职责", "新增 tool 策略分支", "新增持久化/事件副作用编排"],
-    nextSplitSeam: "先拆 session lookup、tool loop orchestration、response finalization 三段。"
+    chain: "agent-runtime-main-chain",
+    path: "packages/ncp-packages/nextclaw-ncp-agent-runtime-next/src/runtime/agent-runtime.service.ts",
+    rationale: "NCP 主运行链路（kernel 消费）的 DefaultNcpAgentRuntime 同时承担模型轮次驱动、tool call 执行编排、事件流 drain/编码与 run 收尾。",
+    allowedAdditions: ["既有轮次/工具调用阶段内的 bug fix", "拆分为独立阶段模块所需的最小接线代码"],
+    prohibitedAdditions: ["新增 context/prompt 组装职责", "新增 tool 策略分支", "新增持久化/事件副作用编排"],
+    nextSplitSeam: "先拆 model round 驱动、tool call 执行编排、event stream drain/finalization 三段。"
   },
   {
     chain: "cli-service-runtime",
-    path: "packages/nextclaw/src/cli/commands/diagnostics.ts",
-    rationale: "诊断入口已同时承担状态采集、健康检查、格式化输出与错误整理。",
-    allowedAdditions: ["诊断结果字段级修正", "向独立采集器/渲染器迁移时的桥接代码"],
+    path: "packages/nextclaw-service/src/services/diagnostics/diagnostics-commands.service.ts",
+    rationale: "诊断命令服务已拆出 renderer，但 runtime status 采集（HTTP/端口/健康探测）、doctor check 组装与 issue 整理仍内联在同一个 service。",
+    allowedAdditions: ["诊断字段级修正", "向独立采集器迁移时的桥接代码"],
     prohibitedAdditions: ["新增运行时探测流程编排", "新增用户输出格式分支", "新增服务生命周期控制逻辑"],
-    nextSplitSeam: "先拆 diagnostics collector、runtime status mapper、user-facing renderer。"
+    nextSplitSeam: "先拆 runtime status collector，把 HTTP/端口/健康探测从命令服务中移出。"
   },
   {
     chain: "server-ui-backend",
@@ -50,14 +50,6 @@ export const MAINTAINABILITY_HOTSPOTS = [
     allowedAdditions: ["平台兼容修复", "向共享 stream flush / attachment adapter 下沉时的最小桥接"],
     prohibitedAdditions: ["新增长流程 branching", "新增 incoming policy 编排", "新增重复的 platform send/edit 逻辑"],
     nextSplitSeam: "先拆 flush coordinator、incoming normalizer、platform send/edit abstraction。"
-  },
-  {
-    chain: "ui-config-forms",
-    path: "packages/nextclaw-ui/src/components/config/ProviderForm.tsx",
-    rationale: "单个表单容器长期持有 state、auth flow、normalization 与 mutation orchestration。",
-    allowedAdditions: ["字段级 UI 修复", "向 hook/section/adapter 下沉逻辑时的最小拼接"],
-    prohibitedAdditions: ["新增 auth polling 流程", "新增 submit normalization 分支", "新增跨 section 状态编排"],
-    nextSplitSeam: "先拆 form state hook、auth flow hook、field sections、submit adapter。"
   }
 ];
 
@@ -174,6 +166,14 @@ function buildCliReport(args) {
 function printHuman(report) {
   console.log("Maintainability hotspots");
   console.log(`Tracked hotspots: ${report.length}`);
+  const missingEntries = report.filter((hotspot) => !hotspot.exists);
+  if (missingEntries.length > 0) {
+    console.log("");
+    console.log(`Stale registry entries: ${missingEntries.length}`);
+    for (const hotspot of missingEntries) {
+      console.log(`- [${hotspot.chain}] ${hotspot.path} no longer exists; re-point it to the current owner or retire the entry.`);
+    }
+  }
 
   for (const hotspot of report) {
     console.log("");
@@ -198,6 +198,9 @@ function main() {
   }
 
   if (report.some((entry) => !entry.exists)) {
+    if (!args.json) {
+      console.error("Hotspot registry integrity check failed: every entry must point to an existing file.");
+    }
     process.exit(1);
   }
 }
