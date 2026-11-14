@@ -1,7 +1,6 @@
 import {
   getWorkspacePath,
   parseThinkingLevel,
-  RequestedSkillsMetadataReader,
   resolveSessionWorkspacePath,
   resolveThinkingLevel,
   type Config,
@@ -41,18 +40,16 @@ export type NextclawNcpResolvedRunContext = {
   chatId: string;
   config: Config;
   effectiveModel: string;
+  effectiveFallbackModel: string;
   effectiveWorkspace: string;
   profile: NextclawNcpResolvedAgentProfile;
   requestMetadata: Record<string, unknown>;
-  requestedSkills: ReturnType<RequestedSkillsMetadataReader["readSelection"]>;
   requestedToolNames: string[];
   runtimeThinking: ReturnType<typeof resolveThinkingLevel>;
   sessionKey: string;
   sessionMetadata: Record<string, unknown>;
   toolRunContext: ToolRunContext;
 };
-
-const REQUESTED_SKILLS_METADATA_READER = new RequestedSkillsMetadataReader();
 
 function resolveRequestedToolNames(
   metadata: Record<string, unknown>,
@@ -99,7 +96,7 @@ export function buildNextclawNcpRunContext(
     config,
     profile: agentProfile,
   });
-  const { metadata: modelMetadata, model: effectiveModel } =
+  const { metadata: modelMetadata, model: effectiveModel, fallbackModel: effectiveFallbackModel } =
     resolveEffectiveModel({
       sessionMetadata: requestMetadata,
       requestMetadata,
@@ -114,8 +111,6 @@ export function buildNextclawNcpRunContext(
     requestMetadata,
   });
   const sessionMetadata = channelContext.metadata;
-  const requestedSkills =
-    REQUESTED_SKILLS_METADATA_READER.readSelection(requestMetadata);
   const runtimeThinking = resolveThinkingLevel({
     config,
     agentId: profile.agentId,
@@ -129,10 +124,10 @@ export function buildNextclawNcpRunContext(
     chatId: channelContext.chatId,
     config,
     effectiveModel,
+    effectiveFallbackModel,
     effectiveWorkspace,
     profile,
     requestMetadata,
-    requestedSkills,
     requestedToolNames: resolveRequestedToolNames(requestMetadata),
     runtimeThinking,
     sessionKey: sessionId,

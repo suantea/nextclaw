@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { ProviderModelDiscoveryHttpError } from "@nextclaw/core";
 import {
   buildConfigSchemaView,
   buildConfigMeta,
@@ -13,10 +14,11 @@ import {
   createProvider,
   deleteProvider,
   updateProvider,
-  testProviderConnection,
+  updateProductAnalytics,
   updateSecrets,
   updateRuntime
 } from "@nextclaw-server/features/config/index.js";
+import { ProviderConnectivityService } from "@nextclaw-server/features/config/services/provider-connectivity.service.js";
 import { connectChannelAuth, pollChannelAuth, startChannelAuth } from "@nextclaw-server/features/config/utils/channel-auth.utils.js";
 import { importProviderAuthFromCli, pollProviderAuth, startProviderAuth } from "@nextclaw-server/features/config/utils/provider-auth.utils.js";
 import type {
@@ -27,6 +29,7 @@ import type {
   ChannelAuthStartResult,
   ConfigActionExecuteRequest,
   ProviderConnectionTestRequest,
+  ProviderModelDiscoveryRequest,
   ProviderAuthStartRequest,
   ProviderAuthPollResult,
   ProviderAuthImportResult,
@@ -34,6 +37,7 @@ import type {
   ProviderCreateRequest,
   ProviderCreateResult,
   ProviderDeleteResult,
+  ProductAnalyticsConfigUpdate,
   ProviderConfigUpdate,
   SearchConfigUpdate,
   SecretsConfigUpdate,
@@ -45,8 +49,11 @@ import { emitChannelConfigApplyStatus, emitConfigUpdated, emitUiError } from "@n
 
 export class ConfigRoutesController {
   private readonly channelConfigApplyTasks = new Map<string, Promise<void>>();
+  private readonly providerConnectivity: ProviderConnectivityService;
 
-  constructor(private readonly options: UiRouterOptions) {}
+  constructor(private readonly options: UiRouterOptions) {
+    this.providerConnectivity = new ProviderConnectivityService(options.configPath, options.kernel.llmProviders);
+  }
 
   private readonly getExtensionConfigProjectionOptions = () => {
     return {
@@ -122,6 +129,15 @@ export class ConfigRoutesController {
     return c.json(ok(buildConfigMeta(config, this.getExtensionConfigProjectionOptions())));
   };
 
+  readonly getProductAnalyticsStatus = (c: Context) => {
+    return c.json(ok(this.options.productActivity?.getStatus() ?? {
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      lastError: null,
+      pendingReceiptCount: 0,
+    }));
+  };
+
   readonly listProviders = (c: Context) => {
     const config = loadConfigOrDefault(this.options.configPath);
     return c.json(ok(buildProvidersView(config)));
@@ -129,6 +145,10 @@ export class ConfigRoutesController {
 
   readonly listProviderTemplates = (c: Context) => {
     return c.json(ok(buildProviderTemplatesView()));
+  };
+
+  readonly listProviderModelCatalog = (c: Context) => {
+    return c.json(ok(this.options.kernel.providerModelCatalog.getSnapshot()));
   };
 
   readonly getConfigSchema = (c: Context) => {
@@ -229,16 +249,42 @@ export class ConfigRoutesController {
     if (!body.ok) {
       return c.json(err("INVALID_BODY", "invalid json body"), 400);
     }
-    const result = await testProviderConnection(
-      this.options.configPath,
-      provider,
-      body.data as ProviderConnectionTestRequest,
-      this.options.kernel.llmProviders
-    );
+    const result = await this.providerConnectivity.testConnection(provider, body.data as ProviderConnectionTestRequest);
     if (!result) {
       return c.json(err("NOT_FOUND", `unknown provider: ${provider}`), 404);
     }
     return c.json(ok(result));
+  };
+
+  readonly testProviderModelLatency = async (c: Context) => {
+    const provider = c.req.param("providerId");
+    const model = c.req.param("model");
+    if (!model) {
+      return c.json(err("INVALID_BODY", "model parameter is required."), 400);
+    }
+    const result = await this.providerConnectivity.testModelLatency(provider, model);
+    return c.json(ok(result));
+  };
+
+  discoverProviderModels = async (c: Context) => {
+    const provider = c.req.param("providerId");
+    const body = await readJson<Record<string, unknown>>(c.req.raw);
+    if (!body.ok) {
+      return c.json(err("INVALID_BODY", "invalid json body"), 400);
+    }
+    try {
+      const result = await this.providerConnectivity.discoverModels(provider, body.data as ProviderModelDiscoveryRequest);
+      if (!result) {
+        return c.json(err("NOT_FOUND", `unknown provider: ${provider}`), 404);
+      }
+      return c.json(ok(result));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const details = error instanceof ProviderModelDiscoveryHttpError
+        ? { upstreamStatus: error.upstreamStatus }
+        : undefined;
+      return c.json(err("PROVIDER_MODEL_DISCOVERY_FAILED", message, details), 502);
+    }
   };
 
   readonly startProviderAuth = async (c: Context) => {
@@ -427,31 +473,55 @@ export class ConfigRoutesController {
     return c.json(ok(result));
   };
 
+  readonly updateProductAnalytics = async (c: Context) => {
+    const body = await readJson<Record<string, unknown>>(c.req.raw);
+    if (!body.ok) {
+      return c.json(err("INVALID_BODY", "invalid json body"), 400);
+    }
+    const result = updateProductAnalytics(
+      this.options.configPath,
+      body.data as ProductAnalyticsConfigUpdate,
+    );
+    await this.publishConfigUpdates(["productAnalytics"]);
+    return c.json(ok(result));
+  };
+
   readonly updateRuntime = async (c: Context) => {
     const body = await readJson<RuntimeConfigUpdate>(c.req.raw);
     if (!body.ok || !body.data || typeof body.data !== "object") {
       return c.json(err("INVALID_BODY", "invalid json body"), 400);
     }
-    const result = updateRuntime(this.options.configPath, body.data);
-    const changedPaths: string[] = [];
-    if (body.data.agents?.defaults && Object.prototype.hasOwnProperty.call(body.data.agents.defaults, "contextTokens")) {
-      changedPaths.push("agents.defaults.contextTokens");
+    try {
+      const contextTokens = body.data.agents?.defaults?.contextTokens;
+      if (typeof contextTokens === "number") {
+        await this.options.kernel.agentContextWindowManager.assertDefaultCanSave(contextTokens);
+      }
+      const result = updateRuntime(this.options.configPath, body.data);
+      const changedPaths: string[] = [];
+      if (body.data.agents?.defaults && Object.prototype.hasOwnProperty.call(body.data.agents.defaults, "contextTokens")) {
+        changedPaths.push("agents.defaults.contextTokens");
+      }
+      if (body.data.agents?.defaults && Object.prototype.hasOwnProperty.call(body.data.agents.defaults, "engine")) {
+        changedPaths.push("agents.defaults.engine");
+      }
+      if (body.data.agents?.defaults && Object.prototype.hasOwnProperty.call(body.data.agents.defaults, "engineConfig")) {
+        changedPaths.push("agents.defaults.engineConfig");
+      }
+      if (body.data.agents?.runtimes && Object.prototype.hasOwnProperty.call(body.data.agents.runtimes, "entries")) {
+        changedPaths.push("agents.runtimes.entries");
+      }
+      if (body.data.companion && Object.prototype.hasOwnProperty.call(body.data.companion, "enabled")) {
+        changedPaths.push("companion.enabled");
+      }
+      changedPaths.push("agents.list", "bindings", "session");
+      await this.publishConfigUpdates(changedPaths);
+      return c.json(ok(result));
+    } catch (error) {
+      return c.json(err(
+        "RUNTIME_CONFIG_UPDATE_FAILED",
+        error instanceof Error ? error.message : String(error),
+      ), 400);
     }
-    if (body.data.agents?.defaults && Object.prototype.hasOwnProperty.call(body.data.agents.defaults, "engine")) {
-      changedPaths.push("agents.defaults.engine");
-    }
-    if (body.data.agents?.defaults && Object.prototype.hasOwnProperty.call(body.data.agents.defaults, "engineConfig")) {
-      changedPaths.push("agents.defaults.engineConfig");
-    }
-    if (body.data.agents?.runtimes && Object.prototype.hasOwnProperty.call(body.data.agents.runtimes, "entries")) {
-      changedPaths.push("agents.runtimes.entries");
-    }
-    if (body.data.companion && Object.prototype.hasOwnProperty.call(body.data.companion, "enabled")) {
-      changedPaths.push("companion.enabled");
-    }
-    changedPaths.push("agents.list", "bindings", "session");
-    await this.publishConfigUpdates(changedPaths);
-    return c.json(ok(result));
   };
 
   readonly executeAction = async (c: Context) => {

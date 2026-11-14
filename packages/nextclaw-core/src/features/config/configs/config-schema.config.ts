@@ -185,7 +185,6 @@ export const AgentDefaultsSchema = z.object({
     .default({}),
   contextTokens: z.number().int().min(1000).default(200000),
   reservedContextTokens: z.number().int().min(0).optional(),
-  maxToolIterations: z.number().int().default(1000)
 });
 
 export const AgentProfileSchema = z.object({
@@ -208,7 +207,6 @@ export const AgentProfileSchema = z.object({
     .optional(),
   contextTokens: z.number().int().min(1000).optional(),
   reservedContextTokens: z.number().int().min(0).optional(),
-  maxToolIterations: z.number().int().optional()
 });
 
 export const AgentRuntimeEntrySchema = z.object({
@@ -279,11 +277,18 @@ export const AgentsLearningLoopSchema = z.object({
   toolCallThreshold: z.number().int().min(1).default(15)
 });
 
+export const AgentsMemoryCaptureSchema = z.object({
+  enabled: z.boolean().default(false),
+  captureInterval: z.number().int().min(1).default(3),
+  digestWindowDays: z.number().int().min(1).default(3)
+});
+
 export const AgentsConfigSchema = z.object({
   defaults: AgentDefaultsSchema.default({}),
   runtimes: AgentRuntimesConfigSchema.default({}),
   context: ContextConfigSchema.default({}),
   learningLoop: AgentsLearningLoopSchema.default({}),
+  memoryCapture: AgentsMemoryCaptureSchema.default({}),
   list: z.array(AgentProfileSchema).default([])
 });
 
@@ -339,6 +344,12 @@ export const RemoteConfigSchema = z.object({
 
 export const CompanionConfigSchema = z.object({
   enabled: z.boolean().default(false)
+});
+
+export const ProductAnalyticsConfigSchema = z.object({
+  schemaVersion: z.literal(2).default(2),
+  enabled: z.boolean().default(true),
+  audience: z.enum(["external", "internal", "qa"]).default("external")
 });
 
 const mcpNamedStringSchema = z.string().trim().min(1);
@@ -420,7 +431,7 @@ export const WebSearchConfigSchema = z.object({
   maxResults: z.number().int().default(5)
 });
 
-export const SearchProviderNameSchema = z.enum(["bocha", "tavily", "brave"]);
+export const SearchProviderNameSchema = z.enum(["bocha", "tavily", "brave", "exa"]);
 export const BochaSearchFreshnessSchema = z.enum(["noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear"]);
 export const TavilySearchDepthSchema = z.enum(["basic", "advanced"]);
 
@@ -448,6 +459,11 @@ export const TavilySearchProviderConfigSchema = z.object({
   includeAnswer: z.boolean().default(false)
 });
 
+export const ExaSearchProviderConfigSchema = z.object({
+  apiKey: z.string().default(""),
+  baseUrl: z.string().default("https://api.exa.ai/search")
+});
+
 export const SearchConfigSchema = z.object({
   provider: SearchProviderNameSchema.default("bocha"),
   enabledProviders: z.array(SearchProviderNameSchema).default(["bocha"]),
@@ -456,7 +472,8 @@ export const SearchConfigSchema = z.object({
     .object({
       bocha: BochaSearchProviderConfigSchema.default({}),
       tavily: TavilySearchProviderConfigSchema.default({}),
-      brave: BraveSearchProviderConfigSchema.default({})
+      brave: BraveSearchProviderConfigSchema.default({}),
+      exa: ExaSearchProviderConfigSchema.default({})
     })
     .default({})
 });
@@ -533,6 +550,7 @@ export const ConfigSchema = z.object({
   ui: UiConfigSchema.default({}),
   remote: RemoteConfigSchema.default({}),
   companion: CompanionConfigSchema.default({}),
+  productAnalytics: ProductAnalyticsConfigSchema.default({}),
   tools: ToolsConfigSchema.default({}),
   secrets: SecretsConfigSchema.default({})
 });

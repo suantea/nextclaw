@@ -1,7 +1,10 @@
 import {
   buildChatSlashItems,
+  buildModelStateHint,
   buildModelToolbarSelect,
-  buildSkillPickerModel
+  buildSkillPickerModel,
+  toModelShortLabel,
+  groupModelValues,
 } from '@/features/chat/features/input/utils/chat-input-bar.utils';
 import type { ChatSkillRecord } from '@/features/chat/features/input/utils/chat-input-bar.utils';
 
@@ -22,11 +25,50 @@ function createModelTexts() {
     favoriteModelsLabel: 'Favorites',
     favoriteModelLabel: 'Favorite model',
     unfavoriteModelLabel: 'Remove favorite',
+    manageModelsLabel: 'Manage models and providers',
+    discoveredModelsSummaryLabel: '{count} new models available',
+    discoveredModelsViewLabel: 'View',
+    discoveredModelsGroupLabel: 'New models',
+    discoveredModelAddLabel: 'Add',
+    discoveredModelAddedLabel: 'Added',
+    discoveredModelsDismissLabel: 'Dismiss this batch',
+    discoveredModelsDoneLabel: 'Done',
+    discoveredModelsCloseLabel: 'Close new models',
     recentModelsLabel: 'Recent',
     allModelsLabel: 'All models'
   };
 }
 
+describe('buildModelStateHint', () => {
+  it('keeps the input surface clear while model options are unresolved', () => {
+    expect(buildModelStateHint({
+      isModelOptionsEmpty: false,
+      onGoToProviders: vi.fn(),
+      texts: {
+        noModelOptionsLabel: 'No models',
+        configureProviderLabel: 'Configure provider'
+      }
+    })).toBeNull();
+  });
+
+  it('keeps the actionable warning when model loading resolves empty', () => {
+    const onGoToProviders = vi.fn();
+
+    expect(buildModelStateHint({
+      isModelOptionsEmpty: true,
+      onGoToProviders,
+      texts: {
+        noModelOptionsLabel: 'No models',
+        configureProviderLabel: 'Configure provider'
+      }
+    })).toEqual({
+      tone: 'warning',
+      text: 'No models',
+      actionLabel: 'Configure provider',
+      onAction: onGoToProviders
+    });
+  });
+});
 describe('buildChatSlashItems', () => {
   const texts = {
     slashSkillSubtitle: 'Skill',
@@ -238,6 +280,78 @@ describe('buildSkillPickerModel', () => {
 });
 
 describe('buildModelToolbarSelect', () => {
+  it('exposes discovered models through an expanded-panel contract without changing the selected label', () => {
+    const onDiscoveredModelsDismiss = vi.fn();
+    const onDiscoveredModelSelect = vi.fn();
+    const onOpen = vi.fn();
+    const select = buildModelToolbarSelect({
+      modelOptions: [{
+        value: 'opencode/big-pickle',
+        modelLabel: 'big-pickle',
+        providerLabel: 'OpenCode',
+      }],
+      discoveredModelOptions: [
+        {
+          value: 'opencode/deepseek-v4-flash-free',
+          modelLabel: 'deepseek-v4-flash-free',
+          providerLabel: 'OpenCode',
+        },
+        {
+          value: 'openrouter/inclusionai/ling-3.0-tiny:free',
+          modelLabel: 'inclusionai/ling-3.0-tiny:free',
+          providerLabel: 'OpenRouter',
+        },
+      ],
+      recentModelValues: [],
+      selectedModel: 'opencode/big-pickle',
+      isModelOptionsLoading: false,
+      hasModelOptions: true,
+      onDiscoveredModelSelect,
+      onDiscoveredModelsDismiss,
+      onOpen,
+      onValueChange: vi.fn(),
+      texts: createModelTexts(),
+    });
+
+    expect(select.selectedLabel).toBe('OpenCode/big-pickle');
+    expect(select.discovery).toEqual({
+      summaryLabel: '2 new models available',
+      viewLabel: 'View',
+      groupLabel: 'New models',
+      allGroupLabel: 'All models',
+      actionLabel: 'Add',
+      addedLabel: 'Added',
+      dismissLabel: 'Dismiss this batch',
+      doneLabel: 'Done',
+      closeLabel: 'Close new models',
+      searchPlaceholder: 'Search models',
+      searchEmptyLabel: 'No matching models',
+      groups: [
+        {
+          key: 'opencode',
+          label: 'OpenCode',
+          options: [{
+            value: 'opencode/deepseek-v4-flash-free',
+            label: 'deepseek-v4-flash-free',
+          }],
+        },
+        {
+          key: 'openrouter',
+          label: 'OpenRouter',
+          options: [{
+            value: 'openrouter/inclusionai/ling-3.0-tiny:free',
+            label: 'inclusionai/ling-3.0-tiny:free',
+          }],
+        },
+      ],
+      onDismiss: onDiscoveredModelsDismiss,
+      onSelect: onDiscoveredModelSelect,
+    });
+    expect(select.onOpen).toBe(onOpen);
+  });
+});
+
+describe('buildModelToolbarSelect selection', () => {
   it('falls back to the first available option when the selected model is missing', () => {
     const onValueChange = vi.fn();
     const select = buildModelToolbarSelect({
@@ -262,6 +376,8 @@ describe('buildModelToolbarSelect', () => {
       value: 'minimax/MiniMax-M2.7',
       label: 'MiniMax/MiniMax-M2.7'
     });
+    expect(select.manageLabel).toBe('Manage models and providers');
+    expect(select.manageHref).toBe('/providers');
   });
 
   it('keeps the full provider/model label in shared state while exposing a compact mobile label', () => {
@@ -319,21 +435,27 @@ describe('buildModelToolbarSelect', () => {
         options: [
           {
             value: 'anthropic/claude-sonnet-4',
-            label: 'Anthropic/claude-sonnet-4'
+            label: 'claude-sonnet-4'
           }
         ]
       },
       {
-        key: 'all-models',
-        label: 'All models',
+        key: 'provider-openai',
+        label: 'Openai',
         options: [
           {
             value: 'openai/gpt-5',
-            label: 'OpenAI/gpt-5'
-          },
+            label: 'gpt-5'
+          }
+        ]
+      },
+      {
+        key: 'provider-minimax',
+        label: 'Minimax',
+        options: [
           {
             value: 'minimax/MiniMax-M2.7',
-            label: 'MiniMax/MiniMax-M2.7'
+            label: 'MiniMax-M2.7'
           }
         ]
       }
@@ -373,7 +495,7 @@ describe('buildModelToolbarSelect', () => {
     expect(select.groups?.map((group) => group.key)).toEqual([
       'favorite-models',
       'recent-models',
-      'all-models'
+      'provider-minimax'
     ]);
     expect(select.groups?.[0]?.options.map((option) => option.value)).toEqual(['openai/gpt-5']);
     expect(select.groups?.[1]?.options.map((option) => option.value)).toEqual(['anthropic/claude-sonnet-4']);
@@ -384,6 +506,59 @@ describe('buildModelToolbarSelect', () => {
       activeLabel: 'Remove favorite',
       inactiveLabel: 'Favorite model'
     });
+  });
+
+  it('groups remaining models by provider with short labels', () => {
+    const select = buildModelToolbarSelect({
+      modelOptions: [
+        { value: 'openai/gpt-5', modelLabel: 'gpt-5', providerLabel: 'OpenAI' },
+        { value: 'anthropic/claude-sonnet-4', modelLabel: 'claude-sonnet-4', providerLabel: 'Anthropic' },
+        { value: 'minimax/MiniMax-M2.7', modelLabel: 'MiniMax-M2.7', providerLabel: 'MiniMax' },
+        { value: 'deepseek/deepseek-chat', modelLabel: 'deepseek-chat', providerLabel: 'DeepSeek' },
+      ],
+      favoriteModelValues: ['openai/gpt-5'],
+      recentModelValues: ['anthropic/claude-sonnet-4'],
+      selectedModel: 'openai/gpt-5',
+      isModelOptionsLoading: false,
+      hasModelOptions: true,
+      onFavoriteToggle: vi.fn(),
+      onValueChange: vi.fn(),
+      texts: createModelTexts(),
+    });
+
+    const groupKeys = select.groups?.map((g) => g.key);
+    expect(groupKeys).toEqual([
+      'favorite-models',
+      'recent-models',
+      'provider-deepseek',
+      'provider-minimax',
+    ]);
+    expect(select.groups?.[2]?.label).toBe('Deepseek');
+    expect(select.groups?.[2]?.options[0]).toEqual({
+      value: 'deepseek/deepseek-chat',
+      label: 'deepseek-chat',
+    });
+  });
+
+  it('falls back to flat all-models group when no favorites or recents exist', () => {
+    const select = buildModelToolbarSelect({
+      modelOptions: [
+        { value: 'openai/gpt-5', modelLabel: 'gpt-5', providerLabel: 'OpenAI' },
+        { value: 'minimax/MiniMax-M2.7', modelLabel: 'MiniMax-M2.7', providerLabel: 'MiniMax' },
+      ],
+      recentModelValues: [],
+      selectedModel: 'openai/gpt-5',
+      isModelOptionsLoading: false,
+      hasModelOptions: true,
+      onValueChange: vi.fn(),
+      texts: createModelTexts(),
+    });
+
+    expect(select.groups?.map((g) => g.key)).toEqual(['all-models']);
+    expect(select.groups?.[0]?.options).toEqual([
+      { value: 'openai/gpt-5', label: 'gpt-5' },
+      { value: 'minimax/MiniMax-M2.7', label: 'MiniMax-M2.7' },
+    ]);
   });
 
   it('preserves recent model order from newest to oldest', () => {
@@ -418,5 +593,60 @@ describe('buildModelToolbarSelect', () => {
       'openai/gpt-5',
       'anthropic/claude-sonnet-4'
     ]);
+  });
+});
+
+describe('toModelShortLabel', () => {
+  it('strips provider prefix from qualified value', () => {
+    expect(toModelShortLabel('openai/gpt-5')).toBe('gpt-5');
+    expect(toModelShortLabel('minimax/MiniMax-M3')).toBe('MiniMax-M3');
+  });
+
+  it('returns value unchanged when no slash present', () => {
+    expect(toModelShortLabel('gpt-5')).toBe('gpt-5');
+  });
+
+  it('handles empty string', () => {
+    expect(toModelShortLabel('')).toBe('');
+  });
+
+  it('strips only the first segment for values with multiple slashes', () => {
+    expect(toModelShortLabel('openrouter/provider/model')).toBe('model');
+  });
+});
+
+describe('groupModelValues', () => {
+  it('groups values by provider prefix', () => {
+    const result = groupModelValues([
+      'openai/gpt-5',
+      'openai/o3-mini',
+      'anthropic/claude-sonnet-4',
+    ]);
+    expect(result).toEqual([
+      { provider: 'anthropic', items: ['anthropic/claude-sonnet-4'] },
+      { provider: 'openai', items: ['openai/gpt-5', 'openai/o3-mini'] },
+    ]);
+  });
+
+  it('places values without slash into 其他 bucket', () => {
+    const result = groupModelValues(['gpt-5', 'openai/gpt-5']);
+    expect(result).toEqual([
+      { provider: 'openai', items: ['openai/gpt-5'] },
+      { provider: '其他', items: ['gpt-5'] },
+    ]);
+  });
+
+  it('sorts providers alphabetically and items within each group', () => {
+    const result = groupModelValues([
+      'minimax/MiniMax-M3',
+      'openai/gpt-5',
+      'anthropic/claude-sonnet-4',
+    ]);
+    expect(result.map((g) => g.provider)).toEqual(['anthropic', 'minimax', 'openai']);
+    expect(result[2]?.items).toEqual(['openai/gpt-5']);
+  });
+
+  it('returns empty array for empty input', () => {
+    expect(groupModelValues([])).toEqual([]);
   });
 });

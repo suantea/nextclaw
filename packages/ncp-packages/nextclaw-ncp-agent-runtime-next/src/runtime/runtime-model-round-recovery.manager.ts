@@ -13,6 +13,10 @@ import type {
   NcpStreamEncoder,
   OpenAIChatChunk,
 } from "@nextclaw/ncp";
+import {
+  createNcpEndpointEvent,
+  NcpEventType,
+} from "@nextclaw/ncp";
 import type {
   AgentRuntimeSessionState,
 } from "./agent-runtime.service.js";
@@ -38,7 +42,9 @@ export type RuntimeModelRoundRecoveryManagerInput = {
     toolCall: CollectedToolCall,
     publishToolResult: (event: NcpEndpointEvent) => Promise<void>,
   ) => Promise<NcpEndpointEvent>;
+  supportsParallelToolCalls: (toolCall: CollectedToolCall) => boolean;
   executionManager: AgentRunExecutionManager;
+  fallbackModel?: string;
   llmApi: NcpLLMApi;
   messageId: string;
   modelInput: Awaited<ReturnType<AgentModelInputBuilder["build"]>>;
@@ -54,6 +60,9 @@ export type RuntimeModelRoundRecoveryManagerInput = {
 export async function* runModelRoundWithRecovery(
   input: RuntimeModelRoundRecoveryManagerInput,
 ): AsyncGenerator<NcpEndpointEvent, RuntimeToolCallExecutor> {
+  const primaryModel = input.spec.model;
+  const fallbackModel = input.fallbackModel;
+
   for (let attempt = 1; ; attempt += 1) {
     let attemptState: NcpRuntimeStreamAttemptState = {
       ...createNcpRuntimeStreamAttemptState(),
@@ -61,7 +70,9 @@ export async function* runModelRoundWithRecovery(
     };
     const toolExecutor = new RuntimeToolCallExecutor({
       executeToolCall: input.executeToolCall,
+      supportsParallelToolCalls: input.supportsParallelToolCalls,
       toRunErrorEvent: (error) => input.toRunErrorEvent(error, input.runStartedAt),
+      toolCallBudget: input.executionManager.toolCallBudget,
     });
     try {
       const encoded = input.streamEncoder.encode(
@@ -89,6 +100,11 @@ export async function* runModelRoundWithRecovery(
         failure,
         signal: input.signal,
       })) {
+        // Same-model retries exhausted — attempt model fallback if available
+        if (fallbackModel && fallbackModel !== primaryModel && !input.signal?.aborted) {
+          yield* yieldFallbackAttempt({ ...input, primaryModel, fallbackModel, lastError: error });
+          return toolExecutor;
+        }
         throw error;
       }
       for (const event of createNcpRuntimeStreamRetryEvents({
@@ -106,6 +122,82 @@ export async function* runModelRoundWithRecovery(
         return toolExecutor;
       }
     }
+  }
+}
+
+async function* yieldFallbackAttempt(input: {
+  applyEvent: RuntimeModelRoundRecoveryManagerInput["applyEvent"];
+  drainRuntimeEvents: RuntimeModelRoundRecoveryManagerInput["drainRuntimeEvents"];
+  executeToolCall: RuntimeModelRoundRecoveryManagerInput["executeToolCall"];
+  supportsParallelToolCalls: RuntimeModelRoundRecoveryManagerInput["supportsParallelToolCalls"];
+  executionManager: RuntimeModelRoundRecoveryManagerInput["executionManager"];
+  fallbackModel: string;
+  lastError: unknown;
+  llmApi: NcpLLMApi;
+  messageId: string;
+  modelInput: RuntimeModelRoundRecoveryManagerInput["modelInput"];
+  primaryModel: string;
+  runStartedAt?: string;
+  sessionId: string;
+  sessionRun: AgentRuntimeSessionState;
+  signal?: AbortSignal;
+  spec: DefaultNcpAgentRunSpec;
+  streamEncoder: NcpStreamEncoder;
+  toRunErrorEvent: RuntimeModelRoundRecoveryManagerInput["toRunErrorEvent"];
+}): AsyncGenerator<NcpEndpointEvent, void> {
+  const fallbackInput = {
+    ...input.modelInput,
+    model: input.fallbackModel,
+  };
+
+  const fallbackMetadataEvent = createNcpEndpointEvent({
+    type: NcpEventType.RunMetadata,
+    payload: {
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      runId: input.spec.runId,
+      correlationId: input.spec.correlationId,
+      metadata: {
+        type: "model_fallback_used",
+        primary: input.primaryModel,
+        fallback: input.fallbackModel,
+      },
+    },
+  });
+  yield await input.applyEvent(input.sessionRun, fallbackMetadataEvent);
+
+  let attemptState: NcpRuntimeStreamAttemptState = {
+    ...createNcpRuntimeStreamAttemptState(),
+    messageId: input.messageId,
+  };
+  const toolExecutor = new RuntimeToolCallExecutor({
+    executeToolCall: input.executeToolCall,
+    supportsParallelToolCalls: input.supportsParallelToolCalls,
+    toRunErrorEvent: (error) => input.toRunErrorEvent(error, input.runStartedAt),
+    toolCallBudget: input.executionManager.toolCallBudget,
+  });
+  try {
+    const encoded = input.streamEncoder.encode(
+      abortableRuntimeStream(
+        input.executionManager.observeModelCall(
+          input.llmApi.generate(fallbackInput, { signal: input.signal }),
+        ),
+        input.signal,
+      ),
+      {
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        runId: input.spec.runId,
+        correlationId: input.spec.correlationId,
+      },
+    );
+    for await (const event of input.drainRuntimeEvents(encoded, toolExecutor)) {
+      attemptState = observeNcpRuntimeStreamAttemptEvent(attemptState, event);
+      yield event;
+    }
+  } catch {
+    // Fallback also failed — throw the original primary-model error
+    throw input.lastError;
   }
 }
 

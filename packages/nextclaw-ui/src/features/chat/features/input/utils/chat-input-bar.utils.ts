@@ -8,6 +8,9 @@ export {
   buildModelStateHint,
   buildModelToolbarSelect,
   buildThinkingToolbarSelect,
+  toChatModelRecords,
+  toModelShortLabel,
+  groupModelValues,
 } from "./chat-input-toolbar.utils";
 import type {
   ChatInputBarAdapterTexts,
@@ -278,7 +281,6 @@ export function buildSkillPickerModel(params: {
   const recentKeySet = new Set(groupedRecentSkillValues ?? []);
   return {
     title: texts.title,
-    allGroupsLabel: texts.allSkillsLabel,
     searchPlaceholder: texts.searchPlaceholder,
     emptyLabel: texts.emptyLabel,
     loadingLabel: texts.loadingLabel,
